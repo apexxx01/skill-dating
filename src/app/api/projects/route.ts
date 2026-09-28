@@ -105,21 +105,36 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const existingSlug = await prisma.project.findUnique({ where: { slug } })
   const finalSlug = existingSlug ? `${slug}-${Date.now()}` : slug
 
-  const project = await prisma.project.create({
-    data: {
-      ...bodyResult.data,
-      slug: finalSlug,
-      ownerId: user.id,
-      teamSize: 1,
-    },
-    include: {
-      owner: { select: { id: true, name: true, username: true, image: true } },
-      members: { select: { userId: true, role: true } }
-    }
-  })
+  // Membership and the project's own coordination channel form together,
+  // in one transaction, at creation time — same reasoning as team
+  // creation: don't leave a second step for someone to forget to wire up.
+  const project = await prisma.$transaction(async (tx) => {
+    const created = await tx.project.create({
+      data: {
+        ...bodyResult.data,
+        slug: finalSlug,
+        ownerId: user.id,
+        teamSize: 1,
+      },
+      include: {
+        owner: { select: { id: true, name: true, username: true, image: true } },
+        members: { select: { userId: true, role: true } }
+      }
+    })
 
-  await prisma.projectMember.create({
-    data: { userId: user.id, projectId: project.id, role: 'OWNER' }
+    await tx.projectMember.create({
+      data: { userId: user.id, projectId: created.id, role: 'OWNER' }
+    })
+
+    await tx.conversation.create({
+      data: {
+        type: 'PROJECT',
+        projectId: created.id,
+        members: { create: { userId: user.id, role: 'OWNER' } }
+      }
+    })
+
+    return created
   })
 
   await prisma.auditEvent.create({

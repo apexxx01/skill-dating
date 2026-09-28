@@ -85,14 +85,31 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const existingSlug = await prisma.hackathon.findUnique({ where: { slug } })
   const finalSlug = existingSlug ? `${slug}-${Date.now()}` : slug
 
-  const hackathon = await prisma.hackathon.create({
-    data: {
-      ...bodyResult.data,
-      slug: finalSlug,
-      startDate: new Date(bodyResult.data.startDate),
-      endDate: new Date(bodyResult.data.endDate),
-      registrationDeadline: bodyResult.data.registrationDeadline ? new Date(bodyResult.data.registrationDeadline) : null,
-    }
+  // The hackathon's own coordination channel forms atomically with the
+  // hackathon itself, same reasoning as team/project creation. The
+  // organizer (this caller) starts as its sole member; individual
+  // registrants joining it automatically is a separate, larger product
+  // decision not made here.
+  const hackathon = await prisma.$transaction(async (tx) => {
+    const created = await tx.hackathon.create({
+      data: {
+        ...bodyResult.data,
+        slug: finalSlug,
+        startDate: new Date(bodyResult.data.startDate),
+        endDate: new Date(bodyResult.data.endDate),
+        registrationDeadline: bodyResult.data.registrationDeadline ? new Date(bodyResult.data.registrationDeadline) : null,
+      }
+    })
+
+    await tx.conversation.create({
+      data: {
+        type: 'HACKATHON',
+        hackathonId: created.id,
+        members: { create: { userId: user.id, role: 'OWNER' } }
+      }
+    })
+
+    return created
   })
 
   return createApiResponse(hackathon, 201)

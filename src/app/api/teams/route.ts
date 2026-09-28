@@ -98,22 +98,38 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const existingSlug = await prisma.team.findUnique({ where: { slug } })
   const finalSlug = existingSlug ? `${slug}-${Date.now()}` : slug
 
-  const team = await prisma.team.create({
-    data: {
-      ...data,
-      slug: finalSlug,
-      ownerId: user.id,
-      projectId,
-      hackathonId,
-    },
-    include: {
-      owner: { select: { id: true, name: true, username: true, image: true } },
-      members: { include: { user: { select: { id: true, name: true, username: true, image: true } } } }
-    }
-  })
+  // Membership and the team's own coordination channel form together, in
+  // one transaction, at creation time — not two things someone has to
+  // remember to wire up separately later (that's exactly how the
+  // ProjectMember gap and the dead Team.conversation relation happened).
+  const team = await prisma.$transaction(async (tx) => {
+    const created = await tx.team.create({
+      data: {
+        ...data,
+        slug: finalSlug,
+        ownerId: user.id,
+        projectId,
+        hackathonId,
+      },
+      include: {
+        owner: { select: { id: true, name: true, username: true, image: true } },
+        members: { include: { user: { select: { id: true, name: true, username: true, image: true } } } }
+      }
+    })
 
-  await prisma.teamMember.create({
-    data: { userId: user.id, teamId: team.id, role: 'OWNER' }
+    await tx.teamMember.create({
+      data: { userId: user.id, teamId: created.id, role: 'OWNER' }
+    })
+
+    await tx.conversation.create({
+      data: {
+        type: 'TEAM',
+        teamId: created.id,
+        members: { create: { userId: user.id, role: 'OWNER' } }
+      }
+    })
+
+    return created
   })
 
   await prisma.auditEvent.create({
