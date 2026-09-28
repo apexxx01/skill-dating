@@ -6,10 +6,6 @@ const applySchema = z.object({
   message: z.string().max(1000).optional(),
 })
 
-const reviewSchema = z.object({
-  status: z.enum(['ACCEPTED', 'REJECTED']),
-})
-
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
   const id = url.pathname.split('/').slice(-2)[0]
@@ -96,67 +92,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   return createApiResponse(applications)
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:applications' } })
 
-export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
-  const url = new URL(request.url)
-  const id = url.pathname.split('/').slice(-2)[0]
-  const applicationId = url.pathname.split('/').pop()
-
-  if (!id || !applicationId) {
-    return createApiError('Team ID and Application ID required', 400)
-  }
-
-  const isOwner = await checkOwnership(prisma, user.id, 'team', id)
-  if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
-  }
-
-  const bodyResult = await validateBody(reviewSchema)(request)
-  if (bodyResult instanceof Response) return bodyResult
-
-  const application = await prisma.teamApplication.findUnique({
-    where: { id: applicationId },
-    include: { team: true, user: true }
-  })
-
-  if (!application || application.teamId !== id) {
-    return createApiError('Application not found', 404)
-  }
-
-  if (application.status !== 'PENDING') {
-    return createApiError('Application already reviewed', 400)
-  }
-
-  const updated = await prisma.teamApplication.update({
-    where: { id: applicationId },
-    data: { status: bodyResult.data.status }
-  })
-
-  if (bodyResult.data.status === 'ACCEPTED') {
-    await prisma.teamMember.create({
-      data: { userId: application.userId, teamId: id, role: 'MEMBER' }
-    })
-
-    await prisma.notification.create({
-      data: {
-        userId: application.userId,
-        type: 'APPLICATION_RESPONSE',
-        title: 'Application accepted',
-        message: `Your application to join ${application.team.name} was accepted`,
-        link: `/teams/${application.team.slug}`,
-        metadata: { teamId: application.team.id }
-      }
-    })
-  } else {
-    await prisma.notification.create({
-      data: {
-        userId: application.userId,
-        type: 'APPLICATION_RESPONSE',
-        title: 'Application declined',
-        message: `Your application to join ${application.team.name} was declined`,
-        metadata: { teamId: application.team.id }
-      }
-    })
-  }
-
-  return createApiResponse(updated)
-}, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'teams:review' } })
+// Accept/reject lives at PATCH /api/teams/:id/applications/:applicationId
+// (see the [applicationId] route). It used to be defined here, parsing
+// applicationId off the URL path — but no route file matched that nested
+// path, so it 404'd at the Next.js routing layer on every real call.
