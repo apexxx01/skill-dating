@@ -81,9 +81,22 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     data: { lastReadAt: new Date() }
   })
 
+  // Soft-deleted messages keep their content in the DB (moderation/audit
+  // trail) but must never reach a client — mask both the top-level row and
+  // a deleted message quoted via replyTo.
+  const maskDeleted = <T extends { deletedAt: Date | null; content: string }>(m: T) => ({
+    ...m,
+    content: m.deletedAt ? null : m.content,
+    isDeleted: Boolean(m.deletedAt),
+  })
+  const maskedMessages = messages.reverse().map(m => ({
+    ...maskDeleted(m),
+    replyTo: m.replyTo ? maskDeleted(m.replyTo) : null,
+  }))
+
   return createApiResponse({
     conversation,
-    messages: messages.reverse(),
+    messages: maskedMessages,
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'conversations:get' } })

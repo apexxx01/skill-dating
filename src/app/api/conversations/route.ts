@@ -47,7 +47,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     }
   })
 
-  const conversationsWithUnread = await Promise.all(conversations.map(async (conv: { id: string; _count: { messages: number } }) => {
+  const conversationsWithUnread = await Promise.all(conversations.map(async (conv) => {
     const member = await prisma.conversationMember.findUnique({
       where: { userId_conversationId: { userId: user.id, conversationId: conv.id } }
     })
@@ -61,7 +61,14 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         })
       : conv._count.messages
 
-    return { ...conv, unreadCount }
+    // Mask a deleted message before it can leak out as the "last message" preview.
+    const messages = conv.messages.map((m: { deletedAt: Date | null; content: string }) => ({
+      ...m,
+      content: m.deletedAt ? null : m.content,
+      isDeleted: Boolean(m.deletedAt),
+    }))
+
+    return { ...conv, messages, unreadCount }
   }))
 
   const total = await prisma.conversation.count({
