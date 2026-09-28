@@ -73,6 +73,21 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
           update: {}
         })
       }
+
+      // Same reasoning again, one hop further: a team's Conversation is
+      // created atomically with the team (see team creation), but a new
+      // member accepted afterward needs to join it too, in this same
+      // transaction — not a third thing to forget to wire up. A team
+      // created before that fix shipped may have no Conversation yet;
+      // skip rather than crash.
+      const conversation = await tx.conversation.findUnique({ where: { teamId } })
+      if (conversation) {
+        await tx.conversationMember.upsert({
+          where: { userId_conversationId: { userId: application.userId, conversationId: conversation.id } },
+          create: { userId: application.userId, conversationId: conversation.id, role: 'MEMBER' },
+          update: {}
+        })
+      }
     }
 
     return { outcome: 'reviewed' as const, application }
