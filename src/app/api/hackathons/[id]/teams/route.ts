@@ -90,12 +90,18 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       where: { teamId: team.id }
     })
 
+    // Fall back to the team's own already-linked project when the caller
+    // doesn't explicitly pass one — a team that formed around a project
+    // shouldn't silently lose that link just because this call omitted a
+    // field the team already answered at creation time. The fallback is
+    // safe to trust: team.projectId was only ever set by the team's real
+    // owner, whose ownership of that project was already verified then.
     const record = existingHackathonTeam ?? await tx.hackathonTeam.create({
       data: {
         hackathonId: id,
         teamId: team.id,
         name: team.name,
-        projectId: bodyResult.data.projectId,
+        projectId: bodyResult.data.projectId ?? team.projectId,
       }
     })
 
