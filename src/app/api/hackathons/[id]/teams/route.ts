@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
-import { XP_AWARDS } from '@/lib/xp'
+import { awardXp } from '@/lib/xp'
 
 const registerTeamSchema = z.object({
   teamId: z.string(),
@@ -112,9 +112,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return record
   })
 
-  await prisma.xPEvent.create({
-    data: { userId: user.id, type: 'TEAM_FORMED', amount: XP_AWARDS.TEAM_FORMED, description: `Formed team for "${hackathon.name}"` }
-  })
+  await awardXp(prisma, user.id, 'TEAM_FORMED', `Formed team for "${hackathon.name}"`)
 
   return createApiResponse({ success: true, teamId: team.id, hackathonTeamId: hackathonTeam.id })
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:team-register' } })

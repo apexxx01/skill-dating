@@ -1,3 +1,5 @@
+import type { PrismaClient, Prisma } from '@prisma/client'
+
 // Single source of truth for XP amounts, so the same action always awards
 // the same XP no matter which route triggers it, and so amounts can be
 // tuned in one place instead of hunting through every API route.
@@ -18,4 +20,25 @@ export type XpAwardType = keyof typeof XP_AWARDS
  */
 export function canAwardShipXp(project: { status?: string | null; shippedAt: Date | null }, nextStatus: string | undefined): boolean {
   return nextStatus === 'SHIPPED' && !project.shippedAt
+}
+
+type PrismaOrTx = PrismaClient | Prisma.TransactionClient
+
+/**
+ * Records an XPEvent AND keeps User.xp in sync in one call. Every XP award
+ * must go through this — creating an XPEvent alone (the old pattern at
+ * every call site) left User.xp permanently at 0 for every user, since
+ * nothing ever aggregated the event log into it. Leaderboard reads should
+ * still prefer a live SUM(XPEvent.amount) as the source of truth; User.xp
+ * here is a denormalized cache for cheap sort/display elsewhere.
+ */
+export async function awardXp(
+  prisma: PrismaOrTx,
+  userId: string,
+  type: XpAwardType,
+  description: string
+): Promise<void> {
+  const amount = XP_AWARDS[type]
+  await prisma.xPEvent.create({ data: { userId, type, amount, description } })
+  await prisma.user.update({ where: { id: userId }, data: { xp: { increment: amount } } })
 }

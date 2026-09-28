@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
-import { XP_AWARDS } from '@/lib/xp'
+import { awardXp } from '@/lib/xp'
 
 const registerSchema = z.object({
   skills: z.array(z.string()).default([]),
@@ -107,9 +107,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     }
   })
 
-  await prisma.xPEvent.create({
-    data: { userId: user.id, type: 'HACKATHON_JOIN', amount: XP_AWARDS.HACKATHON_JOIN, description: `Joined hackathon "${hackathon.name}"` }
-  })
+  await awardXp(prisma, user.id, 'HACKATHON_JOIN', `Joined hackathon "${hackathon.name}"`)
 
   await prisma.notification.create({
     data: {

@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, authorize, checkOwnership, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
-import { XP_AWARDS, canAwardShipXp } from '@/lib/xp'
+import { awardXp, canAwardShipXp } from '@/lib/xp'
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -87,9 +87,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   if (oldProject && canAwardShipXp(oldProject, updateData.status as string | undefined)) {
     updateData.shippedAt = new Date()
-    await prisma.xPEvent.create({
-      data: { userId: user.id, type: 'PROJECT_SHIP', amount: XP_AWARDS.PROJECT_SHIP, description: `Shipped project "${updateData.name || oldProject?.name}"` }
-    })
+    await awardXp(prisma, user.id, 'PROJECT_SHIP', `Shipped project "${updateData.name || oldProject?.name}"`)
     await prisma.reputationEvent.create({
       data: { userId: user.id, type: 'PROJECT_SHIPPED', amount: 100, sourceId: id, sourceType: 'PROJECT', description: `Shipped project` }
     })
