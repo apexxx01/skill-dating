@@ -115,6 +115,19 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       await tx.team.update({ where: { id: team.id }, data: { hackathonId: id } })
     }
 
+    // Same pattern as team-join: registering for a hackathon gives the
+    // registering member access to the hackathon's own Conversation, not
+    // just the team's. A hackathon created before conversation-wiring
+    // shipped may have no Conversation yet — skip rather than crash.
+    const hackathonConversation = await tx.conversation.findUnique({ where: { hackathonId: id } })
+    if (hackathonConversation) {
+      await tx.conversationMember.upsert({
+        where: { userId_conversationId: { userId: user.id, conversationId: hackathonConversation.id } },
+        create: { userId: user.id, conversationId: hackathonConversation.id, role: 'MEMBER' },
+        update: {}
+      })
+    }
+
     return record
   })
 
