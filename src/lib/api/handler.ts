@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { clientIp, getRateLimiter, tooManyRequests } from '@/lib/rate-limiter'
 
 export interface AuthenticatedUser {
   id: string
@@ -28,31 +29,17 @@ export interface RateLimitConfig {
   keyPrefix: string
 }
 
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>()
-
 export function rateLimit(config: RateLimitConfig) {
-  return async (request: NextRequest): Promise<NextResponse | null> => {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-               request.headers.get('x-real-ip') ||
-               'unknown'
-    const key = `${config.keyPrefix}:${ip}`
-    const now = Date.now()
-    
-    const record = rateLimitStore.get(key)
-    if (!record || now > record.resetAt) {
-      rateLimitStore.set(key, { count: 1, resetAt: now + config.windowMs })
-      return null
-    }
-    
-    if (record.count >= config.maxRequests) {
-      return NextResponse.json(
-        { error: 'Too many requests', retryAfter: Math.ceil((record.resetAt - now) / 1000) },
-        { status: 429, headers: { 'Retry-After': Math.ceil((record.resetAt - now) / 1000).toString() } }
-      )
-    }
-    
-    record.count++
-    return null
+  // Keyed on the authenticated user id when there is one - that cannot be
+  // forged or shared, unlike an IP. Only pre-auth callers (register) fall back
+  // to a trusted-proxy IP, or to one shared bucket when no proxy is trusted.
+  return async (request: NextRequest, userId?: string): Promise<NextResponse | null> => {
+    const subject = userId ? `u:${userId}` : `ip:${clientIp(request) ?? 'untrusted'}`
+    const decision = await getRateLimiter().consume(`${config.keyPrefix}:${subject}`, {
+      windowMs: config.windowMs,
+      maxRequests: config.maxRequests,
+    })
+    return decision.allowed ? null : tooManyRequests(decision)
   }
 }
 
@@ -61,15 +48,22 @@ export function withAuth(
   options: { requiredRole?: string[]; rateLimit?: RateLimitConfig } = {}
 ): ApiHandler {
   return async (request: NextRequest) => {
-    if (options.rateLimit) {
-      const rateLimitResponse = await rateLimit(options.rateLimit)(request)
-      if (rateLimitResponse) return rateLimitResponse
+    const session = await auth()
+
+    if (!session?.user?.id) {
+      // Bound unauthenticated traffic too, so a flood of anonymous calls
+      // cannot be used to hammer the auth layer for free.
+      const anonymous = await getRateLimiter().consume(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
+        windowMs: 60_000,
+        maxRequests: 120,
+      })
+      if (!anonymous.allowed) return tooManyRequests(anonymous)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const session = await auth()
-    
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (options.rateLimit) {
+      const rateLimitResponse = await rateLimit(options.rateLimit)(request, session.user.id)
+      if (rateLimitResponse) return rateLimitResponse
     }
 
     const user = await prisma.user.findUnique({

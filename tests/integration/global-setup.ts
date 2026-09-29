@@ -84,7 +84,7 @@ export default async function setup() {
   // Override NODE_ENV rather than inheriting vitest's 'test' - 'next dev'
   // otherwise runs against a test-mode Next.js build that behaves
   // differently in ways unrelated to the actual env-loading fix above.
-  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const }
+  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1' }
 
   serverProcess = spawn('npx', ['next', 'dev', '-p', '3459'], {
     cwd: projectRoot,
