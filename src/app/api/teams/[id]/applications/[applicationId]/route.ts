@@ -41,6 +41,24 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       return { outcome: 'not_found' as const }
     }
 
+    if (bodyResult.data.status === 'ACCEPTED') {
+      // Lock the team row before counting members: two concurrent accepts
+      // for the same team (different applications, so they don't share a
+      // row lock on teamApplication) would otherwise both read the same
+      // "N of maxSize" count and both think there's a free slot, then both
+      // write — a check-then-write race exactly like the original
+      // accept-route bug, just one hop over. FOR UPDATE forces the second
+      // transaction to wait for the first to commit its new TeamMember
+      // before it re-counts, so the count it sees is always current.
+      const [lockedTeam] = await tx.$queryRaw<{ maxSize: number }[]>`
+        SELECT "maxSize" FROM "Team" WHERE id = ${teamId} FOR UPDATE
+      `
+      const memberCount = await tx.teamMember.count({ where: { teamId } })
+      if (lockedTeam && memberCount >= lockedTeam.maxSize) {
+        return { outcome: 'team_full' as const }
+      }
+    }
+
     // Atomic compare-and-swap: the WHERE clause only matches a row still
     // PENDING, so two concurrent accepts on the same application race on
     // this single UPDATE — Postgres serializes them via the row lock, and
@@ -98,6 +116,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
   if (result.outcome === 'already_reviewed') {
     return createApiError('Application already reviewed', 400)
+  }
+  if (result.outcome === 'team_full') {
+    return createApiError('Team is full', 400)
   }
 
   const { application } = result

@@ -23,6 +23,15 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('Team is not recruiting', 400)
   }
 
+  // Cheap up-front check so a doomed application doesn't sit in the queue
+  // pretending it has a chance — the real, race-safe capacity guard lives
+  // at accept time (see the [applicationId] route), since that's the only
+  // point where two writes can actually race for the same open slot.
+  const memberCount = await prisma.teamMember.count({ where: { teamId: id } })
+  if (memberCount >= team.maxSize) {
+    return createApiError('Team is full', 400)
+  }
+
   const isMember = await checkMembership(prisma, user.id, 'team', id)
   if (isMember) {
     return createApiError('Already a member of this team', 400)
