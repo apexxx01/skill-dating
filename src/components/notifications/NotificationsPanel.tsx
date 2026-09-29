@@ -19,76 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-
-interface Notification {
-  id: string;
-  type: string;
-  title: string;
-  message: string;
-  link?: string;
-  metadata?: Record<string, unknown>;
-  isRead: boolean;
-  createdAt: string;
-}
-
-const mockNotifications: Notification[] = [
-  {
-    id: "1",
-    type: "NEW_MESSAGE",
-    title: "New message from Sarah Chen",
-    message: "Hey! I saw your project on Skill Dating and would love to collaborate...",
-    link: "/messages/1",
-    isRead: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-  },
-  {
-    id: "2",
-    type: "TEAM_INVITATION",
-    title: "Team invitation from Alex Rivera",
-    message: "You've been invited to join 'AI Research Collective' as a Founding Engineer",
-    link: "/teams/1",
-    metadata: { teamName: "AI Research Collective", role: "FOUNDING_ENGINEER" },
-    isRead: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  },
-  {
-    id: "3",
-    type: "HACKATHON_REMINDER",
-    title: "HackMIT 2024 starts in 2 days!",
-    message: "Registration closes tomorrow. Don't forget to form your team.",
-    link: "/hackathons/hackmit-2024",
-    isRead: true,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-  },
-  {
-    id: "4",
-    type: "PROJECT_UPDATE",
-    title: "New update on 'NeuralSearch'",
-    message: "Marcus Chen posted: 'Just shipped the vector search integration!'",
-    link: "/projects/neural-search",
-    isRead: true,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-  },
-  {
-    id: "5",
-    type: "ACHIEVEMENT",
-    title: "Achievement unlocked: 'First Ship'",
-    message: "You've shipped your first project! +500 XP",
-    link: "/profile/achievements",
-    metadata: { achievementId: "first-ship", xp: 500 },
-    isRead: true,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-  },
-  {
-    id: "6",
-    type: "APPLICATION_RESPONSE",
-    title: "Application accepted!",
-    message: "Your application to 'Web3 Builders Guild' has been accepted.",
-    link: "/teams/web3-builders-guild",
-    isRead: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
-  },
-];
+import { useNotifications, type Notification } from "@/hooks/useNotifications";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   NEW_MESSAGE: MessageSquare,
@@ -109,10 +40,8 @@ interface NotificationsPanelProps {
 }
 
 export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [unreadCount, setUnreadCount] = useState(3);
+  const { notifications, unreadCount, isLoading, markRead, markAllRead } = useNotifications();
   const [filter, setFilter] = useState<"all" | "unread">("all");
-  const [isLoading, setIsLoading] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
 
@@ -165,18 +94,12 @@ export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
   );
 
   const handleMarkRead = useCallback((id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) =>
-        n.id === id ? { ...n, isRead: true } : n
-      )
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
-  }, []);
+    markRead(id);
+  }, [markRead]);
 
   const handleMarkAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    setUnreadCount(0);
-  }, []);
+    markAllRead();
+  }, [markAllRead]);
 
   const handleClick = useCallback((notification: Notification) => {
     if (!notification.isRead) {
@@ -314,7 +237,20 @@ export function NotificationsPanel({ onClose }: NotificationsPanelProps) {
 
         <div className="flex-1 overflow-y-auto" role="list" aria-label="Notifications">
           <AnimatePresence mode="wait">
-            {filteredNotifications.length === 0 ? (
+            {isLoading && notifications.length === 0 ? (
+              <div className="divide-y divide-border/50">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="flex gap-3 p-4">
+                    <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-1/4" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredNotifications.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}

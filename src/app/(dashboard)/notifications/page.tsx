@@ -12,17 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { formatDistanceToNow } from "date-fns";
-
-const mockNotifications = [
-  { id: "1", type: "NEW_MESSAGE", title: "New message from Sarah Chen", message: "Hey! I saw your project on Skill Dating and would love to collaborate...", link: "/messages/1", isRead: false, createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
-  { id: "2", type: "TEAM_INVITATION", title: "Team invitation from Alex Rivera", message: "You've been invited to join 'AI Research Collective' as a Founding Engineer", link: "/teams/1", metadata: { teamName: "AI Research Collective", role: "FOUNDING_ENGINEER" }, isRead: false, createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-  { id: "3", type: "HACKATHON_REMINDER", title: "HackMIT 2024 starts in 2 days!", message: "Registration closes tomorrow. Don't forget to form your team.", link: "/hackathons/hackmit-2024", isRead: true, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString() },
-  { id: "4", type: "PROJECT_UPDATE", title: "New update on 'NeuralSearch'", message: "Marcus Chen posted: 'Just shipped the vector search integration!'", link: "/projects/neural-search", isRead: true, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() },
-  { id: "5", type: "ACHIEVEMENT", title: "Achievement unlocked: 'First Ship'", message: "You've shipped your first project! +500 XP", link: "/profile/achievements", metadata: { achievementId: "first-ship", xp: 500 }, isRead: true, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString() },
-  { id: "6", type: "APPLICATION_RESPONSE", title: "Application accepted!", message: "Your application to 'Web3 Builders Guild' has been accepted.", link: "/teams/web3-builders-guild", isRead: false, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString() },
-  { id: "7", type: "CONNECTION", title: "Priya Patel accepted your connection", message: "You're now connected with Priya Patel", link: "/profile/priya-patel", isRead: true, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 96).toISOString() },
-  { id: "8", type: "MENTION", title: "You were mentioned in AI Research Collective", message: "Marcus Chen mentioned you in a message: '@you thoughts on the new architecture?'", link: "/messages/2", isRead: true, createdAt: new Date(Date.now() - 1000 * 60 * 60 * 120).toISOString() },
-];
+import { useNotifications, type Notification } from "@/hooks/useNotifications";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   NEW_MESSAGE: MessageSquare,
@@ -52,22 +42,21 @@ const getIconColor = (type: string) => {
 };
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const { notifications, unreadCount, isLoading, error, markRead, markAllRead } = useNotifications();
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [showSettings, setShowSettings] = useState(false);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
   const filteredNotifications = notifications.filter(n => filter === "unread" ? !n.isRead : true);
 
   const handleMarkRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    markRead(id);
   };
 
   const handleMarkAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    markAllRead();
   };
 
-  const handleClick = (notification: typeof mockNotifications[0]) => {
+  const handleClick = (notification: Notification) => {
     if (!notification.isRead) handleMarkRead(notification.id);
     if (notification.link) window.location.href = notification.link;
   };
@@ -152,7 +141,18 @@ export default function NotificationsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {filteredNotifications.length === 0 ? (
+          {isLoading && filteredNotifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+              <Bell className="h-12 w-12 text-muted-foreground/50 mb-4" aria-hidden="true" />
+              <h3 className="text-lg font-semibold mb-2">Loading notifications…</h3>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+              <Bell className="h-12 w-12 text-muted-foreground/50 mb-4" aria-hidden="true" />
+              <h3 className="text-lg font-semibold mb-2">Couldn't load notifications</h3>
+              <p className="text-muted-foreground mb-4">{error}</p>
+            </div>
+          ) : filteredNotifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
               <Bell className="h-12 w-12 text-muted-foreground/50 mb-4" aria-hidden="true" />
               <h3 className="text-lg font-semibold mb-2">{filter === "unread" ? "No unread notifications" : "No notifications yet"}</h3>
