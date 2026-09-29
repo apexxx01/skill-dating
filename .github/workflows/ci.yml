@@ -47,6 +47,24 @@ jobs:
         continue-on-error: true
         run: npm run lint
 
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # The production build lints and type-checks the whole project, so a
+      # rule that only reports elsewhere can still stop a deploy. Building here
+      # keeps that from being discovered at release time.
+      NEXTAUTH_SECRET: ci-only-secret-not-used-anywhere-else
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run build
+
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
