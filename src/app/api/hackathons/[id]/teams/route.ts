@@ -56,6 +56,17 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('Team is full', 400)
   }
 
+  // Team.maxSize is the team's own cap (enforced above); this hackathon may
+  // additionally declare its own team-size bounds, independent of that
+  // number - a team within its own maxSize can still be too big or too
+  // small for this specific hackathon's rules.
+  if (team.members.length > hackathon.maxTeamSize) {
+    return createApiError(`Team exceeds this hackathon's max team size of ${hackathon.maxTeamSize}`, 400)
+  }
+  if (team.members.length < hackathon.minTeamSize) {
+    return createApiError(`Team is below this hackathon's min team size of ${hackathon.minTeamSize}`, 400)
+  }
+
   const isMember = team.members.some((m: { userId: string }) => m.userId === user.id)
   const isOwner = team.ownerId === user.id
 
