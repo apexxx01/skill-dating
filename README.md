@@ -31,7 +31,8 @@ Discover → Connect → Team up → Chat → Build → Ship → Compete → Win
 
 | Area | Details |
 | --- | --- |
-| Auth | Email/password registration (bcrypt, validated, rate limited) plus GitHub, Google and Discord OAuth. Sessions via NextAuth v5. A GitHub sign-in raises `verificationLevel`, never downgrading it. |
+| Auth | Email/password registration (bcrypt, validated, rate limited) plus GitHub, Google and Discord OAuth. Sessions via NextAuth v5. A GitHub sign-in raises `verificationLevel`, never downgrading it. Password sign-in is throttled per account and, where the client address is known, per address. |
+| Rate limiting | Every API route is limited per signed-in user, with `429` and `Retry-After`. The limiter sits behind an interface (in-memory today, swappable for a shared store), bounds its own memory, and keeps serving if its store fails (login fails closed). See [Rate limiting and proxies](#rate-limiting-and-proxies). |
 | Onboarding | Route-level gating: an account can't reach the app until it has a headline and at least one skill. |
 | Discovery | `GET /api/discover` — paginated, excludes yourself, ranked by a shared, unit-tested skill-compatibility score. |
 | Connections | Typed connection requests in either direction, checked both ways for conflicts, no self-connect. Accepting one atomically creates the shared DM conversation. |
@@ -40,17 +41,24 @@ Discover → Connect → Team up → Chat → Build → Ship → Compete → Win
 | Projects | Public showcase listing with correct visibility rules for private and member projects (owner, member, or public — not just public). Status lifecycle through to shipped. Delete cascades cleanly. |
 | Current builds | Post a "what I'm building right now" status (`PUT /api/builds/me`), browsable as a public feed, optionally scoped to a hackathon. |
 | Hackathons | Browse by status, register, form or join a team, min/max team size enforced independently of the team's own cap, submit a project for judging, and record final placements — which award win XP and an achievement to every member of the winning team. Status moves forward only (upcoming → active → ended, or cancelled). |
-| Messaging | Direct, team, project and hackathon conversations. Send, edit and delete with soft-delete masking, and pagination. |
+| Messaging | Direct, group, team, project and hackathon conversations. Send, edit and delete with soft-delete masking, pagination, per-conversation unread counts and a total, mark-as-read (all or up to a message), emoji reactions, and list filtering by type and search. Clients cannot bind a conversation to a team, project or hackathon. |
+| Blocking | Block and unblock a user. Blocking severs the connection and withdraws pending applications and invitations in one transaction, and is enforced in both directions across discovery, lists, the leaderboard, recommendations, profiles, messaging, applications and endorsements. The blocked user is never told. |
 | Notifications | Written on applications, decisions, invitations, connections, messages, removals, registrations and hackathon wins. The UI reads real data, supports mark-read and mark-all-read, and keeps an unread count. |
 | Moderation | Report a user (deduped, no self-reporting), moderator/admin review queue with forward-only status transitions, each resolution logged as a moderation action and an audit event. |
 | Reputation | Shared XP award logic, a real activity feed, achievements (granted idempotently, defined in one place), and a live leaderboard computed from the XP event log. |
-| Profiles | Skills with evidence, XP, achievements, owned and joined projects, owned and joined teams. |
+| Profiles | Skills, XP, a live rank, achievements, owned and joined projects, owned and joined teams, an activity feed (`GET /api/activity`), and your own email on your own profile only. |
+| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. |
+| Project progress | Project updates and milestones, with a members-only write path, per-user posting limits, notifications to teammates, and achievements for a first update and first completed milestone. |
+| Dashboard | `GET /api/dashboard` returns everything the dashboard shows through the same rules as the rest of the API, including block filtering. |
 | My applications | `GET /api/teams/applications` — a user's own applications and their status, including invitations sent to them. |
-| Demo data | `npm run db:seed` populates a small, clearly-fake community (users, projects, teams in different states, hackathons, messages, applications) — idempotent, safe to re-run. |
+| Demo data | `npm run db:seed` populates a small, clearly-fake community (users, projects, teams in different states, hackathons, messages, applications, skill evidence and endorsements, project updates and milestones, connections, read state and reactions) — idempotent, safe to re-run. |
 
 Ownership and membership checks live in shared helpers, so authorization is not
 re-implemented per route. Every route is documented in
-[`docs/API.md`](docs/API.md), generated from the actual handler code.
+[`docs/API.md`](docs/API.md), generated from the actual handler code. Response
+types for the interface are exported from `src/types/api.ts`, and
+[`docs/FRONTEND_CONTRACT.md`](docs/FRONTEND_CONTRACT.md) maps each page to the
+endpoints it should call, including the mock fields that have no API behind them.
 
 ## Stack
 
@@ -59,7 +67,7 @@ Tailwind CSS · Radix UI · React Query · react-three-fiber · Vitest
 
 ## Getting started
 
-Requirements: Node 20+ and a PostgreSQL database.
+Requirements: Node 20+ and PostgreSQL 13 or newer.
 
 ```bash
 git clone https://github.com/apexxx01/skill-dating.git
@@ -77,8 +85,30 @@ npm run dev
 
 Open http://localhost:3000.
 
+Optional environment variables (all documented in `.env.example`): OAuth client
+ids and secrets, and `TRUSTED_PROXY_HOPS`.
+
 > Do not set `NEXTAUTH_URL`. With `next-auth@5` beta and Next 14.1 it crashes every
 > `/api/auth/*` route; v5 infers the URL on its own.
+
+## Rate limiting and proxies
+
+Limits are keyed on the signed-in user. Signed-out traffic (registration, sign-in)
+needs the client's address, and a client address can only be trusted when a proxy you
+control writes it. So the address is read from `X-Forwarded-For` only when you say how
+many proxies sit in front of the app:
+
+| `TRUSTED_PROXY_HOPS` | Behaviour |
+| --- | --- |
+| `0` (default) | Forwarding headers are ignored. Signed-out callers share one generously sized bucket, and sign-in is limited per account only. Right for local development. |
+| `1` | One reverse proxy or load balancer in front. The address the proxy appended (the rightmost entry) is used. |
+| `N` | N trusted proxies; the Nth entry from the right is used. |
+
+Never set it higher than the number of proxies you actually run: anything to the left
+of the trusted entries can be forged by the client. The default limiter keeps its
+counters in process memory, so with more than one instance each keeps its own count;
+plug a shared store into the `RateLimiter` interface in `src/lib/rate-limiter.ts` for
+an exact global limit.
 
 ## Scripts
 
@@ -88,7 +118,7 @@ Open http://localhost:3000.
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-check the project |
 | `npm test` | Run the unit tests (fast, mocked Prisma, no DB needed) |
-| `npm run test:integration` | Run the integration suite against a real, disposable database — spins up its own `next dev` server, no manual setup beyond a reachable Postgres |
+| `npm run test:integration` | Run the integration suite against a real, disposable database — spins up its own `next dev` server, no manual setup beyond a reachable Postgres. Configure with `TEST_PORT` (default 3459), `TEST_DB_NAME` (default `skill_dating_integration`) and `TEST_DB_BASE_URL` (default `postgresql://postgres:postgres@localhost:5432`). It refuses an occupied port and refuses to use the `skill_dating` database, so it cannot touch development data. Runs that share a machine need separate checkouts, since two dev servers cannot share one `.next` directory. |
 | `npm run db:seed` | Populate a small idempotent demo community |
 | `npm run db:studio` | Browse the database in Prisma Studio |
 
@@ -103,15 +133,31 @@ src/lib/               scoring, XP, activity/achievements, auth, shared API help
 src/hooks/             client data hooks
 tests/integration/     real-server, real-database integration tests
 docs/API.md            full route reference, generated from the handlers
+docs/FRONTEND_CONTRACT.md  page-by-page endpoint and response contract for the interface
+src/types/api.ts       shared response types
 ```
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push: type-check, backend lint (blocking),
+whole-repository lint (report only, so interface lint issues do not block backend
+work), a production build, unit tests, and the integration suite against a Postgres 16
+service container.
 
 ## Roadmap
 
 - Challenges (would need sandboxed code execution — a security decision, not a
   route) and full skill-evidence verification beyond the GitHub sign-in signal
   are modelled in the schema but have no further API routes yet.
-- Blocking and muting.
-- Distributed rate limiting (the current limiter is in-memory and per-process).
+- Muting (blocking is done).
+- A shared store behind the rate limiter for multi-instance deployments (the
+  interface is in place; the in-memory implementation is per-process).
+- A dedicated endorsement table, and an index on activity by project, if evidence or
+  activity volume grows: both need a schema change. Endorsements currently live as
+  evidence rows of their own type, matched through JSON metadata.
+- Presence, typing indicators, project stars and forks, followers and streaks: the
+  interface mocks show them, but no data model or API exists yet (see
+  `docs/FRONTEND_CONTRACT.md`).
 - Real-time delivery. Notifications currently refresh by polling.
 - Full interface design.
 
