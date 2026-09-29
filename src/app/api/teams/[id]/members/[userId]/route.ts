@@ -78,6 +78,16 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
     return createApiError('Cannot remove team owner', 403)
   }
 
+  if (isSelf && member.role === 'OWNER') {
+    const ownerCount = await prisma.teamMember.count({
+      where: { teamId: id, role: 'OWNER' }
+    })
+
+    if (ownerCount === 1) {
+      return createApiError("Cannot leave — you're the sole owner. Promote another member or delete the team first.", 400)
+    }
+  }
+
   await prisma.teamMember.delete({
     where: { userId_teamId: { userId: memberId, teamId: id } }
   })
