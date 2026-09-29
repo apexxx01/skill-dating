@@ -40,16 +40,27 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     return createApiResponse({ status: 'WITHDRAWN', applicationId })
   }
 
-  // Real authorization: only a team OWNER/ADMIN (TeamMember.role, not just
-  // the single Team.ownerId) or a platform ADMIN can review. Client-supplied
-  // identity is never trusted — this is looked up from the caller's own
-  // session-derived user.id.
+  // Real authorization: two different actors depending on which direction
+  // this row represents. A self-initiated application (invitedById null) is
+  // reviewed by a team OWNER/ADMIN, same as always. An owner-sent invitation
+  // (invitedById set) is instead responded to by the invitee themselves -
+  // they're not a team member yet, so the membership check below would
+  // always fail for them; it's the invitedById+userId match that authorizes
+  // them here. Platform ADMIN can always do either.
   if (user.role !== 'ADMIN') {
-    const membership = await prisma.teamMember.findUnique({
-      where: { userId_teamId: { userId: user.id, teamId } }
+    const target = await prisma.teamApplication.findUnique({
+      where: { id: applicationId },
+      select: { userId: true, invitedById: true }
     })
-    if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
-      return createApiError('Forbidden', 403)
+    const isInviteeResponding = !!target?.invitedById && target.userId === user.id
+
+    if (!isInviteeResponding) {
+      const membership = await prisma.teamMember.findUnique({
+        where: { userId_teamId: { userId: user.id, teamId } }
+      })
+      if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
+        return createApiError('Forbidden', 403)
+      }
     }
   }
 
