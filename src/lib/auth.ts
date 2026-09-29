@@ -103,17 +103,42 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         })
       }
 
+      const VERIFICATION_LEVEL_RANK: Record<string, number> = {
+        NONE: 0,
+        EMAIL: 1,
+        PHONE: 2,
+        GITHUB: 3,
+        PORTFOLIO: 4,
+        ORGANIZATION: 5,
+        IDENTITY: 6,
+      }
+
+      // Any OAuth sign-in (not just GitHub) proves the account owns that
+      // email address through the provider's own verification - the same
+      // signal isEmailVerified/verificationLevel:EMAIL are meant to record,
+      // and neither field was ever set anywhere in this codebase despite
+      // every OAuth login implicitly satisfying it.
+      if (account?.provider && account.provider !== 'credentials' && user.id) {
+        const userId: string = user.id
+        const currentUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { isEmailVerified: true, verificationLevel: true },
+        })
+        if (currentUser && !currentUser.isEmailVerified) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: {
+              isEmailVerified: true,
+              ...(VERIFICATION_LEVEL_RANK[currentUser.verificationLevel] < VERIFICATION_LEVEL_RANK.EMAIL
+                ? { verificationLevel: 'EMAIL' as const }
+                : {}),
+            },
+          })
+        }
+      }
+
       if (account?.provider === 'github' && user.id) {
         const userId: string = user.id
-        const VERIFICATION_LEVEL_RANK: Record<string, number> = {
-          NONE: 0,
-          EMAIL: 1,
-          PHONE: 2,
-          GITHUB: 3,
-          PORTFOLIO: 4,
-          ORGANIZATION: 5,
-          IDENTITY: 6,
-        }
 
         await prisma.$transaction(async (tx) => {
           const existing = await tx.verification.findFirst({
