@@ -103,4 +103,48 @@ describe('second audit pass', () => {
     expect(statuses.slice(0, 10).every((s) => s === 201)).toBe(true)
     expect(statuses.slice(10)).toContain(429)
   })
+
+  it('exposes no email or password hash through the endpoints added in this block', async () => {
+    const a = await user('lk')
+    const b = await user('lk')
+    const emailB = `${(await testPrisma.user.findUnique({ where: { id: b.userId } }))!.email}`
+
+    const skill = await testPrisma.skill.create({
+      data: { name: `Sp Skill ${suffix}${n++}`, slug: `sp-skill-${suffix}-${n}`, category: 'Test' },
+    })
+    await testPrisma.userSkill.create({ data: { userId: b.userId, skillId: skill.id, level: 2 } })
+    const evidence = await req(b.jar, 'POST', '/api/evidence', { skillId: skill.id, type: 'PORTFOLIO', title: 't', url: 'https://example.com' })
+    await req(a.jar, 'POST', `/api/evidence/${evidence.data.id}/endorse`)
+    const project = await req(a.jar, 'POST', '/api/projects', { name: `Sp Leak ${suffix}${n++}` })
+    await testPrisma.projectMember.create({ data: { projectId: project.data.id, userId: b.userId } })
+    await req(b.jar, 'POST', `/api/projects/${project.data.id}/updates`, { title: 'hi', content: 'there' })
+    const milestone = await req(a.jar, 'POST', `/api/projects/${project.data.id}/milestones`, { title: 'm1' })
+    await req(a.jar, 'PATCH', `/api/projects/${project.data.id}/milestones/${milestone.data.id}`, { completed: true })
+    await req(b.jar, 'POST', '/api/blocks', { userId: (await user('x')).userId })
+    const connection = await req(a.jar, 'POST', '/api/connections', { receiverId: b.userId, type: 'NETWORK' })
+    await req(b.jar, 'PATCH', `/api/connections/${connection.data.id}`, { status: 'ACCEPTED' })
+    const dm = await testPrisma.conversation.findFirst({ where: { type: 'DIRECT', members: { some: { userId: a.userId } } } })
+    const message = await req(a.jar, 'POST', `/api/conversations/${dm!.id}`, { content: 'hey' })
+    await req(b.jar, 'POST', `/api/messages/${message.data.id}/reactions`, { emoji: '👍' })
+
+    const paths = [
+      `/api/evidence?userId=${b.userId}`,
+      '/api/blocks',
+      `/api/projects/${project.data.id}/updates`,
+      `/api/projects/${project.data.id}/milestones`,
+      '/api/conversations',
+      `/api/conversations/${dm!.id}`,
+      `/api/messages/${message.data.id}/reactions`,
+      `/api/users/${b.userId}/skills`,
+      `/api/users/${b.userId}`,
+    ]
+    for (const path of paths) {
+      const res = await req(a.jar, 'GET', path)
+      expect(res.status, path).toBe(200)
+      const body = JSON.stringify(res.data)
+      expect(body, `${path} leaked passwordHash`).not.toContain('passwordHash')
+      expect(body, `${path} leaked another user's email`).not.toContain(emailB)
+      expect(body, `${path} leaked a bcrypt hash`).not.toMatch(/\$2[aby]\$\d{2}\$/)
+    }
+  })
 })
