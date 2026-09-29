@@ -361,7 +361,7 @@ people a viewer has blocked. Switch it to either:
 ```jsonc
 {
   "currentBuild": { … } | null,
-  "userProjects": [ … ],            // owned and member projects
+  "userProjects": [ … ],            // your active projects (idea, planning, building, testing), newest first, at most 5
   "userTeams": [ … ],
   "hackathonParticipations": [ { "hackathon": { … }, "status": "…", "teamId": "…" } ],
   "userQuests": [ … ],
