@@ -161,6 +161,7 @@ model User {
   teams           TeamMember[]
   ownedTeams      Team[]             @relation("TeamOwner")
   teamApplications TeamApplication[]
+  teamInvitationsSent TeamApplication[] @relation("TeamInvitationsSent")
   hackathons      HackathonParticipant[]
   hackathonTeams  HackathonTeamMember[]
   challenges      ChallengeAttempt[]
@@ -406,16 +407,24 @@ model TeamMember {
 }
 
 model TeamApplication {
-  id        String                 @id @default(cuid())
-  userId    String
-  teamId    String
-  message   String?                @db.Text
-  status    TeamApplicationStatus  @default(PENDING)
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  id          String                 @id @default(cuid())
+  userId      String
+  teamId      String
+  message     String?                @db.Text
+  status      TeamApplicationStatus  @default(PENDING)
+  // Null (the default) means this is a self-initiated application, reviewed
+  // by the team owner/admin as before. Set means the OWNER invited this
+  // user directly - the accept/decline authorization flips to the invitee
+  // (userId), not the team, since they're the one being asked. Everything
+  // else about the row (the unique[userId,teamId] constraint, the accept
+  // transaction, the maxSize guard) is shared and unchanged either way.
+  invitedById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User? @relation("TeamInvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
 
   @@unique([userId, teamId])
 }
