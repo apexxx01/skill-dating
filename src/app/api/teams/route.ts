@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockedUserIds } from '@/lib/blocks'
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(100),
@@ -33,7 +34,9 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const skills = queryResult.data.skills
   const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = {}
+  // Teams owned by a user blocked in either direction are not shown.
+  const hidden = await blockedUserIds(prisma, user.id)
+  const where: Record<string, unknown> = hidden.length ? { ownerId: { notIn: hidden } } : {}
 
   if (hackathonId) where.hackathonId = hackathonId
   if (isRecruiting !== undefined) where.isRecruiting = isRecruiting

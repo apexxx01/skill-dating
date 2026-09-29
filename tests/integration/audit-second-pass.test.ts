@@ -62,4 +62,30 @@ describe('second audit pass', () => {
     // The team's own conversation is still the one created with the team.
     expect(await testPrisma.conversation.count({ where: { teamId: team.data.id } })).toBe(1)
   })
+
+  it('leaves teams, projects and builds owned by a blocked user out of browse lists, both ways', async () => {
+    const a = await user('a')
+    const b = await user('b')
+    const teamB = await req(b.jar, 'POST', '/api/teams', { name: `Sp Browse Team ${suffix}${n++}` })
+    const projectB = await req(b.jar, 'POST', '/api/projects', { name: `Sp Browse Project ${suffix}${n++}` })
+    await req(b.jar, 'PUT', '/api/builds/me', { title: `Sp Build ${suffix}${n++}` })
+
+    const teamIds = async (viewer: TestUser) => (await req(viewer.jar, 'GET', '/api/teams?limit=50')).data.teams.map((t: any) => t.id)
+    const projectIds = async (viewer: TestUser) => (await req(viewer.jar, 'GET', '/api/projects?limit=50')).data.projects.map((p: any) => p.id)
+    const buildOwners = async (viewer: TestUser) => (await req(viewer.jar, 'GET', '/api/builds?limit=50')).data.builds.map((x: any) => x.userId)
+
+    expect(await teamIds(a)).toContain(teamB.data.id)
+    expect(await projectIds(a)).toContain(projectB.data.id)
+    expect(await buildOwners(a)).toContain(b.userId)
+
+    await req(a.jar, 'POST', '/api/blocks', { userId: b.userId })
+
+    expect(await teamIds(a)).not.toContain(teamB.data.id)
+    expect(await projectIds(a)).not.toContain(projectB.data.id)
+    expect(await buildOwners(a)).not.toContain(b.userId)
+
+    // Symmetric: the blocked user no longer sees the blocker's content either.
+    const teamA = await req(a.jar, 'POST', '/api/teams', { name: `Sp Browse Team ${suffix}${n++}` })
+    expect(await teamIds(b)).not.toContain(teamA.data.id)
+  })
 })

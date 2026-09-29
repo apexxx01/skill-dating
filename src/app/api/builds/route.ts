@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockedUserIds } from '@/lib/blocks'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -8,7 +9,7 @@ const querySchema = z.object({
   hackathonId: z.string().optional(),
 })
 
-export const GET = withAuth(async (request: NextRequest, { prisma }) => {
+export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)
   if (queryResult instanceof Response) return queryResult
 
@@ -17,7 +18,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const hackathonId = queryResult.data.hackathonId
   const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = { isPublic: true }
+  const hidden = await blockedUserIds(prisma, user.id)
+  const where: Record<string, unknown> = { isPublic: true, ...(hidden.length ? { userId: { notIn: hidden } } : {}) }
   if (hackathonId) where.hackathonId = hackathonId
 
   const [builds, total] = await Promise.all([

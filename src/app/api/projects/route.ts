@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, authorize } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockedUserIds } from '@/lib/blocks'
 import { awardXp } from '@/lib/xp'
 import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
@@ -48,6 +49,10 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   // an authenticated caller's own private/member projects never actually
   // appeared in their unscoped listing before this fix.
   const andConditions: Record<string, unknown>[] = []
+
+  // Projects owned by a user blocked in either direction are not shown.
+  const hidden = await blockedUserIds(prisma, user.id)
+  if (hidden.length) andConditions.push({ ownerId: { notIn: hidden } })
 
   if (ownerId) {
     andConditions.push({ isPublic: true, ownerId })
