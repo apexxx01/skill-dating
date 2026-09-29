@@ -18,6 +18,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   isRecruiting: z.coerce.boolean().optional(),
   hackathonId: z.string().optional(),
+  skills: z.string().optional(),
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -29,12 +30,21 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const search = queryResult.data.search
   const isRecruiting = queryResult.data.isRecruiting
   const hackathonId = queryResult.data.hackathonId
+  const skills = queryResult.data.skills
   const skip = (page - 1) * limit
 
   const where: Record<string, unknown> = {}
 
   if (hackathonId) where.hackathonId = hackathonId
   if (isRecruiting !== undefined) where.isRecruiting = isRecruiting
+  // Dedicated skill-match filter, same ?skills=x,y comma-separated
+  // convention as /api/discover - matches a team's actual lookingFor
+  // values exactly, unlike `search` below which only substring-matches
+  // lookingFor as one of several free-text fields.
+  if (skills) {
+    const skillTerms = skills.split(',').map(s => s.trim()).filter(Boolean)
+    if (skillTerms.length > 0) where.lookingFor = { hasSome: skillTerms }
+  }
   if (search) {
     where.OR = [
       { name: { contains: search, mode: 'insensitive' } },
