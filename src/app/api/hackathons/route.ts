@@ -13,7 +13,7 @@ const createHackathonSchema = z.object({
   websiteUrl: z.string().url().optional().or(z.literal('')),
   prizePool: z.string().optional(),
   rules: z.string().max(10000).optional(),
-  technologies: z.array(z.string()).default([]),
+  technologies: z.array(z.string().max(50)).max(20).default([]),
   maxTeamSize: z.number().min(1).max(10).default(5),
   minTeamSize: z.number().min(1).max(10).default(1),
   location: z.string().optional(),

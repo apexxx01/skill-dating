@@ -8,7 +8,7 @@ const createTeamSchema = z.object({
   projectId: z.string().optional(),
   hackathonId: z.string().optional(),
   maxSize: z.number().min(2).max(10).default(5),
-  lookingFor: z.array(z.string()).default([]),
+  lookingFor: z.array(z.string().max(50)).max(20).default([]),
   isRecruiting: z.boolean().default(true),
 })
 

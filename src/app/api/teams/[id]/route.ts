@@ -6,7 +6,7 @@ const updateTeamSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(5000).optional(),
   maxSize: z.number().min(2).max(10).optional(),
-  lookingFor: z.array(z.string()).optional(),
+  lookingFor: z.array(z.string().max(50)).max(20).optional(),
   isRecruiting: z.boolean().optional(),
 })
 

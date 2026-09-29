@@ -6,8 +6,8 @@ import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
 
 const registerSchema = z.object({
-  skills: z.array(z.string()).default([]),
-  lookingFor: z.array(z.string()).default([]),
+  skills: z.array(z.string().max(50)).max(20).default([]),
+  lookingFor: z.array(z.string().max(50)).max(20).default([]),
 })
 
 const updateHackathonSchema = z.object({
@@ -20,7 +20,7 @@ const updateHackathonSchema = z.object({
   status: z.enum(['UPCOMING', 'ACTIVE', 'ENDED', 'CANCELLED']).optional(),
   prizePool: z.string().optional(),
   rules: z.string().max(10000).optional(),
-  technologies: z.array(z.string()).optional(),
+  technologies: z.array(z.string().max(50)).max(20).optional(),
   maxTeamSize: z.number().min(1).max(10).optional(),
   minTeamSize: z.number().min(1).max(10).optional(),
   location: z.string().optional(),
