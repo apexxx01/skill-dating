@@ -40,32 +40,41 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const ownerId = queryResult.data.ownerId
   const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = {
-    isPublic: true,
-  }
+  // Each filter is its own AND-ed clause (rather than assigning `where.OR`
+  // more than once) so the visibility rule below and the search/techStack
+  // OR-groups don't stomp on each other — that collision was exactly why
+  // an authenticated caller's own private/member projects never actually
+  // appeared in their unscoped listing before this fix.
+  const andConditions: Record<string, unknown>[] = []
 
   if (ownerId) {
-    where.ownerId = ownerId
+    andConditions.push({ isPublic: true, ownerId })
   } else {
-    where.OR = [
-      { isPublic: true },
-      { ownerId: user.id },
-      { members: { some: { userId: user.id } } }
-    ]
+    andConditions.push({
+      OR: [
+        { isPublic: true },
+        { ownerId: user.id },
+        { members: { some: { userId: user.id } } }
+      ]
+    })
   }
 
-  if (status) where.status = status
+  if (status) andConditions.push({ status })
   if (search) {
-    where.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } },
-      { shortDesc: { contains: search, mode: 'insensitive' } },
-    ]
+    andConditions.push({
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { shortDesc: { contains: search, mode: 'insensitive' } },
+      ]
+    })
   }
   if (techStack) {
     const stack = techStack.split(',').map(s => s.trim())
-    where.techStack = { hasSome: stack }
+    andConditions.push({ techStack: { hasSome: stack } })
   }
+
+  const where: Record<string, unknown> = { AND: andConditions }
 
   const [projects, total] = await Promise.all([
     prisma.project.findMany({
