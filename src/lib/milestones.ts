@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const MAX_MILESTONES_PER_PROJECT = 100
+
 export const milestoneSelect = {
   id: true,
   projectId: true,

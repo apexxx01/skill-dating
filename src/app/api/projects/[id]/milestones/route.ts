@@ -2,9 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { advisoryLock, isValidId, loadProjectAccess, projectIdFromPath } from '@/lib/progress'
-import { dueDateSchema, milestoneResponse, milestoneSelect } from '@/lib/milestones'
-
-export const MAX_MILESTONES_PER_PROJECT = 100
+import { MAX_MILESTONES_PER_PROJECT, dueDateSchema, milestoneResponse, milestoneSelect } from '@/lib/milestones'
 
 const createMilestoneSchema = z.object({
   title: z.string().trim().min(1).max(200),
