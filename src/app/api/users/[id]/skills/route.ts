@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockRelation } from '@/lib/blocks'
 
 const addUserSkillSchema = z.object({
   skillId: z.string(),
@@ -19,6 +20,10 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   if (!id) {
     return createApiError('User ID required', 400)
+  }
+
+  if (id !== user.id && (await blockRelation(prisma, user.id, id)) === 'BLOCKED_BY_THEM') {
+    return createApiError('User not found', 404)
   }
 
   const userSkills = await prisma.userSkill.findMany({

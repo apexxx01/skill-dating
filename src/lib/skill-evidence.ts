@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
+import { blockRelation } from '@/lib/blocks'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -76,6 +77,8 @@ export async function endorsementSummaries(
 export type EndorseOutcome =
   | { outcome: 'not_found' }
   | { outcome: 'self' }
+  | { outcome: 'blocked_by_me' }
+  | { outcome: 'blocked_by_them' }
   | { outcome: 'created' | 'exists'; endorsementCount: number }
 
 /**
@@ -103,6 +106,10 @@ export async function endorseEvidence(
     })
     if (!evidence || evidence.type === ENDORSEMENT_TYPE) return { outcome: 'not_found' as const }
     if (evidence.userId === endorserId) return { outcome: 'self' as const }
+
+    const relation = await blockRelation(tx, endorserId, evidence.userId)
+    if (relation === 'BLOCKED_BY_ME') return { outcome: 'blocked_by_me' as const }
+    if (relation === 'BLOCKED_BY_THEM') return { outcome: 'blocked_by_them' as const }
 
     await lockKey(tx, `evidence-endorse:${evidenceId}:${endorserId}`)
 

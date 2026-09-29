@@ -20,6 +20,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   if (result.outcome === 'not_found') return createApiError('Evidence not found', 404)
   if (result.outcome === 'self') return createApiError('You cannot endorse your own evidence', 403)
+  if (result.outcome === 'blocked_by_me') return createApiError('You have blocked this user', 403)
+  // Being blocked is not revealed: to the blocked user the evidence simply does not exist.
+  if (result.outcome === 'blocked_by_them') return createApiError('Evidence not found', 404)
 
   return createApiResponse(
     { endorsed: true, endorsementCount: result.endorsementCount },

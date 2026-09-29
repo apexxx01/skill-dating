@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
+import { blockRelation } from '@/lib/blocks'
 import {
   ENDORSEMENT_TYPE,
   MAX_EVIDENCE_PER_SKILL,
@@ -48,6 +49,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const { userId, skillId } = queryResult.data
   const ownerId = userId ?? user.id
+
+  // Same rule as the profile itself: someone who has blocked the viewer looks
+  // like an account that does not exist.
+  if (ownerId !== user.id && (await blockRelation(prisma, user.id, ownerId)) === 'BLOCKED_BY_THEM') {
+    return createApiError('User not found', 404)
+  }
   const skip = (page - 1) * limit
 
   if (ownerId !== user.id) {

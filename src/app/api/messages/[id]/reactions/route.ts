@@ -8,6 +8,7 @@ import {
   MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE,
 } from '@/lib/messaging'
 import { z } from 'zod'
+import { blockGuardAny } from '@/lib/blocks'
 
 const reactSchema = z.object({
   emoji: z.string().min(1).max(16).refine(isValidEmoji, 'Must be a single emoji'),
@@ -45,6 +46,17 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('Forbidden', 403)
   }
   if (message.deletedAt) return createApiError('Cannot react to a deleted message', 400)
+
+  // Reacting in a direct conversation is addressed to one person, so it is
+  // closed while either side has blocked the other (shared rooms stay open).
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: message.conversationId },
+    select: { type: true, members: { select: { userId: true } } },
+  })
+  if (conversation?.type === 'DIRECT') {
+    const blocked = await blockGuardAny(prisma, user.id, conversation.members.map((m) => m.userId), 'Message not found')
+    if (blocked) return blocked
+  }
 
   const bodyResult = await validateBody(reactSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
