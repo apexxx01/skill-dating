@@ -58,6 +58,45 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         orderBy: { earnedAt: 'desc' }
       },
       currentBuild: true,
+      projects: {
+        take: 10,
+        select: {
+          role: true,
+          project: { select: { id: true, name: true, slug: true, status: true, thumbnail: true, techStack: true } }
+        },
+        orderBy: { joinedAt: 'desc' }
+      },
+      ownedTeams: {
+        take: 10,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          isRecruiting: true,
+          maxSize: true,
+          project: { select: { id: true, name: true, slug: true, status: true } },
+          _count: { select: { members: true, applications: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      },
+      teams: {
+        take: 10,
+        select: {
+          role: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              isRecruiting: true,
+              maxSize: true,
+              project: { select: { id: true, name: true, slug: true, status: true } },
+              _count: { select: { members: true, applications: true } }
+            }
+          }
+        },
+        orderBy: { joinedAt: 'desc' }
+      },
     }
   })
 
