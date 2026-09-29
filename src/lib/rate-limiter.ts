@@ -13,6 +13,8 @@ export interface RateLimitDecision {
   allowed: boolean
   remaining: number
   retryAfterSeconds: number
+  // True when the decision is a stand-in because the limiter itself failed.
+  unavailable?: boolean
 }
 
 export interface RateLimiter {
@@ -116,7 +118,58 @@ export function clientIp(request: Request): string | null {
   return parts[index] || null
 }
 
+// A limiter backed by a shared store can fail. That must not take the whole
+// API down, so by default a failure lets the request through (and is logged).
+// Callers guarding something an attacker profits from bypassing, such as
+// password guessing, pass failClosed: the request is refused with a 503
+// instead of being waved through unthrottled.
+export async function consumeSafely(
+  key: string,
+  options: RateLimitOptions,
+  { failClosed = false }: { failClosed?: boolean } = {}
+): Promise<RateLimitDecision> {
+  try {
+    return await getRateLimiter().consume(key, options)
+  } catch (error) {
+    console.error('rate limiter unavailable:', error instanceof Error ? error.message : error)
+    return failClosed
+      ? { allowed: false, remaining: 0, retryAfterSeconds: 5, unavailable: true }
+      : { allowed: true, remaining: options.maxRequests, retryAfterSeconds: 0, unavailable: true }
+  }
+}
+
+// With no trusted proxy there is no per-client address, so every unauthenticated
+// caller shares one bucket. A limit sized for one client would then let anyone
+// exhaust it for everybody (for example to block all sign-ups), so the shared
+// bucket is a flood guard, sized this many times larger than the per-client limit.
+export const UNTRUSTED_SHARED_BUCKET_MULTIPLIER = 10
+
+export interface RateLimitConfig extends RateLimitOptions {
+  keyPrefix: string
+}
+
+/** Applies one named limit to a request; returns the refusal response or null. */
+export async function enforceRateLimit(
+  request: Request,
+  config: RateLimitConfig,
+  userId?: string
+): Promise<NextResponse | null> {
+  const ip = userId ? null : clientIp(request)
+  const shared = !userId && !ip
+  const decision = await consumeSafely(`${config.keyPrefix}:${userId ? `u:${userId}` : `ip:${ip ?? 'untrusted'}`}`, {
+    windowMs: config.windowMs,
+    maxRequests: shared ? config.maxRequests * UNTRUSTED_SHARED_BUCKET_MULTIPLIER : config.maxRequests,
+  })
+  return decision.allowed ? null : tooManyRequests(decision)
+}
+
 export function tooManyRequests(decision: RateLimitDecision): NextResponse {
+  if (decision.unavailable) {
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable' },
+      { status: 503, headers: { 'Retry-After': String(decision.retryAfterSeconds) } }
+    )
+  }
   return NextResponse.json(
     { error: 'Too many requests', retryAfter: decision.retryAfterSeconds },
     {

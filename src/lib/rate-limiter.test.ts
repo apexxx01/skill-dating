@@ -1,5 +1,16 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { MemoryRateLimiter, clientIp } from './rate-limiter'
+import {
+  MemoryRateLimiter,
+  UNTRUSTED_SHARED_BUCKET_MULTIPLIER,
+  clientIp,
+  consumeSafely,
+  enforceRateLimit,
+  getRateLimiter,
+  setRateLimiter,
+  tooManyRequests,
+  type RateLimiter,
+  type RateLimitOptions,
+} from './rate-limiter'
 
 const opts = { windowMs: 1000, maxRequests: 3 }
 
@@ -85,5 +96,89 @@ describe('clientIp', () => {
   it('returns null when the header is absent', () => {
     withEnv('1')
     expect(clientIp(req())).toBeNull()
+  })
+})
+
+describe('enforceRateLimit', () => {
+  const original = getRateLimiter()
+  afterEach(() => {
+    setRateLimiter(original)
+    delete process.env.TRUSTED_PROXY_HOPS
+  })
+
+  function capture() {
+    const calls: { key: string; options: RateLimitOptions }[] = []
+    const limiter: RateLimiter = {
+      async consume(key, options) {
+        calls.push({ key, options })
+        return { allowed: true, remaining: 1, retryAfterSeconds: 0 }
+      },
+    }
+    setRateLimiter(limiter)
+    return calls
+  }
+  const config = { windowMs: 60_000, maxRequests: 10, keyPrefix: 'auth:register' }
+  const request = (xff?: string) => new Request('http://localhost/x', { headers: xff ? { 'x-forwarded-for': xff } : {} })
+
+  it('keys authenticated calls on the user id at the configured limit', async () => {
+    const calls = capture()
+    await enforceRateLimit(request('1.2.3.4'), config, 'user-1')
+    expect(calls[0]).toEqual({ key: 'auth:register:u:user-1', options: { windowMs: 60_000, maxRequests: 10 } })
+  })
+
+  it('keys on the trusted proxy address at the configured limit', async () => {
+    process.env.TRUSTED_PROXY_HOPS = '1'
+    const calls = capture()
+    await enforceRateLimit(request('6.6.6.6, 203.0.113.9'), config)
+    expect(calls[0]).toEqual({ key: 'auth:register:ip:203.0.113.9', options: { windowMs: 60_000, maxRequests: 10 } })
+  })
+
+  it('sizes the shared no-proxy bucket as a flood guard so one caller cannot exhaust it for everyone', async () => {
+    const calls = capture()
+    await enforceRateLimit(request('1.2.3.4'), config)
+    expect(calls[0].key).toBe('auth:register:ip:untrusted')
+    expect(calls[0].options.maxRequests).toBe(10 * UNTRUSTED_SHARED_BUCKET_MULTIPLIER)
+
+    // Ten sign-ups from one caller no longer lock everyone else out.
+    setRateLimiter(new MemoryRateLimiter())
+    for (let i = 0; i < 10; i++) expect(await enforceRateLimit(request(), config)).toBeNull()
+    expect(await enforceRateLimit(request(), config)).toBeNull()
+  })
+})
+
+describe('limiter failure handling', () => {
+  const original = getRateLimiter()
+  const failing: RateLimiter = {
+    async consume() {
+      throw new Error('store down')
+    },
+  }
+  afterEach(() => {
+    setRateLimiter(original)
+    vi.restoreAllMocks()
+  })
+
+  it('lets ordinary requests through when the limiter fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setRateLimiter(failing)
+    const decision = await consumeSafely('k', opts)
+    expect(decision.allowed).toBe(true)
+    expect(decision.unavailable).toBe(true)
+  })
+
+  it('refuses protected requests (login) with a 503 rather than waving them through', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    setRateLimiter(failing)
+    const decision = await consumeSafely('k', opts, { failClosed: true })
+    expect(decision.allowed).toBe(false)
+    const response = tooManyRequests(decision)
+    expect(response.status).toBe(503)
+    expect(response.headers.get('retry-after')).toBe('5')
+  })
+
+  it('still answers a normal refusal with 429 and Retry-After', () => {
+    const response = tooManyRequests({ allowed: false, remaining: 0, retryAfterSeconds: 42 })
+    expect(response.status).toBe(429)
+    expect(response.headers.get('retry-after')).toBe('42')
   })
 })

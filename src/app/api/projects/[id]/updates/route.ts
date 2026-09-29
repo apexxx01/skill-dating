@@ -115,4 +115,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(created, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:update-create' } })
+}, { rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'progress:update-create' } })

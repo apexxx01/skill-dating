@@ -88,4 +88,19 @@ describe('second audit pass', () => {
     const teamA = await req(a.jar, 'POST', '/api/teams', { name: `Sp Browse Team ${suffix}${n++}` })
     expect(await teamIds(b)).not.toContain(teamA.data.id)
   })
+
+  it('limits how fast one member can post project updates (notification flood guard)', async () => {
+    const owner = await user('upd')
+    const teammate = await user('mate')
+    const project = await req(owner.jar, 'POST', '/api/projects', { name: `Sp Updates ${suffix}${n++}` })
+    await testPrisma.projectMember.create({ data: { projectId: project.data.id, userId: teammate.userId } })
+
+    const statuses: number[] = []
+    for (let i = 0; i < 13; i++) {
+      const res = await req(owner.jar, 'POST', `/api/projects/${project.data.id}/updates`, { title: `u${i}`, content: 'progress' })
+      statuses.push(res.status)
+    }
+    expect(statuses.slice(0, 10).every((s) => s === 201)).toBe(true)
+    expect(statuses.slice(10)).toContain(429)
+  })
 })

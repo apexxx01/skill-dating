@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
-import { clientIp, getRateLimiter, tooManyRequests } from '@/lib/rate-limiter'
+import { clientIp, consumeSafely, enforceRateLimit, tooManyRequests, type RateLimitConfig } from '@/lib/rate-limiter'
 
 export interface AuthenticatedUser {
   id: string
@@ -23,24 +23,14 @@ export type ApiHandler<T = unknown> = (
   context: ApiContext
 ) => Promise<NextResponse<T>>
 
-export interface RateLimitConfig {
-  windowMs: number
-  maxRequests: number
-  keyPrefix: string
-}
+export type { RateLimitConfig }
 
+// Keyed on the authenticated user id when there is one - that cannot be
+// forged or shared, unlike an IP. Only pre-auth callers (register) fall back
+// to a trusted-proxy IP, or to one shared flood-guard bucket.
 export function rateLimit(config: RateLimitConfig) {
-  // Keyed on the authenticated user id when there is one - that cannot be
-  // forged or shared, unlike an IP. Only pre-auth callers (register) fall back
-  // to a trusted-proxy IP, or to one shared bucket when no proxy is trusted.
-  return async (request: NextRequest, userId?: string): Promise<NextResponse | null> => {
-    const subject = userId ? `u:${userId}` : `ip:${clientIp(request) ?? 'untrusted'}`
-    const decision = await getRateLimiter().consume(`${config.keyPrefix}:${subject}`, {
-      windowMs: config.windowMs,
-      maxRequests: config.maxRequests,
-    })
-    return decision.allowed ? null : tooManyRequests(decision)
-  }
+  return (request: NextRequest, userId?: string): Promise<NextResponse | null> =>
+    enforceRateLimit(request, config, userId)
 }
 
 export function withAuth(
@@ -53,7 +43,7 @@ export function withAuth(
     if (!session?.user?.id) {
       // Bound unauthenticated traffic too, so a flood of anonymous calls
       // cannot be used to hammer the auth layer for free.
-      const anonymous = await getRateLimiter().consume(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
+      const anonymous = await consumeSafely(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
         windowMs: 60_000,
         maxRequests: 120,
       })

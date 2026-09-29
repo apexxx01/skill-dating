@@ -1,5 +1,5 @@
 import type { NextRequest, NextResponse } from 'next/server'
-import { clientIp, getRateLimiter, tooManyRequests } from '@/lib/rate-limiter'
+import { clientIp, consumeSafely, tooManyRequests } from '@/lib/rate-limiter'
 
 const ACCOUNT_WINDOW_MS = 15 * 60_000
 const ACCOUNT_MAX_ATTEMPTS = 10
@@ -15,8 +15,6 @@ const IP_MAX_ATTEMPTS = 40
 //    attacker could then lock every legitimate user out, so the IP bucket is
 //    skipped rather than shared.
 export async function throttleCredentialsLogin(request: NextRequest): Promise<NextResponse | null> {
-  const limiter = getRateLimiter()
-
   let email: string | null = null
   try {
     const form = await request.clone().formData()
@@ -27,19 +25,21 @@ export async function throttleCredentialsLogin(request: NextRequest): Promise<Ne
   }
 
   if (email) {
-    const decision = await limiter.consume(`auth:login:acct:${email}`, {
-      windowMs: ACCOUNT_WINDOW_MS,
-      maxRequests: ACCOUNT_MAX_ATTEMPTS,
-    })
+    const decision = await consumeSafely(
+      `auth:login:acct:${email}`,
+      { windowMs: ACCOUNT_WINDOW_MS, maxRequests: ACCOUNT_MAX_ATTEMPTS },
+      { failClosed: true }
+    )
     if (!decision.allowed) return tooManyRequests(decision)
   }
 
   const ip = clientIp(request)
   if (ip) {
-    const decision = await limiter.consume(`auth:login:ip:${ip}`, {
-      windowMs: IP_WINDOW_MS,
-      maxRequests: IP_MAX_ATTEMPTS,
-    })
+    const decision = await consumeSafely(
+      `auth:login:ip:${ip}`,
+      { windowMs: IP_WINDOW_MS, maxRequests: IP_MAX_ATTEMPTS },
+      { failClosed: true }
+    )
     if (!decision.allowed) return tooManyRequests(decision)
   }
 

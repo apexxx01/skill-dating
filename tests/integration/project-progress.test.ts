@@ -144,8 +144,12 @@ describe('project progress', () => {
 
     it('paginates newest first', async () => {
       const project = await makeProject('Paging', true, [member])
+      // Seeded directly: posting through the API is rate limited per user
+      // (10/min) and this test is about paging, not posting.
       for (const n of [1, 2, 3]) {
-        await call(member, 'POST', updatesPath(project), { title: `u${n}`, content: 'c' })
+        await testPrisma.projectUpdate.create({
+          data: { projectId: project, authorId: member.userId, title: `u${n}`, content: 'c', createdAt: new Date(Date.now() + n * 1000) },
+        })
       }
       const page1 = await call(member, 'GET', `${updatesPath(project)}?limit=2&page=1`)
       const page2 = await call(member, 'GET', `${updatesPath(project)}?limit=2&page=2`)
@@ -156,10 +160,10 @@ describe('project progress', () => {
     })
 
     it('enforces title/content bounds', async () => {
-      expect((await call(member, 'POST', updatesPath(publicProjectId), { title: 'x'.repeat(201), content: 'c' })).status).toBe(400)
-      expect((await call(member, 'POST', updatesPath(publicProjectId), { title: 't', content: 'x'.repeat(10001) })).status).toBe(400)
-      expect((await call(member, 'POST', updatesPath(publicProjectId), { title: '   ', content: 'c' })).status).toBe(400)
-      expect((await call(member, 'POST', updatesPath(publicProjectId), {})).status).toBe(400)
+      expect((await call(owner, 'POST', updatesPath(publicProjectId), { title: 'x'.repeat(201), content: 'c' })).status).toBe(400)
+      expect((await call(owner, 'POST', updatesPath(publicProjectId), { title: 't', content: 'x'.repeat(10001) })).status).toBe(400)
+      expect((await call(owner, 'POST', updatesPath(publicProjectId), { title: '   ', content: 'c' })).status).toBe(400)
+      expect((await call(owner, 'POST', updatesPath(publicProjectId), {})).status).toBe(400)
     })
   })
 
@@ -311,7 +315,7 @@ describe('project progress', () => {
 
   describe('authorization', () => {
     it('rejects non-member writes on every write route, without leaking whether the row exists', async () => {
-      const update = await call(member, 'POST', updatesPath(publicProjectId), { title: 'target', content: 'c' })
+      const update = await call(owner, 'POST', updatesPath(publicProjectId), { title: 'target', content: 'c' })
       const milestoneId = await newMilestone(publicProjectId)
       const updatePath = `${updatesPath(publicProjectId)}/${update.data.id}`
       const milestonePath = `${milestonesPath(publicProjectId)}/${milestoneId}`
@@ -338,7 +342,7 @@ describe('project progress', () => {
     })
 
     it('follows project visibility for reads', async () => {
-      await call(member, 'POST', updatesPath(privateProjectId), { title: 'secret', content: 'c' })
+      await call(owner, 'POST', updatesPath(privateProjectId), { title: 'secret', content: 'c' })
       await newMilestone(privateProjectId)
 
       for (const path of [updatesPath(privateProjectId), milestonesPath(privateProjectId)]) {
