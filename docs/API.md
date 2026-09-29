@@ -7,6 +7,15 @@ are the only exceptions. All request/response bodies are JSON unless noted.
 
 Error responses share one shape: `{ "error": string, "details"?: unknown }`.
 Validation failures (`400`) return `{ "error": "Validation failed", "details": { field: [messages] } }`.
+Unknown request-body keys are stripped, so a client cannot set `id`, `ownerId`, `xp` or `role` by sending them.
+
+Response types for the frontend are exported from `src/types/api.ts`; the page-by-page mapping (which endpoint each screen calls, and which mock fields have no API) is in `docs/FRONTEND_CONTRACT.md`.
+
+**Rate limiting.** Every route is limited per signed-in user (per route family; the limit is listed in the route's handler). Over the limit: `429 { error }` with a `Retry-After` header in seconds. If the limiter's store is unavailable, ordinary routes keep serving and credentials login answers `503` with `Retry-After`. Signed-out traffic is limited per client address, which is only known when `TRUSTED_PROXY_HOPS` says how many reverse proxies to trust (see the README); without it, anonymous callers share one generously sized bucket. Credentials sign-in is limited per email (10 per 15 minutes) and, when the address is known, per address (40 per 15 minutes).
+
+**Blocks.** Blocking is stored one way and enforced both ways. The blocked user gets `404` for the blocker's profile, content and conversations, and the blocker is left out of their lists, search, leaderboard and recommendations. The blocker who tries to interact with someone they blocked gets `403 "You have blocked this user"`. The blocked user is never told. Details under **Blocks** below.
+
+**Requirements.** PostgreSQL 13 or newer (`gen_random_uuid()` is used when marking messages read).
 
 ---
 
@@ -27,7 +36,7 @@ NextAuth's own handler (session, CSRF, OAuth/credentials callbacks). Not a hand-
 ## Users
 
 ### `GET /api/users`
-Paginated user directory, excludes the caller. Query: `page, limit, search, skills (comma-separated slugs), location`.
+Paginated user directory, excludes the caller and anyone blocked in either direction. Query: `page, limit, search, skills (comma-separated slugs), location`.
 **Response:** `{ users: [...], pagination }`
 
 ### `PATCH /api/users`
@@ -35,10 +44,16 @@ Updates the caller's own profile (no ID param — always self).
 **Body (all optional):** `name, bio, headline, location, timezone, availability, builderRole, website, githubUsername, twitterUsername, linkedinUrl`
 
 ### `GET /api/users/[id]`
-Full profile: skills, skillEvidences, achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, and a live `compatibility` score vs. the caller (`null` when viewing your own profile).
+Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus:
+- `email` — **only on your own profile**, never on anyone else's.
+- `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used.
+- `compatibility` — live score vs. the caller (`null` on your own profile).
+- `blockedByMe` — `true` when you have blocked this user.
+
+**Errors:** `404` if the user does not exist or has blocked the caller.
 
 ### `GET /api/users/[id]/skills`
-List a user's skills (public).
+List a user's skills. `404` if the user is missing or has blocked the caller.
 
 ### `POST /api/users/[id]/skills`
 **Auth:** self or `ADMIN`.
@@ -56,7 +71,7 @@ List a user's skills (public).
 ## Discover
 
 ### `GET /api/discover`
-One-to-one match candidates, ranked by real skill-compatibility score against a bounded recency-ordered pool. Query: `page, limit, search, skills, location`.
+One-to-one match candidates, ranked by real skill-compatibility score against a bounded recency-ordered pool. Blocked users (either direction) are never returned. Query: `page, limit, search, skills, location`.
 **Response:** `{ people: [{ ...user, compatibility }], pagination }`
 
 ---
@@ -75,14 +90,14 @@ Browsable skill catalog (`isActive: true` only), annotated with the caller's own
 ## Projects
 
 ### `GET /api/projects`
-Visibility-scoped listing: public projects, plus (when no `ownerId` filter is given) the caller's own and any they're a member of. Query: `page, limit, status, search, techStack, ownerId`.
+Visibility-scoped listing: public projects, plus (when no `ownerId` filter is given) the caller's own and any they're a member of. Projects owned by a user the caller has a block with (either direction) are left out. Query: `page, limit, status, search, techStack, ownerId`.
 
 ### `POST /api/projects`
 Creates a project, `ProjectMember(OWNER)`, and its `PROJECT` conversation atomically. Awards `PROJECT_CREATED` XP, records activity, grants `first-project` achievement.
 **Body:** `{ name, description?, shortDesc?, githubUrl?, demoUrl?, websiteUrl?, techStack?(≤20, each ≤50 chars), lookingFor?(≤20, each ≤50 chars), maxTeamSize?(1-10), hackathonId?, isPublic? }`
 
 ### `GET /api/projects/[id]`
-**Auth:** public project, or owner/member.
+**Auth:** public project, or owner/member. Returns the project with `owner`, `members`, `hackathon`, the 20 latest `updates`, all `milestones` (by `order`), `_count`, and the flags `isOwner`, `isMember`.
 
 ### `PATCH /api/projects/[id]`
 **Auth:** owner, member, or `ADMIN`/`MODERATOR` (`authorize()`).
@@ -96,7 +111,7 @@ Setting `status: 'SHIPPED'` for the first time (gated on `shippedAt` being null)
 ## Teams
 
 ### `GET /api/teams`
-Query: `page, limit, search, isRecruiting, hackathonId, skills` (comma-separated, exact-match against `lookingFor` via `hasSome` — distinct from `search`'s substring match).
+Teams owned by a user the caller has a block with are left out. Query: `page, limit, search, isRecruiting, hackathonId, skills` (comma-separated, exact-match against `lookingFor` via `hasSome` — distinct from `search`'s substring match).
 
 ### `POST /api/teams`
 Creates a team, `TeamMember(OWNER)`, and its `TEAM` conversation atomically.
@@ -157,6 +172,7 @@ The caller's own applications (sent or received-as-invitation), across all teams
 
 ### `GET /api/hackathons`
 Public list. Query: `page, limit, status, search`.
+Each item carries the caller's own participation: `registered` (boolean), `myTeamId` (`string | null`) and `myStatus` (`REGISTERED | TEAM_FORMED | SUBMITTED | WITHDRAWN | null`), and `_count: { participants, teams }`.
 
 ### `POST /api/hackathons`
 **Auth:** `ADMIN`/`MODERATOR`. Creates a hackathon and its `HACKATHON` conversation atomically.
@@ -195,7 +211,7 @@ For every team newly reaching rank `1` (idempotent — re-submitting the same ra
 ## Teams ↔ Hackathons ↔ Projects: Builds
 
 ### `GET /api/builds`
-Public feed (`isPublic: true`). Query: `page, limit, hackathonId`.
+Public feed (`isPublic: true`), without builds from users the caller has a block with. Query: `page, limit, hackathonId`.
 
 ### `PUT /api/builds/me`
 Full-replacement upsert of the caller's own `CurrentBuild` (one per user). An omitted field resets to its schema default, even on update.
@@ -211,7 +227,7 @@ Deletes the caller's own `CurrentBuild`. `404` if none exists.
 ### `POST /api/connections`
 Sends a typed connection request (`TEAMMATE|COLLABORATOR|MENTOR|FRIEND|NETWORK|DATING`). Checks both directions for a conflict — an existing `PENDING` or `ACCEPTED` row either way blocks a new request. Notifies the receiver.
 **Body:** `{ receiverId, type?, message? }`
-**Errors:** `400` self-connect, `404` receiver not found, `400` already connected, `409` already pending.
+**Errors:** `400` self-connect, `404` receiver not found (also when the receiver has blocked the caller), `403` the caller has blocked the receiver, `400` already connected, `409` already pending.
 
 ### `GET /api/connections`
 The caller's own connections (sent + received, or filtered). Query: `page, limit, status, direction ('sent'|'received')`.
@@ -226,18 +242,36 @@ On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the
 ## Conversations & Messages
 
 ### `GET /api/conversations`
-The caller's own conversations.
+The caller's own conversations, most recently active first. Query: `page, limit, type (DIRECT|GROUP|PROJECT|TEAM|HACKATHON), search`.
+`search` matches (case-insensitively) the conversation name, its team/project/hackathon name, and the other members' name or username.
+**Response:** `{ conversations: [{ ...conversation, members, messages (latest one only), _count, unreadCount }], totalUnread, pagination }`. `unreadCount` counts messages from other senders with no read row for the caller; `totalUnread` is their sum.
 
 ### `POST /api/conversations`
 Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, returns the existing one if a `DIRECT` conversation between the same two users already exists).
-**Body:** `{ type, name?, participantIds(≤50), projectId?, teamId?, hackathonId? }`
+**Body:** `{ type?: 'DIRECT' | 'GROUP', name?, participantIds(1-50) }`. Only `DIRECT` and `GROUP` can be created by a client; team, project and hackathon conversations are created with the thing they belong to, and binding one from here is not possible (those keys are stripped, and other `type` values are a `400`).
+**Errors:** `400` any participant does not exist; `404` the direct-conversation counterpart has blocked the caller; `403` the caller has blocked them.
 
 ### `GET /api/conversations/[id]`
-**Auth:** conversation member only. Paginated messages, deleted messages masked (`content: null, isDeleted: true`) rather than omitted.
+**Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, limit(≤100), before (ISO datetime)`. Marks exactly the messages returned as read for the caller.
 
 ### `POST /api/conversations/[id]`
-**Auth:** conversation member only. Sends a message, notifies other members.
+**Auth:** conversation member only. Sends a message, notifies other members. Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
 **Body:** `{ content, type?, replyToId?, metadata? }`
+
+### `POST /api/conversations/[id]/read`
+**Auth:** conversation member only. Marks messages from other senders as read for the caller.
+**Body (optional):** `{ upToMessageId?: string }` — with it, only messages up to and including that one; without it (or with an empty body), everything.
+**Response:** `{ conversationId, readCount, unreadCount }`
+**Errors:** `400` `upToMessageId` is not in this conversation.
+
+### `GET /api/messages/[id]/reactions`
+**Auth:** member of the message's conversation. **Response:** `{ messageId, reactions: [{ emoji, count, reactedByMe }] }`
+
+### `POST /api/messages/[id]/reactions`
+**Auth:** member of the message's conversation. Toggles the caller's reaction: adds it if absent, removes it if present.
+**Body:** `{ emoji: string }` — a single emoji.
+**Response:** `{ reacted: boolean, reactions: [{ emoji, count, reactedByMe }] }`
+**Errors:** `400` deleted message, more than 10 distinct emoji from one user on a message, or more than 30 distinct emoji on a message; `404` when the other side of a direct conversation has blocked the caller.
 
 ### `PATCH /api/messages/[id]`
 **Auth:** sender only (no admin override — editing someone else's words isn't a moderation action, unlike delete).
@@ -280,7 +314,105 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 
 ### `GET /api/leaderboard`
 Live `SUM(XPEvent.amount)` aggregate per user (not the denormalized `User.xp` cache — that's kept in sync for cheap sort/display elsewhere, but this endpoint computes the real total). Query: `page, limit`.
-**Response:** `{ entries: [{ rank, xp, user }], me: { xp, rank }, pagination }`
+Users blocked in either direction are left out, and ranks are counted among the users the caller can see.
+**Response:** `{ entries: [{ rank, xp, user }], me: { xp, rank }, pagination }`. `me.rank` is `null` until the caller has earned XP, and is computed live so it is right even when the caller is off the current page.
+
+---
+
+## Blocks
+
+### `POST /api/blocks`
+Blocks a user. One transaction: creates the block, deletes any connection between the pair, and withdraws pending team applications and invitations between them. Idempotent: blocking again returns `200` with the existing block.
+**Body:** `{ userId: string, reason?: string(≤500) }`
+**Response `201`** (`200` if it already existed): `{ block: { id, createdAt, reason, user }, severedConnections, withdrawnApplications }`
+**Errors:** `400` blocking yourself, `404` user not found.
+
+### `GET /api/blocks`
+The caller's own block list, newest first. Query: `page, limit`. **Response:** `{ blocks: [{ id, createdAt, reason, user }], pagination }`. The list shows only who the caller blocked, never who blocked the caller.
+
+### `DELETE /api/blocks/[userId]`
+Removes the caller's block on that user. Severed connections and withdrawn applications are not restored.
+
+Where blocks are enforced (either direction unless noted): discover, user directory, team candidates, leaderboard, dashboard recommendations, project/team/build browse lists, user profile, user skills, evidence lists, activity feed, connection requests, team applications and invitations, direct conversations (create and send), reactions in direct conversations, and endorsements.
+
+---
+
+## Skill Evidence & Endorsements
+
+Evidence is attached to a skill the user has added to their profile. A peer endorsement is a row on the same table (`type: 'PEER_ENDORSEMENT'`, `metadata: { endorsedEvidenceId, endorserId }`), written only by the endorse endpoint.
+
+### `GET /api/evidence`
+Query: `page, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`.
+**Response:** `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, skill, endorsementCount, endorsedByMe }], pagination }`
+**Errors:** `404` user not found or has blocked the caller.
+
+### `POST /api/evidence`
+Creates evidence for the caller. Records activity and grants `first-evidence`.
+**Body:** `{ skillId, type: 'GITHUB_PROJECT' | 'PORTFOLIO' | 'CERTIFICATION' | 'CONTRIBUTION', title(≤200), url? (http/https, ≤2048), description?(≤2000) }` (unknown keys are rejected)
+**Errors:** `400` the caller has not added that skill, or already has 20 pieces of evidence on it.
+
+### `DELETE /api/evidence/[id]`
+**Auth:** the evidence owner (`403` otherwise). Deleting evidence also removes the endorsements on it. **Response:** `{ success: true }`
+
+### `POST /api/evidence/[id]/endorse`
+Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement, and grants the owner `endorsed`.
+**Response:** `{ endorsed: true, endorsementCount }` — `201` when created, `200` if already endorsed.
+**Errors:** `403` your own evidence; `403` you have blocked the owner; `404` missing, an endorsement row, or the owner has blocked you.
+
+### `DELETE /api/evidence/[id]/endorse`
+Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementCount }`.
+
+---
+
+## Project Progress
+
+### `GET /api/projects/[id]/updates`
+**Auth:** anyone who can read the project (public, owner or member). Query: `page, limit(≤50)`.
+**Response:** `{ updates: [{ id, projectId, title, content, type, createdAt, author }], pagination }`
+
+### `POST /api/projects/[id]/updates`
+**Auth:** project owner or member. Limited to 10 per minute per user. Notifies the other members, records activity, and grants `first-update` on the caller's first.
+**Body:** `{ title(≤200), content(≤10000), type?: 'UPDATE' | 'ANNOUNCEMENT' }` (`MILESTONE` and `SHIPPED` updates are written by the system).
+
+### `PATCH /api/projects/[id]/updates/[updateId]`
+**Auth:** the update's author (while still a member), or a platform admin. System-generated updates cannot be edited (`400`).
+**Body:** `{ title?, content? }`
+
+### `DELETE /api/projects/[id]/updates/[updateId]`
+**Auth:** the author, the project owner, or a platform admin.
+
+### `GET /api/projects/[id]/milestones`
+**Auth:** anyone who can read the project. Query: `page, limit(≤50)`. Ordered by `order`.
+**Response:** `{ milestones: [{ id, projectId, title, description, dueDate, completedAt, completed, order, createdAt, updatedAt }], pagination }`
+
+### `POST /api/projects/[id]/milestones`
+**Auth:** owner or member. At most 100 per project (`400`).
+**Body:** `{ title(≤200), description?(≤5000), dueDate? }`
+
+### `PATCH /api/projects/[id]/milestones/[milestoneId]`
+**Auth:** owner or member.
+**Body (at least one):** `{ title?, description?(nullable), dueDate?(nullable), order?, completed?: boolean }`. Send `completed`, never `completedAt`. Completing a milestone for the first time records activity and grants `first-milestone` (repeating it does not).
+
+### `DELETE /api/projects/[id]/milestones/[milestoneId]`
+**Auth:** owner or member.
+
+---
+
+## Activity
+
+### `GET /api/activity`
+A user's activity feed, newest first. Query: `page, limit(≤50), userId (default: the caller), type`.
+Your own feed is complete. Another user's feed shows entries with no project (achievements, team and hackathon milestones), entries on public projects, and entries on projects the caller is a member of.
+**Response:** `{ activity: [{ id, userId, type, title, description, link, metadata, createdAt, project }], pagination }`
+**Errors:** `404` user not found or has blocked the caller.
+
+---
+
+## Dashboard
+
+### `GET /api/dashboard`
+Everything the dashboard page shows, through the same rules as every other endpoint. Blocked users and their teams never appear in recommendations. The same data is available to a server component as `getDashboardData(prisma, userId)` from `src/lib/dashboard.ts`.
+**Response:** `{ currentBuild, userProjects (active, ≤5), userTeams, hackathonParticipations, userQuests, recentActivities, xpEvents, userSkills, recommendedBuilders (with compatibility and commonSkills), recruitingTeams, upcomingHackathons }`
 
 ---
 

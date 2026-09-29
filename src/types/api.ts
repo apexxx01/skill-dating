@@ -346,8 +346,15 @@ export interface ReactionSummary {
   reactedByMe: boolean
 }
 
+/** POST /api/messages/[id]/reactions (a toggle). */
 export interface ReactionResponse {
   reacted: boolean
+  reactions: ReactionSummary[]
+}
+
+/** GET /api/messages/[id]/reactions. */
+export interface MessageReactionsResponse {
+  messageId: string
   reactions: ReactionSummary[]
 }
 
@@ -480,6 +487,13 @@ export interface BlockItem {
   createdAt: IsoDate
   reason: string | null
   user: UserWithHeadline
+}
+
+/** POST /api/blocks: 201 when created, 200 if the block already existed. */
+export interface BlockResponse {
+  block: BlockItem
+  severedConnections: number
+  withdrawnApplications: number
 }
 
 export interface BlocksResponse {
