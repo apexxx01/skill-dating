@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { awardXp } from '@/lib/xp'
+import { recordActivity } from '@/lib/activity'
+import { grantAchievement } from '@/lib/achievements'
 
 const registerSchema = z.object({
   skills: z.array(z.string()).default([]),
@@ -98,26 +100,37 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(registerSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
 
-  const participant = await prisma.hackathonParticipant.create({
-    data: {
-      userId: user.id,
-      hackathonId: id,
-      skills: bodyResult.data.skills,
-      lookingFor: bodyResult.data.lookingFor,
-    }
-  })
+  // Participant creation, XP, activity, achievement, and the confirmation
+  // notification all commit atomically - a failure partway through must
+  // not leave someone registered with no XP/activity, or vice versa.
+  const participant = await prisma.$transaction(async (tx) => {
+    const created = await tx.hackathonParticipant.create({
+      data: {
+        userId: user.id,
+        hackathonId: id,
+        skills: bodyResult.data.skills,
+        lookingFor: bodyResult.data.lookingFor,
+      }
+    })
 
-  await awardXp(prisma, user.id, 'HACKATHON_JOIN', `Joined hackathon "${hackathon.name}"`)
+    await awardXp(tx, user.id, 'HACKATHON_JOIN', `Joined hackathon "${hackathon.name}"`)
+    await recordActivity(tx, user.id, 'HACKATHON_JOINED', `Joined hackathon "${hackathon.name}"`, {
+      link: `/hackathons/${hackathon.slug}`
+    })
+    await grantAchievement(tx, user.id, 'first-hackathon')
 
-  await prisma.notification.create({
-    data: {
-      userId: user.id,
-      type: 'HACKATHON_REMINDER',
-      title: 'Hackathon registration confirmed',
-      message: `You're registered for ${hackathon.name}`,
-      link: `/hackathons/${hackathon.slug}`,
-      metadata: { hackathonId: id }
-    }
+    await tx.notification.create({
+      data: {
+        userId: user.id,
+        type: 'HACKATHON_REMINDER',
+        title: 'Hackathon registration confirmed',
+        message: `You're registered for ${hackathon.name}`,
+        link: `/hackathons/${hackathon.slug}`,
+        metadata: { hackathonId: id }
+      }
+    })
+
+    return created
   })
 
   return createApiResponse(participant, 201)

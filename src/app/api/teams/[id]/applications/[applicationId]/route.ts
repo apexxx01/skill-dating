@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { recordActivity } from '@/lib/activity'
+import { grantAchievement } from '@/lib/achievements'
 
 const reviewSchema = z.object({
   status: z.enum(['ACCEPTED', 'REJECTED']),
@@ -129,6 +131,11 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
           update: {}
         })
       }
+
+      await recordActivity(tx, application.userId, 'TEAM_JOINED', `Joined team "${application.team.name}"`, {
+        link: `/teams/${application.team.slug}`
+      })
+      await grantAchievement(tx, application.userId, 'team-player')
     }
 
     return { outcome: 'reviewed' as const, application }

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, authorize } from '@/lib/api/handler'
 import { z } from 'zod'
 import { awardXp } from '@/lib/xp'
+import { recordActivity } from '@/lib/activity'
+import { grantAchievement } from '@/lib/achievements'
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -143,14 +145,19 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       }
     })
 
+    await awardXp(tx, user.id, 'PROJECT_CREATED', `Created project "${created.name}"`)
+    await recordActivity(tx, user.id, 'PROJECT_CREATED', `Created project "${created.name}"`, {
+      projectId: created.id,
+      link: `/projects/${created.slug}`
+    })
+    await grantAchievement(tx, user.id, 'first-project')
+
     return created
   })
 
   await prisma.auditEvent.create({
     data: { userId: user.id, action: 'PROJECT_CREATED', targetType: 'PROJECT', targetId: project.id, newValue: { name: project.name } }
   })
-
-  await awardXp(prisma, user.id, 'PROJECT_CREATED', `Created project "${project.name}"`)
 
   return createApiResponse(project, 201)
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'projects:create' } })
