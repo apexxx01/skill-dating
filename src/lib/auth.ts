@@ -95,11 +95,63 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         },
       })
     },
-    async signIn({ user, isNewUser }) {
+    async signIn({ user, account, isNewUser }) {
       if (!isNewUser) {
         await prisma.user.update({
           where: { id: user.id },
           data: { lastActiveAt: new Date() },
+        })
+      }
+
+      if (account?.provider === 'github' && user.id) {
+        const userId: string = user.id
+        const VERIFICATION_LEVEL_RANK: Record<string, number> = {
+          NONE: 0,
+          EMAIL: 1,
+          PHONE: 2,
+          GITHUB: 3,
+          PORTFOLIO: 4,
+          ORGANIZATION: 5,
+          IDENTITY: 6,
+        }
+
+        await prisma.$transaction(async (tx) => {
+          const existing = await tx.verification.findFirst({
+            where: { userId, type: 'GITHUB' },
+          })
+
+          if (!existing) {
+            await tx.verification.create({
+              data: {
+                userId,
+                type: 'GITHUB',
+                status: 'VERIFIED',
+                provider: 'github',
+                verifiedAt: new Date(),
+              },
+            })
+          } else if (existing.status !== 'VERIFIED') {
+            await tx.verification.update({
+              where: { id: existing.id },
+              data: { status: 'VERIFIED', verifiedAt: new Date() },
+            })
+          }
+
+          const currentUser = await tx.user.findUnique({
+            where: { id: userId },
+            select: { verificationLevel: true },
+          })
+
+          if (
+            currentUser &&
+            VERIFICATION_LEVEL_RANK[currentUser.verificationLevel] <
+              VERIFICATION_LEVEL_RANK.GITHUB
+          ) {
+            await tx.user.update({
+              where: { id: userId },
+              data: { verificationLevel: 'GITHUB' },
+            })
+          }
         })
       }
     },
