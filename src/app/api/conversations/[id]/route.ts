@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
+import { markMessagesRead } from '@/lib/messaging'
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -80,6 +81,15 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     where: { userId_conversationId: { userId: user.id, conversationId: id } },
     data: { lastReadAt: new Date() }
   })
+
+  // Opening a conversation marks as read exactly the messages this response
+  // returns (from other senders, not deleted) - an older page must not mark
+  // newer, unseen messages read.
+  await markMessagesRead(
+    prisma,
+    user.id,
+    messages.filter(m => m.senderId !== user.id && !m.deletedAt).map(m => m.id)
+  )
 
   // Soft-deleted messages keep their content in the DB (moderation/audit
   // trail) but must never reach a client — mask both the top-level row and

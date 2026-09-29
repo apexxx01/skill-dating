@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
+import { unreadCountsByConversation, totalUnread } from '@/lib/messaging'
 import { z } from 'zod'
 
 const createConversationSchema = z.object({
@@ -47,20 +48,14 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     }
   })
 
-  const conversationsWithUnread = await Promise.all(conversations.map(async (conv) => {
-    const member = await prisma.conversationMember.findUnique({
-      where: { userId_conversationId: { userId: user.id, conversationId: conv.id } }
-    })
-    const unreadCount = member?.lastReadAt
-      ? await prisma.message.count({
-          where: {
-            conversationId: conv.id,
-            createdAt: { gt: member.lastReadAt },
-            senderId: { not: user.id }
-          }
-        })
-      : conv._count.messages
+  // One grouped query for the whole page, not one per conversation.
+  const unreadByConversation = await unreadCountsByConversation(
+    prisma,
+    user.id,
+    conversations.map((conv) => conv.id)
+  )
 
+  const conversationsWithUnread = conversations.map((conv) => {
     // Mask a deleted message before it can leak out as the "last message" preview.
     const messages = conv.messages.map((m: { deletedAt: Date | null; content: string }) => ({
       ...m,
@@ -68,8 +63,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       isDeleted: Boolean(m.deletedAt),
     }))
 
-    return { ...conv, messages, unreadCount }
-  }))
+    return { ...conv, messages, unreadCount: unreadByConversation.get(conv.id) ?? 0 }
+  })
 
   const total = await prisma.conversation.count({
     where: { members: { some: { userId: user.id } } }
@@ -77,6 +72,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   return createApiResponse({
     conversations: conversationsWithUnread,
+    totalUnread: await totalUnread(prisma, user.id),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:list' } })
