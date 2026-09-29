@@ -5,7 +5,7 @@ import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
 
 const reviewSchema = z.object({
-  status: z.enum(['ACCEPTED', 'REJECTED']),
+  status: z.enum(['ACCEPTED', 'REJECTED', 'WITHDRAWN']),
 })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -19,6 +19,26 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const bodyResult = await validateBody(reviewSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+
+  // WITHDRAWN is the applicant closing their own application - a completely
+  // different actor and authorization path from ACCEPTED/REJECTED (which is
+  // the team reviewing someone else's application), so it's checked first
+  // and returns early rather than falling into the owner/admin gate below.
+  if (bodyResult.data.status === 'WITHDRAWN') {
+    const updateResult = await prisma.teamApplication.updateMany({
+      where: { id: applicationId, teamId, userId: user.id, status: 'PENDING' },
+      data: { status: 'WITHDRAWN' }
+    })
+
+    if (updateResult.count === 0) {
+      // Either it doesn't exist, isn't this caller's application, or isn't
+      // PENDING anymore - don't distinguish "not yours" from "not found" in
+      // the error, so this can't be used to probe for other users' application IDs.
+      return createApiError('Application not found or already resolved', 404)
+    }
+
+    return createApiResponse({ status: 'WITHDRAWN', applicationId })
+  }
 
   // Real authorization: only a team OWNER/ADMIN (TeamMember.role, not just
   // the single Team.ownerId) or a platform ADMIN can review. Client-supplied
