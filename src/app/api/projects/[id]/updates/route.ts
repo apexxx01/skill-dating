@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
+import { grantAchievement } from '@/lib/achievements'
 import {
   authorSelect,
-  grantAchievementSerialized,
   isValidId,
   loadProjectAccess,
   projectIdFromPath,
@@ -91,7 +91,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       projectId,
       metadata: { updateId: update.id },
     })
-    await grantAchievementSerialized(tx, user.id, 'first-update')
+    await grantAchievement(tx, user.id, 'first-update')
 
     const others = await tx.projectMember.findMany({
       where: { projectId, userId: { not: user.id } },

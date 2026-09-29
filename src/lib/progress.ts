@@ -1,7 +1,5 @@
 import type { NextRequest } from 'next/server'
 import type { Prisma, PrismaClient } from '@prisma/client'
-import { grantAchievement } from '@/lib/achievements'
-import type { AchievementSlug } from '@/lib/achievement-definitions'
 
 // Ids in these routes come straight out of the URL path. Anything that is not
 // a plausible id is treated as "no such row" without touching the database.
@@ -59,20 +57,6 @@ export async function loadProjectAccess(
 // same key run one after another, released automatically on commit/rollback.
 export async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`
-}
-
-// grantAchievement is idempotent for sequential calls but is a check-then-
-// insert, so two transactions granting the same slug at once (the very first
-// grant of an achievement, or one user completing two milestones in parallel)
-// can both pass the check and one then fails on the unique constraint,
-// aborting its whole transaction. Serialising the grant per slug removes that.
-export async function grantAchievementSerialized(
-  tx: Prisma.TransactionClient,
-  userId: string,
-  slug: AchievementSlug
-): Promise<{ granted: boolean }> {
-  await advisoryLock(tx, `achievement:${slug}`)
-  return grantAchievement(tx, userId, slug)
 }
 
 export const authorSelect = { id: true, name: true, username: true, image: true } as const

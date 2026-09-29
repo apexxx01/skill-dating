@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
+import { grantAchievement } from '@/lib/achievements'
 import {
   childIdFromPath,
-  grantAchievementSerialized,
   isValidId,
   loadProjectAccess,
   projectIdFromPath,
@@ -96,7 +96,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
             projectId,
             metadata: { milestoneId },
           })
-          await grantAchievementSerialized(tx, user.id, 'first-milestone')
+          await grantAchievement(tx, user.id, 'first-milestone')
           await tx.projectUpdate.create({
             data: {
               projectId,

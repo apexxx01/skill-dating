@@ -16,8 +16,8 @@ type PrismaOrTx = PrismaClient | Prisma.TransactionClient
  *
  * Safe to call more than once for the same user+slug: the second call is a
  * no-op (no duplicate UserAchievement row, no double XP, no duplicate
- * activity entry), enforced by the same UserAchievement.@@unique this
- * function checks before writing.
+ * activity entry), enforced by the UserAchievement unique constraint, which
+ * is what decides whether this call created the row (safe under concurrency).
  */
 export async function grantAchievement(
   tx: PrismaOrTx,
@@ -32,16 +32,18 @@ export async function grantAchievement(
     update: {}
   })
 
-  const existing = await tx.userAchievement.findUnique({
-    where: { userId_achievementId: { userId, achievementId: achievement.id } }
+  // The unique (userId, achievementId) constraint is the arbiter: INSERT ..
+  // ON CONFLICT DO NOTHING reports whether THIS call created the row. A
+  // check-then-insert would let two concurrent transactions both pass the
+  // check, after which one fails on the constraint and aborts its whole
+  // enclosing transaction (the project, update or milestone it belongs to).
+  const inserted = await tx.userAchievement.createMany({
+    data: [{ userId, achievementId: achievement.id }],
+    skipDuplicates: true,
   })
-  if (existing) {
+  if (inserted.count === 0) {
     return { granted: false }
   }
-
-  await tx.userAchievement.create({
-    data: { userId, achievementId: achievement.id }
-  })
 
   if (achievement.xpReward > 0) {
     await awardXp(tx, userId, 'ACHIEVEMENT_EARNED', `Earned achievement "${achievement.name}"`, achievement.xpReward)
