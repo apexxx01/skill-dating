@@ -53,8 +53,8 @@ export async function totalUnread(db: Db, userId: string): Promise<number> {
 }
 
 /**
- * Mark unread messages in a conversation as read for the user in one
- * statement. Race-safe: the unique (messageId, userId) constraint plus
+ * Mark unread messages in a conversation (optionally only those up to and
+ * including a given message) as read for the user in one statement. Race-safe: the unique (messageId, userId) constraint plus
  * ON CONFLICT DO NOTHING means concurrent calls cannot double-insert.
  * Returns how many rows were newly marked.
  */
@@ -62,9 +62,15 @@ export async function markConversationRead(
   db: Db,
   userId: string,
   conversationId: string,
-  upTo?: Date
+  upToMessageId?: string
 ): Promise<number> {
-  const upToClause = upTo ? Prisma.sql`AND m."createdAt" <= ${upTo}` : Prisma.empty
+  // The boundary is resolved inside SQL rather than passed as a JS Date: a
+  // Date parameter is sent as timestamptz and compared to the timestamp
+  // column through the session time zone, which silently skews the cutoff on
+  // any database whose time zone is not UTC.
+  const upToClause = upToMessageId
+    ? Prisma.sql`AND m."createdAt" <= (SELECT b."createdAt" FROM "Message" b WHERE b.id = ${upToMessageId})`
+    : Prisma.empty
   return db.$executeRaw`
     INSERT INTO "MessageRead" ("id", "messageId", "userId", "readAt")
     SELECT gen_random_uuid()::text, m.id, ${userId}, now()
