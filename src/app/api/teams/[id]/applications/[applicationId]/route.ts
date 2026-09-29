@@ -57,6 +57,29 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       if (lockedTeam && memberCount >= lockedTeam.maxSize) {
         return { outcome: 'team_full' as const }
       }
+
+      // A team's own maxSize (checked above) is independent of the
+      // maxTeamSize its linked project separately declares - a team within
+      // its own cap can still overfill a smaller project. Same lock-then-
+      // count pattern, on the Project row this time, for the same race-
+      // safety reason.
+      if (application.team.projectId) {
+        const alreadyProjectMember = await tx.projectMember.findUnique({
+          where: { userId_projectId: { userId: application.userId, projectId: application.team.projectId } }
+        })
+        // Only a genuinely new project slot needs the capacity check - an
+        // existing member being accepted onto a second team pointing at the
+        // same project is a no-op upsert below, not a new row.
+        if (!alreadyProjectMember) {
+          const [lockedProject] = await tx.$queryRaw<{ maxTeamSize: number }[]>`
+            SELECT "maxTeamSize" FROM "Project" WHERE id = ${application.team.projectId} FOR UPDATE
+          `
+          const projectMemberCount = await tx.projectMember.count({ where: { projectId: application.team.projectId } })
+          if (lockedProject && projectMemberCount >= lockedProject.maxTeamSize) {
+            return { outcome: 'project_full' as const }
+          }
+        }
+      }
     }
 
     // Atomic compare-and-swap: the WHERE clause only matches a row still
@@ -119,6 +142,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
   if (result.outcome === 'team_full') {
     return createApiError('Team is full', 400)
+  }
+  if (result.outcome === 'project_full') {
+    return createApiError("This team's linked project is already at its max team size", 400)
   }
 
   const { application } = result
