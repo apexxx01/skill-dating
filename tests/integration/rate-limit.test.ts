@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { INTEGRATION_BASE_URL } from './global-setup'
+import { INTEGRATION_BASE_URL } from './config'
 import { req, registerAndLogin, syntheticIp, uniqueSuffix } from './helpers'
 import { cleanupTestUsers } from './db'
 

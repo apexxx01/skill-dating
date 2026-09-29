@@ -1,4 +1,4 @@
-import { INTEGRATION_BASE_URL } from './global-setup'
+import { INTEGRATION_BASE_URL } from './config'
 
 export interface Jar {
   apply(headers: Headers): void

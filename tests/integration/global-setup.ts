@@ -1,6 +1,7 @@
 import { spawn, execSync, type ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_PORT } from './config'
 
 // Integration tests run against a real Next.js dev server and a real,
 // disposable Postgres database - not mocks. They exercise the actual HTTP
@@ -8,8 +9,8 @@ import fs from 'fs'
 // class of bug this suite exists for (transaction races, auth holes,
 // double-awards on repeat calls) - a unit test with a mocked Prisma client
 // can't reproduce any of those.
-export const INTEGRATION_BASE_URL = 'http://localhost:3459'
-const TEST_DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/skill_dating_integration?schema=public'
+export { INTEGRATION_BASE_URL }
+const TEST_DATABASE_URL = INTEGRATION_DATABASE_URL
 
 let serverProcess: ChildProcess | undefined
 
@@ -65,6 +66,19 @@ export default async function setup() {
   const projectRoot = path.resolve(__dirname, '../..')
   const envLocal = loadEnvLocal(projectRoot)
 
+  // Fail loudly if something already answers on the port. Otherwise the
+  // readiness check below would happily succeed against someone else's server
+  // and the whole suite would run against the wrong database.
+  const occupied = await fetch(INTEGRATION_BASE_URL + '/api/auth/csrf').then(
+    () => true,
+    () => false
+  )
+  if (occupied) {
+    throw new Error(
+      `Port ${INTEGRATION_PORT} is already serving requests. Set TEST_PORT to a free port; refusing to run against a server this suite did not start.`
+    )
+  }
+
   // `prisma db push` creates the target Postgres database if it doesn't
   // already exist (confirmed live) and syncs the schema either way - so
   // this suite needs nothing beyond a reachable Postgres server, not a
@@ -86,7 +100,7 @@ export default async function setup() {
   // differently in ways unrelated to the actual env-loading fix above.
   const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1' }
 
-  serverProcess = spawn('npx', ['next', 'dev', '-p', '3459'], {
+  serverProcess = spawn('npx', ['next', 'dev', '-p', String(INTEGRATION_PORT)], {
     cwd: projectRoot,
     env: childEnv,
     stdio: 'ignore',
