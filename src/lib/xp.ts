@@ -35,10 +35,14 @@ type PrismaOrTx = PrismaClient | Prisma.TransactionClient
 export async function awardXp(
   prisma: PrismaOrTx,
   userId: string,
-  type: XpAwardType,
-  description: string
+  type: XpAwardType | 'ACHIEVEMENT_EARNED',
+  description: string,
+  // Achievements don't share one fixed amount the way XP_AWARDS entries do
+  // (each achievement defines its own xpReward), so 'ACHIEVEMENT_EARNED'
+  // takes its amount here instead of from the fixed-amount table.
+  explicitAmount?: number
 ): Promise<void> {
-  const amount = XP_AWARDS[type]
+  const amount = type === 'ACHIEVEMENT_EARNED' ? (explicitAmount ?? 0) : XP_AWARDS[type]
   await prisma.xPEvent.create({ data: { userId, type, amount, description } })
   await prisma.user.update({ where: { id: userId }, data: { xp: { increment: amount } } })
 }
