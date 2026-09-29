@@ -34,4 +34,32 @@ describe('second audit pass', () => {
     expect(await testPrisma.xPEvent.count({ where: { userId: u.userId, type: 'ACHIEVEMENT_EARNED' } })).toBe(1)
     expect(await testPrisma.activity.count({ where: { userId: u.userId, type: 'ACHIEVEMENT_EARNED' } })).toBe(1)
   })
+
+  it('does not let a client bind a conversation to a team, project or hackathon, or add unknown users', async () => {
+    const owner = await user('own')
+    const stranger = await user('str')
+    const team = await req(owner.jar, 'POST', '/api/teams', { name: `Sp Team ${suffix}${n++}` })
+    const project = await req(owner.jar, 'POST', '/api/projects', { name: `Sp Project ${suffix}${n++}` })
+
+    for (const body of [
+      { type: 'TEAM', teamId: team.data.id, participantIds: [owner.userId] },
+      { type: 'PROJECT', projectId: project.data.id, participantIds: [owner.userId] },
+      { type: 'HACKATHON', hackathonId: 'anything', participantIds: [owner.userId] },
+    ]) {
+      const res = await req(stranger.jar, 'POST', '/api/conversations', body)
+      expect(res.status, JSON.stringify(body)).toBe(400)
+    }
+
+    const ghost = await req(stranger.jar, 'POST', '/api/conversations', { type: 'GROUP', name: 'x', participantIds: ['no-such-user'] })
+    expect(ghost.status).toBe(400)
+
+    // Plain direct and group conversations still work.
+    expect((await req(stranger.jar, 'POST', '/api/conversations', { type: 'DIRECT', participantIds: [owner.userId] })).status).toBe(201)
+    const group = await req(stranger.jar, 'POST', '/api/conversations', { type: 'GROUP', name: 'crew', participantIds: [owner.userId] })
+    expect(group.status).toBe(201)
+    expect(group.data.teamId ?? null).toBeNull()
+
+    // The team's own conversation is still the one created with the team.
+    expect(await testPrisma.conversation.count({ where: { teamId: team.data.id } })).toBe(1)
+  })
 })
