@@ -29,6 +29,16 @@ const updateHackathonSchema = z.object({
   banner: z.string().url().optional().or(z.literal('')),
 })
 
+// Forward-only lifecycle: UPCOMING -> ACTIVE -> ENDED, or CANCELLED from
+// either of the two non-terminal states. ENDED and CANCELLED are terminal -
+// no reopening a hackathon once it's closed out.
+const HACKATHON_STATUS_TRANSITIONS: Record<string, string[]> = {
+  UPCOMING: ['ACTIVE', 'CANCELLED'],
+  ACTIVE: ['ENDED', 'CANCELLED'],
+  ENDED: [],
+  CANCELLED: [],
+}
+
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
   const id = url.pathname.split('/').pop()
@@ -150,6 +160,17 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const bodyResult = await validateBody(updateHackathonSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+
+  if (bodyResult.data.status) {
+    const current = await prisma.hackathon.findUnique({ where: { id }, select: { status: true } })
+    if (!current) {
+      return createApiError('Hackathon not found', 404)
+    }
+    const allowed = HACKATHON_STATUS_TRANSITIONS[current.status] ?? []
+    if (current.status !== bodyResult.data.status && !allowed.includes(bodyResult.data.status)) {
+      return createApiError(`Cannot transition hackathon from ${current.status} to ${bodyResult.data.status}`, 400)
+    }
+  }
 
   const updateData: Record<string, unknown> = { ...bodyResult.data }
   if (updateData.startDate) updateData.startDate = new Date(updateData.startDate as string)
