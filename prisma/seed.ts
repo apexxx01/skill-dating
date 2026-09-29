@@ -208,11 +208,16 @@ async function main() {
   // -------------------------------------------------------------------
   const skillBySlug = new Map<string, { id: string }>()
   for (const s of SKILLS) {
-    const skill = await prisma.skill.upsert({
-      where: { slug: s.slug },
-      update: { name: s.name, category: s.category },
-      create: { name: s.name, slug: s.slug, category: s.category },
+    // Skill has two unique columns (name and slug). A row created through the
+    // API can share a name with a seed skill under a different slug, so match
+    // on either and leave the existing row's name/slug untouched.
+    const existing = await prisma.skill.findFirst({
+      where: { OR: [{ slug: s.slug }, { name: s.name }] },
+      orderBy: { createdAt: 'asc' },
     })
+    const skill = existing
+      ? await prisma.skill.update({ where: { id: existing.id }, data: { category: s.category } })
+      : await prisma.skill.create({ data: { name: s.name, slug: s.slug, category: s.category } })
     skillBySlug.set(s.slug, skill)
   }
 
