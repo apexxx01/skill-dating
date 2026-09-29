@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'child_process'
+import { spawn, execSync, type ChildProcess } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 
@@ -64,6 +64,16 @@ function loadEnvLocal(projectRoot: string): Record<string, string> {
 export default async function setup() {
   const projectRoot = path.resolve(__dirname, '../..')
   const envLocal = loadEnvLocal(projectRoot)
+
+  // `prisma db push` creates the target Postgres database if it doesn't
+  // already exist (confirmed live) and syncs the schema either way - so
+  // this suite needs nothing beyond a reachable Postgres server, not a
+  // pre-created database.
+  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+    cwd: projectRoot,
+    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
+    stdio: 'ignore',
+  })
 
   // Spawned directly via `next dev`, not `npm run dev` - npm's own wrapper
   // process doesn't reliably propagate a kill signal down to the actual
