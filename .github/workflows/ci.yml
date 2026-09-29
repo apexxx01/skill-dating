@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # The Prisma client is not generated on install; the types depend on it.
+      - run: npx prisma generate
+      - run: npm run typecheck
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Split so the frontend, which currently has known lint errors, cannot
+      # hide a backend regression: the backend step blocks the build, the
+      # whole-repo step only reports until the frontend is clean, at which
+      # point continue-on-error should be removed and the two merged.
+      - name: Lint backend (required)
+        run: npx next lint --dir src/app/api --dir src/lib --dir tests --dir prisma --file src/middleware.ts
+      - name: Lint whole repository (report only)
+        continue-on-error: true
+        run: npm run lint
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx vitest run
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Read by the integration harness, which creates the database, pushes
+      # the schema and starts its own server on TEST_PORT.
+      TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
+      TEST_DB_NAME: skill_dating_ci
+      TEST_PORT: 3459
+      # Throwaway value: the app refuses to serve auth routes without a secret.
+      NEXTAUTH_SECRET: ci-only-secret-not-used-anywhere-else
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run test:integration
