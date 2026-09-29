@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { unreadCountsByConversation, totalUnread } from '@/lib/messaging'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
 
 // Only person-to-person and ad-hoc group conversations are created here.
@@ -18,6 +19,8 @@ const createConversationSchema = z.object({
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
+  type: z.enum(['DIRECT', 'GROUP', 'PROJECT', 'TEAM', 'HACKATHON']).optional(),
+  search: z.string().trim().min(1).max(100).optional(),
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -27,11 +30,36 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 20
   const skip = (page - 1) * limit
+  const { type, search } = queryResult.data
+
+  // The conversations the caller belongs to, optionally narrowed by type and
+  // by a search over the conversation's own name, the team/project/hackathon
+  // it belongs to, or the other participants' names.
+  const where: Prisma.ConversationWhereInput = {
+    members: { some: { userId: user.id } },
+    ...(type ? { type } : {}),
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { team: { name: { contains: search, mode: 'insensitive' } } },
+            { project: { name: { contains: search, mode: 'insensitive' } } },
+            { hackathon: { name: { contains: search, mode: 'insensitive' } } },
+            {
+              members: {
+                some: {
+                  userId: { not: user.id },
+                  user: { OR: [{ name: { contains: search, mode: 'insensitive' } }, { username: { contains: search, mode: 'insensitive' } }] },
+                },
+              },
+            },
+          ],
+        }
+      : {}),
+  }
 
   const conversations = await prisma.conversation.findMany({
-    where: {
-      members: { some: { userId: user.id } }
-    },
+    where,
     skip,
     take: limit,
     orderBy: { updatedAt: 'desc' },
@@ -69,9 +97,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return { ...conv, messages, unreadCount: unreadByConversation.get(conv.id) ?? 0 }
   })
 
-  const total = await prisma.conversation.count({
-    where: { members: { some: { userId: user.id } } }
-  })
+  const total = await prisma.conversation.count({ where })
 
   return createApiResponse({
     conversations: conversationsWithUnread,

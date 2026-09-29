@@ -3,6 +3,7 @@ import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { authorize } from '@/lib/api/handler'
 import { calculateSkillCompatibility } from '@/lib/scoring'
 import { blockRelation } from '@/lib/blocks'
+import { liveRank } from '@/lib/leaderboard'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
@@ -128,5 +129,17 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ).score
   }
 
-  return createApiResponse({ ...targetUser, compatibility, blockedByMe: relation === 'BLOCKED_BY_ME' })
+  // `rank` is computed from the XP event log: the stored column is never
+  // updated and would always read 0. The account's own email is returned to
+  // that account only; nobody else's is ever exposed.
+  const standing = await liveRank(prisma, id)
+  const own = id === user.id ? await prisma.user.findUnique({ where: { id }, select: { email: true } }) : null
+
+  return createApiResponse({
+    ...targetUser,
+    rank: standing.rank ?? 0,
+    ...(own ? { email: own.email } : {}),
+    compatibility,
+    blockedByMe: relation === 'BLOCKED_BY_ME',
+  })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })

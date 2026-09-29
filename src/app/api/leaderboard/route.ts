@@ -3,6 +3,7 @@ import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { blockedUserIds } from '@/lib/blocks'
+import { liveRank } from '@/lib/leaderboard'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -64,24 +65,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     }))
     .filter(e => e.user !== null)
 
-  // The caller's own standing, even off the current page — cheap single
-  // aggregate, and knowing "you're #842" is more useful than nothing.
-  const myAggregate = await prisma.xPEvent.aggregate({
-    where: { userId: user.id },
-    _sum: { amount: true },
-  })
-  const myXp = myAggregate._sum.amount ?? 0
-  const myRankRow = await prisma.$queryRaw<{ rank: bigint }[]>`
-    SELECT COUNT(*) + 1 as rank
-    FROM (
-      SELECT "userId", SUM("amount") as total
-      FROM "XPEvent"
-      ${hiddenFilter}
-      GROUP BY "userId"
-      HAVING SUM("amount") > ${myXp}
-    ) as ahead
-  `
-  const myRank = myXp > 0 ? Number(myRankRow[0]?.rank ?? 0) : null
+  // The caller's own standing, even off the current page.
+  const { xp: myXp, rank: myRank } = await liveRank(prisma, user.id, hidden)
 
   return createApiResponse({
     entries,

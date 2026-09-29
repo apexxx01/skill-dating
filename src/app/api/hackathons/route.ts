@@ -29,7 +29,7 @@ const querySchema = z.object({
   search: z.string().optional(),
 })
 
-export const GET = withAuth(async (request: NextRequest, { prisma }) => {
+export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)
   if (queryResult instanceof Response) return queryResult
 
@@ -61,8 +61,20 @@ export const GET = withAuth(async (request: NextRequest, { prisma }) => {
     prisma.hackathon.count({ where })
   ])
 
+  // Whether the viewer is registered, and which team they entered with, in
+  // one query for the whole page - the list needs this to choose between a
+  // "Register" and a "My team" action without a request per hackathon.
+  const participations = await prisma.hackathonParticipant.findMany({
+    where: { userId: user.id, hackathonId: { in: hackathons.map((h) => h.id) } },
+    select: { hackathonId: true, teamId: true, status: true },
+  })
+  const participationByHackathon = new Map(participations.map((p) => [p.hackathonId, p]))
+
   return createApiResponse({
-    hackathons,
+    hackathons: hackathons.map((h) => {
+      const mine = participationByHackathon.get(h.id)
+      return { ...h, registered: Boolean(mine), myTeamId: mine?.teamId ?? null, myStatus: mine?.status ?? null }
+    }),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:list' } })
