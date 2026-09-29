@@ -8,6 +8,7 @@ export const XP_AWARDS = {
   PROJECT_SHIP: 200,
   HACKATHON_JOIN: 100,
   TEAM_FORMED: 50,
+  HACKATHON_WIN: 500,
 } as const
 
 export type XpAwardType = keyof typeof XP_AWARDS

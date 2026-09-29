@@ -61,6 +61,15 @@ export const ACHIEVEMENT_DEFINITIONS = {
     criteria: { type: 'TEAM_APPLICATION_ACCEPTED', count: 1 },
     order: 5,
   },
+  'hackathon-winner': {
+    name: 'Hackathon Winner',
+    description: "Placed 1st in a hackathon's final results.",
+    icon: 'crown',
+    category: 'HACKATHON',
+    xpReward: 250,
+    criteria: { type: 'HACKATHON_WIN', rank: 1 },
+    order: 6,
+  },
 } satisfies Record<string, AchievementDefinition>
 
 export type AchievementSlug = keyof typeof ACHIEVEMENT_DEFINITIONS
