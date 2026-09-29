@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership, checkOwnership } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockGuardAny } from '@/lib/blocks'
 
 const applySchema = z.object({
   message: z.string().max(1000).optional(),
@@ -18,6 +19,15 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (!team) {
     return createApiError('Team not found', 404)
   }
+
+  // The people who would review this application must not be blocked with,
+  // or by, the applicant.
+  const reviewers = await prisma.teamMember.findMany({
+    where: { teamId: id, role: { in: ['OWNER', 'ADMIN'] } },
+    select: { userId: true },
+  })
+  const blocked = await blockGuardAny(prisma, user.id, [team.ownerId, ...reviewers.map((r) => r.userId)], 'Team not found')
+  if (blocked) return blocked
 
   if (!team.isRecruiting) {
     return createApiError('Team is not recruiting', 400)

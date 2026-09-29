@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockGuard } from '@/lib/blocks'
 
 const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK', 'DATING'] as const
 
@@ -32,6 +33,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (!receiver) {
     return createApiError('User not found', 404)
   }
+
+  const blocked = await blockGuard(prisma, user.id, receiverId)
+  if (blocked) return blocked
 
   // Check both directions - a duplicate/conflicting request is still a
   // duplicate/conflicting request whichever way it originally went, and an

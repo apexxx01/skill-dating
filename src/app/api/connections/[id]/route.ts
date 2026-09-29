@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
+import { blockGuard } from '@/lib/blocks'
 
 const reviewSchema = z.object({
   status: z.enum(['ACCEPTED', 'DECLINED']),
@@ -36,6 +37,13 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
 
   const nextStatus = bodyResult.data.status
+
+  // A request that was pending when a block was placed is severed with the
+  // block, so this is a backstop; declining is always allowed.
+  if (nextStatus === 'ACCEPTED') {
+    const blocked = await blockGuard(prisma, user.id, connection.senderId)
+    if (blocked) return blocked
+  }
 
   // Status flip, the DM conversation it unlocks, and the acceptance
   // notification all commit atomically - a failure partway through must

@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
+import { blockGuard } from '@/lib/blocks'
 
 const reviewSchema = z.object({
   status: z.enum(['ACCEPTED', 'REJECTED', 'WITHDRAWN']),
@@ -61,6 +62,21 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
         return createApiError('Forbidden', 403)
       }
+    }
+  }
+
+  // Accepting brings two people into the same team, so it is refused while
+  // either has blocked the other. For an invitation the counterpart is the
+  // inviter; for an application it is the applicant.
+  if (bodyResult.data.status === 'ACCEPTED') {
+    const pending = await prisma.teamApplication.findUnique({
+      where: { id: applicationId },
+      select: { userId: true, invitedById: true, teamId: true },
+    })
+    if (pending && pending.teamId === teamId) {
+      const counterpart = pending.invitedById && pending.userId === user.id ? pending.invitedById : pending.userId
+      const blocked = await blockGuard(prisma, user.id, counterpart)
+      if (blocked) return blocked
     }
   }
 

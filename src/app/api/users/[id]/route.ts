@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { authorize } from '@/lib/api/handler'
 import { calculateSkillCompatibility } from '@/lib/scoring'
+import { blockRelation } from '@/lib/blocks'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
@@ -104,6 +105,13 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('User not found', 404)
   }
 
+  // Someone who has blocked the viewer looks, to the viewer, like an account
+  // that does not exist. The blocker can still open the profile (to unblock).
+  const relation = await blockRelation(prisma, user.id, id)
+  if (relation === 'BLOCKED_BY_THEM') {
+    return createApiError('User not found', 404)
+  }
+
   let compatibility = null
   if (id !== user.id) {
     const mySkills = await prisma.userSkill.findMany({
@@ -120,5 +128,5 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ).score
   }
 
-  return createApiResponse({ ...targetUser, compatibility })
+  return createApiResponse({ ...targetUser, compatibility, blockedByMe: relation === 'BLOCKED_BY_ME' })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockGuardAny } from '@/lib/blocks'
 
 const createConversationSchema = z.object({
   type: z.enum(['DIRECT', 'GROUP', 'PROJECT', 'TEAM', 'HACKATHON']).default('DIRECT'),
@@ -92,6 +93,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   const allParticipantIds = [...new Set([user.id, ...participantIds])]
+
+  // No one can start a conversation with a user they have blocked or who has
+  // blocked them.
+  const blocked = await blockGuardAny(prisma, user.id, participantIds)
+  if (blocked) return blocked
 
   if (type === 'DIRECT') {
     const existing = await prisma.conversation.findFirst({

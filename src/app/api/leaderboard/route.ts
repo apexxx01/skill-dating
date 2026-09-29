@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
+import { blockedUserIds } from '@/lib/blocks'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -28,10 +30,16 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 50
   const skip = (page - 1) * limit
 
+  // Users blocked in either direction are left out, and ranks are counted
+  // among the users this viewer can actually see.
+  const hidden = await blockedUserIds(prisma, user.id)
+  const hiddenFilter = hidden.length ? Prisma.sql`WHERE "userId" NOT IN (${Prisma.join(hidden)})` : Prisma.empty
+
   const [totalRow, grouped] = await Promise.all([
-    prisma.$queryRaw<{ count: bigint }[]>`SELECT COUNT(DISTINCT "userId") as count FROM "XPEvent"`,
+    prisma.$queryRaw<{ count: bigint }[]>`SELECT COUNT(DISTINCT "userId") as count FROM "XPEvent" ${hiddenFilter}`,
     prisma.xPEvent.groupBy({
       by: ['userId'],
+      where: hidden.length ? { userId: { notIn: hidden } } : undefined,
       _sum: { amount: true },
       orderBy: { _sum: { amount: 'desc' } },
       skip,
@@ -68,6 +76,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     FROM (
       SELECT "userId", SUM("amount") as total
       FROM "XPEvent"
+      ${hiddenFilter}
       GROUP BY "userId"
       HAVING SUM("amount") > ${myXp}
     ) as ahead

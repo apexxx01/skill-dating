@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
 import { calculateSkillCompatibility, type SkillRef } from '@/lib/scoring'
 import { z } from 'zod'
+import { blockedUserIds } from '@/lib/blocks'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -28,7 +29,9 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const { search, skills, location } = queryResult.data
 
-  const where: Record<string, unknown> = { id: { not: user.id } }
+  // Users blocked in either direction never appear.
+  const hidden = await blockedUserIds(prisma, user.id)
+  const where: Record<string, unknown> = { id: { not: user.id, ...(hidden.length ? { notIn: hidden } : {}) } }
 
   if (search) {
     where.OR = [

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockGuard } from '@/lib/blocks'
 
 const inviteSchema = z.object({
   userId: z.string().min(1),
@@ -42,6 +43,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (!invitee) {
     return createApiError('User not found', 404)
   }
+
+  const blocked = await blockGuard(prisma, user.id, inviteeId)
+  if (blocked) return blocked
 
   const alreadyMember = await checkMembership(prisma, inviteeId, 'team', id)
   if (alreadyMember) {

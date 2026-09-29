@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
+import { blockGuardAny } from '@/lib/blocks'
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -116,6 +117,23 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const bodyResult = await validateBody(sendMessageSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+
+  // A direct conversation is a message addressed to one person, so it is
+  // closed while either side has blocked the other. Shared team, project and
+  // hackathon rooms are not addressed to an individual and stay open.
+  const conversationInfo = await prisma.conversation.findUnique({
+    where: { id },
+    select: { type: true, members: { select: { userId: true } } },
+  })
+  if (conversationInfo?.type === 'DIRECT') {
+    const blocked = await blockGuardAny(
+      prisma,
+      user.id,
+      conversationInfo.members.map((m) => m.userId),
+      'Conversation not found'
+    )
+    if (blocked) return blocked
+  }
 
   const message = await prisma.message.create({
     data: {

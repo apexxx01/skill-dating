@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
 import { calculateSkillCompatibility, type SkillRef } from '@/lib/scoring'
+import { blockedUserIds } from '@/lib/blocks'
 
 /**
  * Recommend candidate builders for a recruiting team, ranked by
@@ -52,7 +53,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     where: { teamId: id },
     select: { userId: true }
   })
-  const excludedIds = new Set([...memberIds, ...existingApplicants.map(a => a.userId), team.ownerId])
+  const excludedIds = new Set([
+    ...memberIds,
+    ...existingApplicants.map(a => a.userId),
+    team.ownerId,
+    ...(await blockedUserIds(prisma, user.id)),
+  ])
 
   const candidateUsers = await prisma.user.findMany({
     where: {

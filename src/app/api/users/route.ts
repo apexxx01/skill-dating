@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { blockedUserIds } from '@/lib/blocks'
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -35,8 +36,9 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const location = queryResult.data.location
   const skip = (page - 1) * limit
 
+  const hidden = await blockedUserIds(prisma, user.id)
   const where: Record<string, unknown> = {
-    id: { not: user.id },
+    id: { not: user.id, ...(hidden.length ? { notIn: hidden } : {}) },
   }
 
   if (search) {
