@@ -16,11 +16,17 @@
  *     idea-stage project, applied to another team)
  * All 12 seeded users share the password DemoPass123! for convenience during
  * a demo walkthrough.
+ *
+ * Also seeded: skill evidence and peer endorsements, project updates and
+ * milestones, profile activity, granted achievements, connections (accepted
+ * and pending), and read state plus reactions on the demo conversations.
+ * Each is matched on its natural identity (see the comments on each block).
  */
 
 import { PrismaClient, ProjectStatus, HackathonStatus, HackathonParticipantStatus, TeamApplicationStatus } from '@prisma/client'
 import { hash } from 'bcryptjs'
 import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition } from '../src/lib/achievement-definitions'
+import { grantAchievement } from '../src/lib/achievements'
 
 const prisma = new PrismaClient()
 
@@ -774,6 +780,218 @@ async function main() {
       { senderId: leo.id, content: 'Good call. Also just saw we got another application in - the growth marketing one looks promising.' },
       { senderId: aanya.id, content: 'Yeah I saw Samira\'s application, her background looks solid. Want to jump on a call with her this week?' },
     ])
+  }
+
+  // -------------------------------------------------------------------
+  // Skill evidence and peer endorsements
+  //
+  // Evidence rows are matched on (user, skill, type, title); an endorsement is
+  // matched on the evidence it endorses plus the endorser, the same identity
+  // the endorse endpoint uses, so re-running adds nothing.
+  // -------------------------------------------------------------------
+  const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000)
+
+  const EVIDENCE: { key: string; user: { id: string }; skill: string; type: string; title: string; url?: string; description: string }[] = [
+    { key: 'aanya-react', user: aanya, skill: 'react', type: 'PORTFOLIO', title: 'PairUp web app', url: 'https://pairup.example.com', description: 'Production React front end for PairUp, including the swipe-style matching flow.' },
+    { key: 'aanya-node', user: aanya, skill: 'nodejs', type: 'GITHUB_PROJECT', title: 'pairup-api', url: 'https://github.com/aanya-builds/pairup-api', description: 'Matching and check-in API behind PairUp.' },
+    { key: 'leo-ts', user: leo, skill: 'typescript', type: 'CONTRIBUTION', title: 'Sync engine for FocusLoop', url: 'https://github.com/leo-ships/focusloop', description: 'CRDT-based local-first sync written in TypeScript.' },
+    { key: 'mika-ml', user: mika, skill: 'machine-learning', type: 'GITHUB_PROJECT', title: 'papertrail-core', url: 'https://github.com/mika-codes/papertrail-core', description: 'Extracts the core algorithm from arXiv papers and generates a minimal implementation.' },
+    { key: 'priya-figma', user: priya, skill: 'figma', type: 'PORTFOLIO', title: 'Design system for a hackathon toolkit', url: 'https://priya.example.com/design-system', description: 'Component library and critique templates used by three hackathon teams.' },
+    { key: 'diego-go', user: diego, skill: 'go', type: 'CONTRIBUTION', title: 'Alert routing service', url: 'https://github.com/dtorres-dev/alert-router', description: 'Rate-aware alert fan-out written in Go.' },
+    { key: 'ingrid-sol', user: ingrid, skill: 'solidity', type: 'CERTIFICATION', title: 'Smart contract security course', url: 'https://certs.example.com/ingrid-solidity', description: 'Completed a practical audit-focused Solidity course.' },
+  ]
+
+  const evidenceByKey = new Map<string, { id: string; userId: string; skillId: string; title: string }>()
+  for (const e of EVIDENCE) {
+    const skill = skillBySlug.get(e.skill)!
+    const existing = await prisma.skillEvidence.findFirst({
+      where: { userId: e.user.id, skillId: skill.id, type: e.type, title: e.title },
+    })
+    const row =
+      existing ??
+      (await prisma.skillEvidence.create({
+        data: { userId: e.user.id, skillId: skill.id, type: e.type, title: e.title, url: e.url, description: e.description, createdAt: daysAgo(12) },
+      }))
+    evidenceByKey.set(e.key, { id: row.id, userId: row.userId, skillId: row.skillId, title: row.title })
+  }
+
+  const ENDORSEMENTS: { evidence: string; by: { id: string } }[] = [
+    { evidence: 'aanya-react', by: leo },
+    { evidence: 'aanya-react', by: priya },
+    { evidence: 'aanya-node', by: leo },
+    { evidence: 'mika-ml', by: yuki },
+    { evidence: 'diego-go', by: aanya },
+    { evidence: 'priya-figma', by: aanya },
+  ]
+  for (const en of ENDORSEMENTS) {
+    const evidence = evidenceByKey.get(en.evidence)!
+    const existing = await prisma.skillEvidence.findFirst({
+      where: {
+        type: 'PEER_ENDORSEMENT',
+        AND: [
+          { metadata: { path: ['endorsedEvidenceId'], equals: evidence.id } },
+          { metadata: { path: ['endorserId'], equals: en.by.id } },
+        ],
+      },
+    })
+    if (existing) continue
+    await prisma.skillEvidence.create({
+      data: {
+        userId: evidence.userId,
+        skillId: evidence.skillId,
+        type: 'PEER_ENDORSEMENT',
+        title: `Peer endorsement: ${evidence.title}`.slice(0, 200),
+        metadata: { endorsedEvidenceId: evidence.id, endorserId: en.by.id },
+      },
+    })
+  }
+
+  // -------------------------------------------------------------------
+  // Project updates and milestones (matched on project + title)
+  // -------------------------------------------------------------------
+  const projectId = (slug: string) => projectBySlug.get(slug)!.id
+  const ownerOf = (slug: string) => projectBySlug.get(slug)!.ownerId
+
+  const UPDATES: { project: string; authorId: string; title: string; content: string; type: string; days: number }[] = [
+    { project: 'pairup', authorId: aanya.id, title: 'Onboarding flow rework is live', content: 'The new onboarding cut time-to-first-match from four steps to two. Early testers finish it without help.', type: 'UPDATE', days: 9 },
+    { project: 'pairup', authorId: leo.id, title: 'Weekly check-in reminders shipped', content: 'Reminders now go out the morning of a check-in and retry when the notification service is slow.', type: 'UPDATE', days: 3 },
+    { project: 'pairup', authorId: aanya.id, title: 'PairUp is looking for a growth marketer', content: 'We have the product in shape and need someone to help find the first cohort of users.', type: 'ANNOUNCEMENT', days: 2 },
+    { project: 'focusloop', authorId: leo.id, title: 'CRDT sync works across two devices', content: 'Timers started on one device now show up on the other with no account and no server round trip.', type: 'UPDATE', days: 5 },
+    { project: 'papertrail-ml', authorId: mika.id, title: 'Notebook generation passes the first 20 papers', content: 'Twenty of the first thirty papers produce a notebook that runs end to end. Fixing the rest is the next milestone.', type: 'UPDATE', days: 6 },
+    { project: 'papertrail-ml', authorId: yuki.id, title: 'Added a benchmark harness', content: 'A small harness now compares generated implementations against the reference numbers in each paper.', type: 'UPDATE', days: 1 },
+  ]
+  for (const u of UPDATES) {
+    const pid = projectId(u.project)
+    const exists = await prisma.projectUpdate.findFirst({ where: { projectId: pid, title: u.title } })
+    if (exists) continue
+    await prisma.projectUpdate.create({
+      data: { projectId: pid, authorId: u.authorId, title: u.title, content: u.content, type: u.type, createdAt: daysAgo(u.days) },
+    })
+  }
+
+  const MILESTONES: { project: string; title: string; description: string; order: number; doneDaysAgo?: number; dueInDays?: number }[] = [
+    { project: 'pairup', title: 'Private beta', description: 'Ten pairs completing a full week of check-ins.', order: 0, doneDaysAgo: 30 },
+    { project: 'pairup', title: 'Public launch', description: 'Open sign-up and a landing page.', order: 1, doneDaysAgo: 14 },
+    { project: 'pairup', title: 'First 500 users', description: 'Reach 500 registered builders.', order: 2, dueInDays: 30 },
+    { project: 'focusloop', title: 'Two-device sync', description: 'A timer started on one device appears on another.', order: 0, doneDaysAgo: 5 },
+    { project: 'focusloop', title: 'Design pass', description: 'Replace the placeholder UI.', order: 1, dueInDays: 14 },
+    { project: 'focusloop', title: 'Public beta', description: 'Publish to a small group of testers.', order: 2, dueInDays: 45 },
+    { project: 'papertrail-ml', title: 'Notebook generator', description: 'Generate a runnable notebook from a paper.', order: 0, doneDaysAgo: 20 },
+    { project: 'papertrail-ml', title: 'Benchmark harness', description: 'Compare generated code against published results.', order: 1, doneDaysAgo: 1 },
+    { project: 'papertrail-ml', title: 'Handle multi-algorithm papers', description: 'Support papers that introduce more than one method.', order: 2, dueInDays: 21 },
+  ]
+  for (const m of MILESTONES) {
+    const pid = projectId(m.project)
+    const exists = await prisma.milestone.findFirst({ where: { projectId: pid, title: m.title } })
+    if (exists) continue
+    await prisma.milestone.create({
+      data: {
+        projectId: pid,
+        title: m.title,
+        description: m.description,
+        order: m.order,
+        completedAt: m.doneDaysAgo !== undefined ? daysAgo(m.doneDaysAgo) : null,
+        dueDate: m.dueInDays !== undefined ? new Date(Date.now() + m.dueInDays * 24 * 60 * 60 * 1000) : null,
+      },
+    })
+  }
+
+  // Activity for the profile feed: a project-scoped entry (public, so visible
+  // to everyone) and one that has no project. Matched on user + type + title.
+  const ACTIVITIES: { userId: string; type: string; title: string; project?: string; days: number }[] = [
+    { userId: aanya.id, type: 'PROJECT_UPDATE_POSTED', title: 'Posted an update on "PairUp"', project: 'pairup', days: 9 },
+    { userId: aanya.id, type: 'MILESTONE_COMPLETED', title: 'Completed milestone "Public launch" on "PairUp"', project: 'pairup', days: 14 },
+    { userId: leo.id, type: 'PROJECT_UPDATE_POSTED', title: 'Posted an update on "FocusLoop"', project: 'focusloop', days: 5 },
+    { userId: mika.id, type: 'MILESTONE_COMPLETED', title: 'Completed milestone "Benchmark harness" on "PaperTrail"', project: 'papertrail-ml', days: 1 },
+    { userId: diego.id, type: 'TEAM_JOINED', title: 'Joined the ChainWatch core team', days: 7 },
+  ]
+  for (const a of ACTIVITIES) {
+    const exists = await prisma.activity.findFirst({ where: { userId: a.userId, type: a.type, title: a.title } })
+    if (exists) continue
+    await prisma.activity.create({
+      data: { userId: a.userId, type: a.type, title: a.title, projectId: a.project ? projectId(a.project) : undefined, createdAt: daysAgo(a.days) },
+    })
+  }
+
+  // Achievements through the real grant path: idempotent, and it records the
+  // XP event and activity entry the same way a live grant would.
+  const GRANTS: { userId: string; slug: 'first-evidence' | 'endorsed' | 'first-update' | 'first-milestone' }[] = [
+    { userId: aanya.id, slug: 'first-evidence' },
+    { userId: aanya.id, slug: 'endorsed' },
+    { userId: aanya.id, slug: 'first-update' },
+    { userId: aanya.id, slug: 'first-milestone' },
+    { userId: leo.id, slug: 'first-update' },
+    { userId: mika.id, slug: 'first-evidence' },
+    { userId: mika.id, slug: 'first-milestone' },
+  ]
+  for (const g of GRANTS) await grantAchievement(prisma, g.userId, g.slug)
+
+  // -------------------------------------------------------------------
+  // Connections (matched on sender + receiver, the unique pair)
+  // -------------------------------------------------------------------
+  const CONNECTIONS: { sender: { id: string }; receiver: { id: string }; type: 'TEAMMATE' | 'COLLABORATOR' | 'NETWORK'; status: string; message?: string }[] = [
+    { sender: aanya, receiver: leo, type: 'TEAMMATE', status: 'ACCEPTED', message: 'Great building PairUp together.' },
+    { sender: mika, receiver: yuki, type: 'COLLABORATOR', status: 'ACCEPTED' },
+    { sender: samira, receiver: aanya, type: 'NETWORK', status: 'PENDING', message: 'Loved PairUp, would like to help with growth.' },
+    { sender: priya, receiver: leo, type: 'COLLABORATOR', status: 'PENDING', message: 'Happy to help with the FocusLoop design pass.' },
+  ]
+  for (const c of CONNECTIONS) {
+    const reverse = await prisma.connection.findUnique({
+      where: { senderId_receiverId: { senderId: c.receiver.id, receiverId: c.sender.id } },
+    })
+    if (reverse) continue
+    await prisma.connection.upsert({
+      where: { senderId_receiverId: { senderId: c.sender.id, receiverId: c.receiver.id } },
+      update: { type: c.type, status: c.status },
+      create: { senderId: c.sender.id, receiverId: c.receiver.id, type: c.type, status: c.status, message: c.message },
+    })
+  }
+
+  // -------------------------------------------------------------------
+  // Read state and reactions on the seeded conversations
+  //
+  // Read rows are unique on (message, reader), so upserting them is safe to
+  // repeat. The team channel is left partly unread for Aanya so the unread
+  // badge has something to show on a fresh demo.
+  //
+  // Blocks are deliberately not seeded: a block hides the pair from each
+  // other everywhere, which would make demo accounts disappear from one
+  // another's lists during a walkthrough. Create one from the UI to see it.
+  // -------------------------------------------------------------------
+  async function markRead(conversationId: string, readerId: string) {
+    const others = await prisma.message.findMany({ where: { conversationId, senderId: { not: readerId }, deletedAt: null }, select: { id: true } })
+    for (const m of others) {
+      await prisma.messageRead.upsert({
+        where: { messageId_userId: { messageId: m.id, userId: readerId } },
+        update: {},
+        create: { messageId: m.id, userId: readerId },
+      })
+    }
+  }
+
+  if (pairupProjectConvo) {
+    await markRead(pairupProjectConvo.id, aanya.id)
+    await markRead(pairupProjectConvo.id, leo.id)
+
+    const first = await prisma.message.findFirst({ where: { conversationId: pairupProjectConvo.id, senderId: aanya.id }, orderBy: { createdAt: 'asc' } })
+    const reply = await prisma.message.findFirst({ where: { conversationId: pairupProjectConvo.id, senderId: leo.id }, orderBy: { createdAt: 'asc' } })
+    const REACTIONS = [
+      { message: first, user: leo, emoji: '👍' },
+      { message: first, user: aanya, emoji: '🚀' },
+      { message: reply, user: aanya, emoji: '🙏' },
+    ]
+    for (const r of REACTIONS) {
+      if (!r.message) continue
+      await prisma.messageReaction.upsert({
+        where: { messageId_userId_emoji: { messageId: r.message.id, userId: r.user.id, emoji: r.emoji } },
+        update: {},
+        create: { messageId: r.message.id, userId: r.user.id, emoji: r.emoji },
+      })
+    }
+  }
+  if (pairupCrewConvo) {
+    // Leo has read Aanya's messages; Aanya has read none of Leo's.
+    await markRead(pairupCrewConvo.id, leo.id)
   }
 
   // -------------------------------------------------------------------
