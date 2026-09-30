@@ -85,11 +85,20 @@ npm run dev
 
 Open http://localhost:3000.
 
-Optional environment variables (all documented in `.env.example`): OAuth client
-ids and secrets, and `TRUSTED_PROXY_HOPS`.
+Configuration lives in environment variables, all documented in `.env.example`.
+See [Configuration](#configuration) for the ones that matter when deploying.
 
 > Do not set `NEXTAUTH_URL`. With `next-auth@5` beta and Next 14.1 it crashes every
 > `/api/auth/*` route; v5 infers the URL on its own.
+
+## Configuration
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | PostgreSQL connection string (PostgreSQL 13 or newer). |
+| `NEXTAUTH_SECRET` | yes | Session signing key: `openssl rand -base64 32`. |
+| `GITHUB_ID` / `GITHUB_SECRET`, `GOOGLE_ID` / `GOOGLE_SECRET`, `DISCORD_ID` / `DISCORD_SECRET` | no | OAuth sign-in. Email and password works without them. An OAuth sign-in also marks the account's email as verified, which endorsement rewards require. |
+| `TRUSTED_PROXY_HOPS` | set it when deploying | Number of reverse proxies you run in front of the app. `0` (the default) means the client address is unknown, so **all signed-out callers share one rate-limit bucket** and sign-in is limited per account only. Behind a single load balancer set `1`. Details below. |
 
 ## Rate limiting and proxies
 
