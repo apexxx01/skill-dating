@@ -105,6 +105,7 @@ describe('rate limiting', () => {
   it('returns a Retry-After header on 429 responses', async () => {
     const user = await registerAndLogin(`rl.header.${suffix}@test.dev`, `rlheader${suffix}`)
     let header: string | null = null
+    await user.jar.refresh()
     for (let i = 0; i < 13; i++) {
       const res = await fetch(INTEGRATION_BASE_URL + '/api/reports', {
         method: 'POST',

@@ -1,10 +1,22 @@
 import { INTEGRATION_BASE_URL } from './config'
+import { createClerkUser, createSession, mintToken } from './clerk-api'
 
+// A client identity. Signed-in jars carry a real Clerk session and mint real
+// session tokens (they last about 60 seconds) as needed; `req` sends the current
+// one as a bearer token. `header()` is the same token in the `__session` cookie
+// form a browser would send, for tests that build their own fetch.
 export interface Jar {
   apply(headers: Headers): void
   header(): string
   ip: string
+  /** A session token that is valid right now (minting a new one when the cached one is close to expiry). */
+  token(): Promise<string | null>
+  /** Refreshes the token that `header()` returns. */
+  refresh(): Promise<void>
 }
+
+const TOKEN_LIFETIME_MS = 60_000
+const REFRESH_MARGIN_MS = 25_000
 
 // The server trusts exactly one proxy hop (TRUSTED_PROXY_HOPS=1), so a real
 // deployment's proxy would append the caller's address to X-Forwarded-For.
@@ -15,10 +27,22 @@ export function syntheticIp(): string {
   return `10.${octet(256)}.${octet(256)}.${octet(254) + 1}`
 }
 
-export function cookieJar(ip: string = syntheticIp()): Jar {
+export function cookieJar(ip: string = syntheticIp(), mint?: () => Promise<string>): Jar {
   const jar = new Map<string, string>()
+  let current: { value: string; mintedAt: number } | null = null
+  const token = async (): Promise<string | null> => {
+    if (!mint) return null
+    if (!current || Date.now() - current.mintedAt > TOKEN_LIFETIME_MS - REFRESH_MARGIN_MS) {
+      current = { value: await mint(), mintedAt: Date.now() }
+    }
+    return current.value
+  }
   return {
     ip,
+    token,
+    async refresh() {
+      await token()
+    },
     apply(headers: Headers) {
       const setCookies = (headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ?? []
       for (const sc of setCookies) {
@@ -28,7 +52,9 @@ export function cookieJar(ip: string = syntheticIp()): Jar {
       }
     },
     header() {
-      return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ')
+      const cookies = [...jar.entries()].map(([k, v]) => `${k}=${v}`)
+      if (current) cookies.push(`__session=${current.value}`)
+      return cookies.join('; ')
     },
   }
 }
@@ -50,7 +76,12 @@ export async function req(
     'x-forwarded-for': jar ? jar.ip : syntheticIp(),
     ...extraHeaders,
   }
-  if (jar) headers.Cookie = jar.header()
+  if (jar) {
+    const token = await jar.token()
+    if (token) headers.Authorization = `Bearer ${token}`
+    const cookie = jar.header()
+    if (cookie && !token) headers.Cookie = cookie
+  }
   const res = await fetch(INTEGRATION_BASE_URL + path, {
     method,
     headers,
@@ -73,30 +104,22 @@ export interface TestUser {
   userId: string
 }
 
-export async function registerAndLogin(email: string, username: string, password = 'password123'): Promise<TestUser> {
-  const jar = cookieJar()
-  const r = await req(jar, 'POST', '/api/auth/register', { name: username, username, email, password })
-  if (r.status !== 201) throw new Error('register failed: ' + JSON.stringify(r))
+/**
+ * A real user: created on the Clerk development instance with the Backend API
+ * (email, username, random password - no phone), signed in through a real
+ * session, and known locally after its first authenticated request, which is the
+ * lazy sync the server does for every new Clerk account. `userId` is the LOCAL
+ * user id. `_password` is ignored: passwords are random and never needed.
+ */
+export async function registerAndLogin(email: string, username: string, _password?: string): Promise<TestUser> {
+  const clerkUser = await createClerkUser(email, username)
+  const sessionId = await createSession(clerkUser.clerkId)
+  const jar = cookieJar(syntheticIp(), () => mintToken(sessionId))
 
-  const csrfRes = await fetch(INTEGRATION_BASE_URL + '/api/auth/csrf', { headers: { 'x-forwarded-for': jar.ip } })
-  jar.apply(csrfRes.headers)
-  const { csrfToken } = await csrfRes.json()
+  const me = await req(jar, 'GET', '/api/users/me')
+  if (me.status !== 200 || !me.data?.id) throw new Error('sign-in failed: ' + JSON.stringify(me))
 
-  const form = new URLSearchParams({ email, password, csrfToken, json: 'true' })
-  const cb = await fetch(INTEGRATION_BASE_URL + '/api/auth/callback/credentials', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: jar.header(), 'x-forwarded-for': jar.ip },
-    body: form.toString(),
-    redirect: 'manual',
-  })
-  jar.apply(cb.headers)
-
-  const sessionRes = await fetch(INTEGRATION_BASE_URL + '/api/auth/session', { headers: { Cookie: jar.header(), 'x-forwarded-for': jar.ip } })
-  jar.apply(sessionRes.headers)
-  const session = await sessionRes.json()
-  if (!session?.user?.id) throw new Error('login failed: ' + JSON.stringify(session))
-
-  return { jar, userId: session.user.id }
+  return { jar, userId: me.data.id }
 }
 
 let counter = 0

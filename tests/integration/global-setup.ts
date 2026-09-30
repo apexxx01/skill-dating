@@ -1,7 +1,11 @@
 import { spawn, execSync, type ChildProcess } from 'child_process'
 import path from 'path'
+import os from 'os'
 import fs from 'fs'
+import { randomBytes } from 'crypto'
 import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_PORT } from './config'
+import { loadEnvLocal } from './env'
+import { clerkSecretKey, deleteRegisteredUsers, sweepStaleTestUsers } from './clerk-api'
 
 // Integration tests run against a real Next.js dev server and a real,
 // disposable Postgres database - not mocks. They exercise the actual HTTP
@@ -19,7 +23,7 @@ function waitForServer(url: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const attempt = async () => {
       try {
-        const res = await fetch(url + '/api/auth/csrf')
+        const res = await fetch(url + '/api/auth/session')
         if (res.status) {
           resolve()
           return
@@ -37,39 +41,29 @@ function waitForServer(url: string, timeoutMs: number): Promise<void> {
   })
 }
 
-// Next.js does not auto-load .env.local when NODE_ENV=test (a deliberate
-// Next.js safety default, so a test run never silently picks up dev
-// secrets) - and vitest sets NODE_ENV=test. Without this, the spawned dev
-// server has no NEXTAUTH_SECRET and every auth route 500s with
-// "MissingSecret". Parsed and merged in manually instead.
-function loadEnvLocal(projectRoot: string): Record<string, string> {
-  const envPath = path.join(projectRoot, '.env.local')
-  const vars: Record<string, string> = {}
-  if (!fs.existsSync(envPath)) return vars
-  const contents = fs.readFileSync(envPath, 'utf-8')
-  for (const line of contents.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq === -1) continue
-    const key = trimmed.slice(0, eq).trim()
-    let value = trimmed.slice(eq + 1).trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    vars[key] = value
-  }
-  return vars
-}
-
 export default async function setup() {
   const projectRoot = path.resolve(__dirname, '../..')
   const envLocal = loadEnvLocal(projectRoot)
 
+  // Real Clerk users are created on the development instance, so fail before
+  // starting anything if the key is missing or is not a development key, and
+  // clear out harness users a crashed earlier run left behind.
+  Object.assign(process.env, { CLERK_SECRET_KEY: clerkSecretKey() })
+  await sweepStaleTestUsers()
+
+  // Registry of the Clerk users this run creates (test workers append to it,
+  // teardown deletes them), and a webhook secret that exists only for this run:
+  // the spawned server verifies with it and the webhook tests sign with it.
+  const registry = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'skill-dating-clerk-')), 'users.jsonl')
+  fs.writeFileSync(registry, '')
+  const webhookSecret = `whsec_${randomBytes(32).toString('base64')}`
+  process.env.TEST_CLERK_REGISTRY = registry
+  process.env.TEST_CLERK_WEBHOOK_SECRET = webhookSecret
+
   // Fail loudly if something already answers on the port. Otherwise the
   // readiness check below would happily succeed against someone else's server
   // and the whole suite would run against the wrong database.
-  const occupied = await fetch(INTEGRATION_BASE_URL + '/api/auth/csrf').then(
+  const occupied = await fetch(INTEGRATION_BASE_URL + '/api/auth/session').then(
     () => true,
     () => false
   )
@@ -98,7 +92,7 @@ export default async function setup() {
   // Override NODE_ENV rather than inheriting vitest's 'test' - 'next dev'
   // otherwise runs against a test-mode Next.js build that behaves
   // differently in ways unrelated to the actual env-loading fix above.
-  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1' }
+  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret }
 
   serverProcess = spawn('npx', ['next', 'dev', '-p', String(INTEGRATION_PORT)], {
     cwd: projectRoot,
@@ -110,6 +104,12 @@ export default async function setup() {
   await waitForServer(INTEGRATION_BASE_URL, 30_000)
 
   return async function teardown() {
+    try {
+      await deleteRegisteredUsers()
+      fs.rmSync(path.dirname(registry), { recursive: true, force: true })
+    } catch (error) {
+      console.error('could not delete every Clerk test user:', error instanceof Error ? error.message : error)
+    }
     if (serverProcess && !serverProcess.killed && serverProcess.pid) {
       try {
         process.kill(-serverProcess.pid, 'SIGTERM')
