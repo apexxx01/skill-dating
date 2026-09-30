@@ -7,8 +7,8 @@ The frontend is frozen for this migration: nothing under `src/app/(dashboard)` o
 `src/components` is edited, and sign-in / sign-up UI wiring is out of scope. The
 frontend files that will need changes are listed in [Frontend files that need changes](#frontend-files-that-need-changes).
 
-Status of this document: Phase 0 (diagnosis and design) is written before any code.
-Later phases append their outcomes at the end.
+Status of this document: sections 1 to 7 are the design, written before any code. Where a live run
+changed it, section 9 says so. Section 8 lists what needs you.
 
 ---
 
@@ -240,12 +240,14 @@ Proposed and implemented as the last commit on the branch so it can be reviewed,
   `VerificationToken` tables. Dropping them is data-destroying and needs your explicit
   `db push --accept-data-loss` once every user is on Clerk.
 
-Effect on tests. Three tests exist only to test what the last commit deletes: credentials-login
-throttling and the two `/api/auth/register` limiter tests in `rate-limit.test.ts`, plus the register
-and session probes in `no-secret-leaks.test.ts`. Before that commit all 101 pass **unchanged**.
-In the removal commit the deleted routes' tests are removed, and equivalent coverage is added for
-the surfaces that replace them (anonymous flood bucket, webhook route). The final report states
-the exact counts, so "101+" is accounted for rather than assumed.
+Effect on tests. Four tests in `rate-limit.test.ts` exist only to test what the last commit
+deletes: credentials-login throttling, a bystander check that depended on it, and the two
+`/api/auth/register` limiter tests; and `no-secret-leaks.test.ts` probed the register route. Before
+that commit every pre-existing test passed through the new Clerk harness with one exception: the
+endorsement reward tests assumed a fresh account is unverified, which a Clerk account (email
+verified) is not, so their setup now resets the row explicitly. In the removal commit the four tests
+are replaced by three anonymous flood-bucket tests (keeping the forged `X-Forwarded-For`
+guarantee), the register probe is dropped, and a `/api/users/me` leak probe is added.
 
 ---
 
@@ -269,8 +271,73 @@ instance has a user cap and Backend API rate limits (the harness retries on `429
 
 ## 8. Open items that need you
 
-Filled in at the end of the branch (see the final report): `db:push`, Clerk dashboard steps
-(including the phone requirement above), webhook URL and how to get `CLERK_WEBHOOK_SECRET`.
+1. **`npm run db:push`** against every database this branch will run on: it adds `User.clerkId`
+   (unique, nullable) and `User.deletedAt`. Nothing is dropped.
+2. **Clerk dashboard, phone number.** The instance no longer requires a phone number (section 2
+   is now historical); the harness does not use phone numbers.
+3. **Clerk dashboard, webhook.** Add an endpoint `https://<your host>/api/webhooks/clerk`
+   subscribed to `user.created`, `user.updated` and `user.deleted`. Copy its **Signing secret**
+   (starts with `whsec_`) into `CLERK_WEBHOOK_SECRET`. Locally, expose the dev server with a
+   tunnel first. Without the secret the route answers `503`. Without the webhook everything still
+   works (rows are created on first request); only renames and deletions in Clerk would not be
+   picked up.
+4. **Production settings:** set `CLERK_AUTHORIZED_PARTIES` to your app's origin(s) and
+   `TRUSTED_PROXY_HOPS` to the number of proxies in front of the app.
+5. **CI:** add `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (development instance)
+   as repository secrets, or the integration job is skipped with a warning.
+6. **Frontend wiring** (frozen here): the table below. Until then the sign-in and sign-up pages do
+   not work.
+7. **Product decisions taken on your behalf, easy to reverse:** a deleted Clerk account is
+   anonymised, not erased (section 4.5); linking a legacy account clears its password hash and
+   OAuth accounts (section 9).
+8. **Later:** upgrade Next to 14.2.35 as its own change (the middleware bypass, section 1), then
+   move to a current `@clerk/nextjs`; drop `User.passwordHash` and the NextAuth tables once every
+   user is on Clerk (needs `db push --accept-data-loss`, so it is yours to run); and remove
+   `next-auth`, `GET /api/auth/session` and `src/types/next-auth.d.ts` when the UI uses Clerk's hooks.
+
+## 9. What was built, and what the live runs changed
+
+Everything here was run against a real Clerk development instance with real users and real
+60 second session tokens; no application-side bypass exists.
+
+**Deviations from the design above, each found by running it:**
+
+- **`verifyToken` returns claims and throws.** In `@clerk/backend` 1.x the exported function is
+  wrapped that way, although its declared type suggests `{ data, errors }`. A first attempt that
+  satisfied the type checker with a cast made every valid token look anonymous; the first live run
+  caught it.
+- **Junk tokens cost a Clerk API call each.** The SDK re-fetches the signing keys for any unknown
+  key id before checking anything else (measured 80 to 200 ms each), so anonymous callers could
+  exhaust the Backend API rate limit that sync and the webhook share. `src/lib/jwks-guard.ts`
+  keeps the set of real key ids, refreshes it at most once a minute, and refuses other tokens without
+  calling the SDK. Mutation checked: 25 junk requests took 4.9 s without it, about 1 s with it.
+- **Linking clears the old credentials.** Someone who pre-registered a victim's address with a
+  password would otherwise keep access after the victim linked the account. Linking now sets
+  `passwordHash` to null and deletes the row's OAuth accounts and sessions.
+- **Clerk cannot hold the seeded identities as they are.** It rejects the reserved `.test` TLD
+  (the demo emails) and dots in usernames (`fatima.pm`). `db:seed:clerk` maps to
+  `demo.skilldating.example.com` addresses and dot-free usernames; the seed data is unchanged (a
+  changed domain would have duplicated users in an already-seeded database), and a name that
+  differs from Clerk's only by such characters is not renamed on first sync.
+- **Tombstoned users are hidden through `blockedUserIds`**, which every list and search surface
+  already used, rather than a new mechanism. The dashboard page (frozen) reads Prisma directly and
+  does not use it, the same existing gap as for blocks.
+- **`next build` failed twice with a `next/font` Google Fonts error** during this work, unrelated to
+  auth (`main` built fine in a separate checkout, and three later builds of this branch passed).
+  If it appears, retry. The build has no Edge-runtime warnings any more, and needs no Clerk
+  variables.
+
+**Known limits, accepted:** a revoked or banned Clerk session stays valid until its token expires
+(about 60 seconds), because verification is networkless; `CLERK_AUTHORIZED_PARTIES` unset skips the
+authorized-party check; the `__session` cookie is `SameSite=Lax`, the same posture the old session
+cookie had.
+
+**Tests.** Unit: 85 (was 55 before the migration: 12 username, 8 webhook handler, 9 key guard, the
+rest existing). Integration: see the count in the final report; 18 are new and cover the whole
+Clerk path (`tests/integration/clerk-auth.test.ts`). The three tests of credentials login and
+registration throttling, and the register probe in `no-secret-leaks`, were removed with the routes
+they tested; anonymous flood-bucket tests (including the forged `X-Forwarded-For` guarantee) and a
+`/api/users/me` leak probe replace them.
 
 ## Frontend files that need changes
 
