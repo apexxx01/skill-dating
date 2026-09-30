@@ -9,13 +9,14 @@
  * so running it twice does not duplicate data or throw on unique
  * constraints.
  *
- * Demo login credentials (email / plaintext password used before hashing):
- *   demo1@demo.skilldating.test / DemoPass123!   (Aanya Kapoor - fully populated account:
+ * Seeded users are legacy rows with no clerkId and no password: sign-in belongs to
+ * Clerk. To sign in as them, run `npm run db:seed:clerk` after this script; it creates
+ * the matching Clerk users (password DemoPass123!, see that file for the address and
+ * username mapping Clerk requires).
+ *   demo1@demo.skilldating.test (Aanya Kapoor - fully populated account:
  *     owns a shipped project, owns a recruiting team, member of a hackathon)
- *   demo2@demo.skilldating.test / DemoPass123!   (Leo Fontaine - owns the full team + an
+ *   demo2@demo.skilldating.test (Leo Fontaine - owns the full team + an
  *     idea-stage project, applied to another team)
- * All 12 seeded users share the password DemoPass123! for convenience during
- * a demo walkthrough.
  *
  * Also seeded: skill evidence and peer endorsements, project updates and
  * milestones, profile activity, granted achievements, connections (accepted
@@ -24,14 +25,12 @@
  */
 
 import { PrismaClient, ProjectStatus, HackathonStatus, HackathonParticipantStatus, TeamApplicationStatus } from '@prisma/client'
-import { hash } from 'bcryptjs'
 import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition } from '../src/lib/achievement-definitions'
 import { grantAchievement } from '../src/lib/achievements'
 
 const prisma = new PrismaClient()
 
 const DEMO_DOMAIN = 'demo.skilldating.test'
-const DEMO_PASSWORD = 'DemoPass123!'
 
 // ---------------------------------------------------------------------------
 // Skills
@@ -260,7 +259,6 @@ async function main() {
   // -------------------------------------------------------------------
   // Users (+ skills, + a couple of real XPEvent rows for leaderboard flavor)
   // -------------------------------------------------------------------
-  const passwordHash = await hash(DEMO_PASSWORD, 12)
   const userByUsername = new Map<string, { id: string; name: string | null }>()
 
   for (const u of USERS) {
@@ -274,7 +272,6 @@ async function main() {
         builderRole: u.builderRole,
         location: u.location,
         xp: u.xp,
-        passwordHash,
         isEmailVerified: true,
         verificationLevel: 'EMAIL',
         emailVerified: new Date(),
@@ -288,7 +285,6 @@ async function main() {
         builderRole: u.builderRole,
         location: u.location,
         xp: u.xp,
-        passwordHash,
         isEmailVerified: true,
         verificationLevel: 'EMAIL',
         emailVerified: new Date(),

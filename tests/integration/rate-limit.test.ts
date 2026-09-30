@@ -13,70 +13,48 @@ describe('rate limiting', () => {
     await cleanupTestUsers(suffix)
   })
 
-  async function credentialsLoginAttempt(email: string, password: string, ip: string, cookieAndCsrf: { cookie: string; csrf: string }) {
-    const form = new URLSearchParams({ email, password, csrfToken: cookieAndCsrf.csrf, json: 'true' })
-    return fetch(INTEGRATION_BASE_URL + '/api/auth/callback/credentials', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Cookie: cookieAndCsrf.cookie,
-        'x-forwarded-for': ip,
-      },
-      body: form.toString(),
-      redirect: 'manual',
-    })
-  }
+  // Signed-out callers share the anonymous flood bucket: 120 requests a minute per
+  // client address, however the request is shaped. /api/users/me needs a session,
+  // so every request here is refused with 401 until the bucket runs out.
+  const ANONYMOUS_LIMIT = 120
 
-  it('throttles password guessing against one account even when the attacker rotates IPs', async () => {
-    const victimEmail = `rl.victim.${suffix}@test.dev`
-    await registerAndLogin(victimEmail, `rlvictim${suffix}`)
-
-    const csrfRes = await fetch(INTEGRATION_BASE_URL + '/api/auth/csrf', { headers: { 'x-forwarded-for': syntheticIp() } })
-    const { csrfToken } = await csrfRes.json()
-    const cookie = (csrfRes.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ')
-
+  async function floodAnonymously(headers: () => Record<string, string>, count: number) {
     const statuses: number[] = []
-    let retryAfter: string | null = null
-    for (let i = 0; i < 14; i++) {
-      // A brand-new source address on every attempt.
-      const res = await credentialsLoginAttempt(victimEmail, `wrong-password-${i}`, syntheticIp(), { cookie, csrf: csrfToken })
-      statuses.push(res.status)
-      if (res.status === 429) retryAfter = res.headers.get('retry-after')
-    }
-
-    expect(statuses[0]).not.toBe(429)
-    expect(statuses).toContain(429)
-    expect(Number(retryAfter)).toBeGreaterThanOrEqual(1)
-  })
-
-  it('does not let the throttled account lock out other accounts', async () => {
-    const other = await registerAndLogin(`rl.bystander.${suffix}@test.dev`, `rlbystander${suffix}`)
-    const me = await req(other.jar, 'GET', '/api/notifications')
-    expect(me.status).toBe(200)
-  })
+    for (let i = 0; i < count; i++) statuses.push((await req(null, 'GET', '/api/users/me', undefined, headers())).status)
+    return statuses
+  }
 
   it('cannot be bypassed by forging the left side of X-Forwarded-For', async () => {
     const proxyAppended = syntheticIp()
-    const statuses: number[] = []
-    for (let i = 0; i < 13; i++) {
-      // register is limited to 10/min per client address; an empty body is
-      // rejected by validation but still counts against the limiter.
-      const forgedLeft = `${Math.floor(Math.random() * 223) + 1}.${i}.${i}.1`
-      const res = await req(null, 'POST', '/api/auth/register', {}, { 'x-forwarded-for': `${forgedLeft}, ${proxyAppended}` })
-      statuses.push(res.status)
-    }
-    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true)
-    expect(statuses.slice(10)).toContain(429)
-  })
+    let i = 0
+    const statuses = await floodAnonymously(() => {
+      // A different forged client address on every request; only the entry our proxy appended counts.
+      const forgedLeft = `${Math.floor(Math.random() * 223) + 1}.${i++ % 250}.${i % 250}.1`
+      return { 'x-forwarded-for': `${forgedLeft}, ${proxyAppended}` }
+    }, ANONYMOUS_LIMIT + 5)
+    expect(statuses.slice(0, ANONYMOUS_LIMIT).every((s) => s === 401)).toBe(true)
+    expect(statuses.slice(ANONYMOUS_LIMIT).every((s) => s === 429)).toBe(true)
+  }, 60_000)
 
   it('does not throttle genuinely different clients against each other', async () => {
-    const statuses: number[] = []
-    for (let i = 0; i < 13; i++) {
-      const res = await req(null, 'POST', '/api/auth/register', {}, { 'x-forwarded-for': syntheticIp() })
-      statuses.push(res.status)
+    const busy = syntheticIp()
+    const busyStatuses = await floodAnonymously(() => ({ 'x-forwarded-for': busy }), ANONYMOUS_LIMIT + 5)
+    expect(busyStatuses).toContain(429)
+
+    for (let client = 0; client < 3; client++) {
+      const res = await req(null, 'GET', '/api/users/me', undefined, { 'x-forwarded-for': syntheticIp() })
+      expect(res.status).toBe(401)
     }
-    expect(statuses.every((s) => s === 400)).toBe(true)
-  })
+  }, 60_000)
+
+  it('does not let a flood of signed-out requests lock out a signed-in user on the same address', async () => {
+    const other = await registerAndLogin(`rl.bystander.${suffix}@test.dev`, `rlbystander${suffix}`)
+    const shared = syntheticIp()
+    await floodAnonymously(() => ({ 'x-forwarded-for': shared }), ANONYMOUS_LIMIT + 5)
+    // Signed-in traffic is limited per user id, not by the anonymous bucket.
+    const me = await req(other.jar, 'GET', '/api/notifications', undefined, { 'x-forwarded-for': shared })
+    expect(me.status).toBe(200)
+  }, 60_000)
 
   it('limits authenticated routes per user, not per IP', async () => {
     const heavy = await registerAndLogin(`rl.heavy.${suffix}@test.dev`, `rlheavy${suffix}`)

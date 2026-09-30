@@ -77,18 +77,14 @@ describe('no secrets in any response', () => {
     expect(patchedBody).not.toContain('passwordHash')
     expect(patchedBody).not.toMatch(BCRYPT_HASH)
 
-    const registered = await req(null, 'POST', '/api/auth/register', {
-      name: 'x',
-      username: `leakc${suffix}`,
-      email: `leak.c.${suffix}@test.dev`,
-      password: 'password123',
-    })
-    expect(registered.status).toBe(201)
-    expect(JSON.stringify(registered.data)).not.toContain('passwordHash')
-    expect(JSON.stringify(registered.data)).not.toMatch(BCRYPT_HASH)
-
     // And the session endpoint must not carry the hash either.
     const session = await req(A.jar, 'GET', '/api/auth/session')
     expect(JSON.stringify(session.data)).not.toContain('passwordHash')
+    expect(JSON.stringify(session.data)).not.toMatch(BCRYPT_HASH)
+    // ...nor the caller's own local profile summary.
+    const me = await req(A.jar, 'GET', '/api/users/me')
+    expect(me.status).toBe(200)
+    expect(JSON.stringify(me.data)).not.toContain('passwordHash')
+    expect(JSON.stringify(me.data)).not.toMatch(BCRYPT_HASH)
   })
 })

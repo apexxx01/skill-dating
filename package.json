@@ -19,7 +19,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@auth/prisma-adapter": "^2.0.0",
     "@clerk/nextjs": "6.12.8",
     "@hookform/resolvers": "^3.3.4",
     "@prisma/client": "^5.10.0",
@@ -49,7 +48,6 @@
     "@react-three/fiber": "^8.18.0",
     "@tanstack/react-query": "^5.24.0",
     "@tanstack/react-table": "^8.13.2",
-    "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "cmdk": "^1.1.1",
@@ -79,7 +77,6 @@
     "@playwright/test": "^1.42.0",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^14.2.1",
-    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
