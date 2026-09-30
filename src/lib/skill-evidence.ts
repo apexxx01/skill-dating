@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { recordActivity } from '@/lib/activity'
 import { grantAchievement } from '@/lib/achievements'
+import { ACHIEVEMENT_DEFINITIONS } from '@/lib/achievement-definitions'
 import { blockRelation } from '@/lib/blocks'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -74,6 +75,54 @@ export async function endorsementSummaries(
   return summaries
 }
 
+// Rewards for being endorsed are the one thing worth farming with throwaway
+// accounts, so they are restricted three ways:
+//  - the endorser must have a verified account (anything above NONE; the
+//    levels are ordered, and a password sign-up stays NONE until it signs in
+//    through a provider that proves the email address);
+//  - one endorser can trigger a limited number of rewards per rolling day, so
+//    a single verified account cannot pay out to many owners;
+//  - one owner can earn at most a capped amount of XP from endorsements per
+//    rolling day.
+export const MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY = 10
+export const ENDORSEMENT_XP_DAILY_CAP = 50
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
+async function grantEndorsementReward(tx: Prisma.TransactionClient, ownerId: string, endorserId: string): Promise<boolean> {
+  const endorser = await tx.user.findUnique({ where: { id: endorserId }, select: { verificationLevel: true } })
+  if (!endorser || endorser.verificationLevel === 'NONE') return false
+
+  // Serialise this endorser's reward decisions so parallel requests cannot
+  // pass the daily count together.
+  await lockKey(tx, `endorse-reward:${endorserId}`)
+  const since = new Date(Date.now() - ONE_DAY_MS)
+
+  const rewardedToday = await tx.activity.count({
+    where: {
+      type: 'SKILL_EVIDENCE_ENDORSED',
+      createdAt: { gte: since },
+      AND: [{ metadata: { path: ['endorserId'], equals: endorserId } }, { metadata: { path: ['rewarded'], equals: true } }],
+    },
+  })
+  if (rewardedToday >= MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY) return false
+
+  const achievement = await tx.achievement.findUnique({ where: { slug: 'endorsed' }, select: { name: true } })
+  if (achievement) {
+    const xpToday = await tx.xPEvent.aggregate({
+      where: {
+        userId: ownerId,
+        type: 'ACHIEVEMENT_EARNED',
+        description: { startsWith: `Earned achievement "${achievement.name}"` },
+        createdAt: { gte: since },
+      },
+      _sum: { amount: true },
+    })
+    if ((xpToday._sum.amount ?? 0) + ACHIEVEMENT_DEFINITIONS.endorsed.xpReward > ENDORSEMENT_XP_DAILY_CAP) return false
+  }
+
+  return (await grantAchievement(tx, ownerId, 'endorsed')).granted
+}
+
 export type EndorseOutcome =
   | { outcome: 'not_found' }
   | { outcome: 'self' }
@@ -143,11 +192,15 @@ export async function endorseEvidence(
       select: { id: true },
     })
 
+    // The endorsement itself always counts toward the evidence; only the
+    // reward (the `endorsed` achievement and its XP) is restricted. The grant
+    // is idempotent per owner, so this is safe to attempt on every endorsement.
+    const rewarded = await grantEndorsementReward(tx, evidence.userId, endorserId)
+
     if (!alreadyRecorded) {
       await recordActivity(tx, evidence.userId, 'SKILL_EVIDENCE_ENDORSED', `Your evidence "${evidence.title}" was endorsed`, {
-        metadata: { evidenceId, endorserId },
+        metadata: { evidenceId, endorserId, rewarded },
       })
-      await grantAchievement(tx, evidence.userId, 'endorsed')
       await tx.notification.create({
         data: {
           userId: evidence.userId,

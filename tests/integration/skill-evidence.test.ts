@@ -61,6 +61,13 @@ describe('skill evidence and endorsements', () => {
     third = await registerAndLogin(emails.third, `evidthird${suffix}`)
     forger = await registerAndLogin(`evid.forger.${suffix}@test.dev`, `evidforger${suffix}`)
 
+    // Endorsement rewards need a verified endorser; that rule has its own tests
+    // (endorsement-rewards.test.ts), here the accounts that endorse are verified.
+    await testPrisma.user.updateMany({
+      where: { id: { in: [endorser.userId, other.userId, third.userId] } },
+      data: { verificationLevel: 'EMAIL', isEmailVerified: true },
+    })
+
     const skill = await testPrisma.skill.create({
       data: { name: `Evidence Skill ${suffix}`, slug: `evidence-skill-${suffix}`, category: 'Test' },
     })
