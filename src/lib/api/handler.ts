@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { authenticate } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { clientIp, consumeSafely, enforceRateLimit, tooManyRequests, type RateLimitConfig } from '@/lib/rate-limiter'
@@ -38,31 +38,36 @@ export function withAuth(
   options: { requiredRole?: string[]; rateLimit?: RateLimitConfig } = {}
 ): ApiHandler {
   return async (request: NextRequest) => {
-    const session = await auth()
+    // The session token is verified here, per request; see session.ts.
+    const outcome = await authenticate(request.headers)
 
-    if (!session?.user?.id) {
-      // Bound unauthenticated traffic too, so a flood of anonymous calls
-      // cannot be used to hammer the auth layer for free.
-      const anonymous = await consumeSafely(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
-        windowMs: 60_000,
-        maxRequests: 120,
-      })
-      if (!anonymous.allowed) return tooManyRequests(anonymous)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    switch (outcome.kind) {
+      case 'anonymous': {
+        // Bound unauthenticated traffic too, so a flood of anonymous calls
+        // cannot be used to hammer the auth layer for free.
+        const anonymous = await consumeSafely(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
+          windowMs: 60_000,
+          maxRequests: 120,
+        })
+        if (!anonymous.allowed) return tooManyRequests(anonymous)
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      case 'deleted':
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      case 'conflict':
+        return NextResponse.json({ error: 'This email belongs to a different account' }, { status: 409 })
+      case 'limited':
+        return tooManyRequests(outcome.decision)
+      case 'unavailable':
+        return NextResponse.json({ error: 'Authentication is temporarily unavailable' }, { status: 503 })
     }
 
+    const { user } = outcome
+
+    // Keyed on the LOCAL user id: it cannot be forged or shared, unlike an IP.
     if (options.rateLimit) {
-      const rateLimitResponse = await rateLimit(options.rateLimit)(request, session.user.id)
+      const rateLimitResponse = await rateLimit(options.rateLimit)(request, user.id)
       if (rateLimitResponse) return rateLimitResponse
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true, email: true, name: true, username: true, image: true, role: true }
-    })
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 401 })
     }
 
     if (options.requiredRole && !options.requiredRole.includes(user.role)) {
