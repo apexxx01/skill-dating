@@ -50,11 +50,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # The production build lints and type-checks the whole project, so a
-      # rule that only reports elsewhere can still stop a deploy. Building here
-      # keeps that from being discovered at release time.
-      NEXTAUTH_SECRET: ci-only-secret-not-used-anywhere-else
+    # The production build lints and type-checks the whole project, so a
+    # rule that only reports elsewhere can still stop a deploy. Building here
+    # keeps that from being discovered at release time. It needs no auth
+    # configuration: the Clerk keys are only read when a request arrives.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,14 +99,26 @@ jobs:
       TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
       TEST_DB_NAME: skill_dating_ci
       TEST_PORT: 3459
-      # Throwaway value: the app refuses to serve auth routes without a secret.
-      NEXTAUTH_SECRET: ci-only-secret-not-used-anywhere-else
+      # The suite creates real users and sessions on a Clerk DEVELOPMENT instance
+      # through the Backend API, so it needs that instance's keys as repository
+      # secrets (use a dedicated instance: the suite creates and deletes users).
+      # Pull requests from forks do not receive secrets; the suite is skipped there.
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
     steps:
+      - name: Skip notice
+        if: env.CLERK_SECRET_KEY == ''
+        run: echo "::warning::CLERK_SECRET_KEY is not available to this run, so the integration suite was skipped."
       - uses: actions/checkout@v4
+        if: env.CLERK_SECRET_KEY != ''
       - uses: actions/setup-node@v4
+        if: env.CLERK_SECRET_KEY != ''
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npx prisma generate
-      - run: npm run test:integration
+      - if: env.CLERK_SECRET_KEY != ''
+        run: npm ci
+      - if: env.CLERK_SECRET_KEY != ''
+        run: npx prisma generate
+      - if: env.CLERK_SECRET_KEY != ''
+        run: npm run test:integration
