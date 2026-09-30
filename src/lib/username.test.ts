@@ -67,6 +67,12 @@ describe('isCurrentUsernameFor', () => {
     expect(isCurrentUsernameFor('alice_2abcdefg', 'alice', clerkId)).toBe(true)
   })
 
+  it('keeps a legacy name that only differs by characters Clerk does not allow', () => {
+    expect(isCurrentUsernameFor('fatima.pm', 'fatimapm', clerkId)).toBe(true)
+    expect(isCurrentUsernameFor('Sam.Builds.Things', 'sambuildsthings', clerkId)).toBe(true)
+    expect(isCurrentUsernameFor('fatima.pm', 'someoneelse', clerkId)).toBe(false)
+  })
+
   it('rejects a name derived from a different Clerk name or a different Clerk id', () => {
     expect(isCurrentUsernameFor('alice', 'bob', clerkId)).toBe(false)
     expect(isCurrentUsernameFor('alice_zzzzzz', 'alice', clerkId)).toBe(false)

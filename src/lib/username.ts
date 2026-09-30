@@ -65,8 +65,11 @@ export async function resolveUsername(
  * True when `current` is already a name this Clerk account would be given for
  * `base` (the plain name or one of its suffixed forms). Used so that a name that
  * was suffixed because of an earlier collision does not flip back to the plain
- * name just because that name has since become free.
+ * name just because that name has since become free, and so that a legacy name
+ * with characters Clerk does not allow (fatima.pm, Clerk: fatimapm) is not
+ * renamed the first time the account is synced.
  */
 export function isCurrentUsernameFor(current: string, base: string | null | undefined, clerkId: string): boolean {
-  return usernameCandidates(base ?? '', clerkId).includes(current)
+  const candidates = usernameCandidates(base ?? '', clerkId)
+  return candidates.includes(current) || candidates.includes(sanitizeUsername(current))
 }
