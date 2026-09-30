@@ -71,10 +71,11 @@ export async function verifyIdentity(headers: Headers): Promise<Identity | null>
     return null
   }
   try {
-    const result = await verifyToken(token, { secretKey, authorizedParties: authorizedParties() })
-    if (result.errors || !result.data) return null
-    const claims = result.data as unknown as SessionClaims
-    if (typeof claims.sub !== 'string' || !claims.sub) return null
+    // In @clerk/backend 1.x the exported verifyToken returns the verified claims
+    // directly and THROWS on any failure (bad signature, expired, wrong party).
+    // Its declared type does not say so, hence the explicit claims type.
+    const claims = (await verifyToken(token, { secretKey, authorizedParties: authorizedParties() })) as unknown as SessionClaims
+    if (!claims || typeof claims.sub !== 'string' || !claims.sub) return null
     // A "pending" session has not finished sign-in (for example a required step is open).
     if (claims.sts === 'pending') return null
     return {
