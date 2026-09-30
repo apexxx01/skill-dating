@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import { handlers } from '@/lib/auth'
+import { handlers } from '@/lib/legacy-auth'
 import { throttleCredentialsLogin } from '@/lib/login-throttle'
 
 export const GET = handlers.GET
