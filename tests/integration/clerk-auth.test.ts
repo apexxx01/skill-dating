@@ -281,6 +281,14 @@ describe('clerk authentication', () => {
       // Signing up again with the same address is a fresh account, not a resurrection.
       const again = await registerAndLogin(email('gone'), name('gonetwo'))
       expect(again.userId).not.toBe(A.userId)
+
+      // The anonymised row is left out of browse and search for everyone else.
+      const users = await req(again.jar, 'GET', '/api/users?search=deleted_&limit=50')
+      expect(users.status).toBe(200)
+      expect(users.data.users.map((u: { id: string }) => u.id)).not.toContain(A.userId)
+      const discover = await req(again.jar, 'GET', '/api/discover?search=deleted_&limit=50')
+      expect(discover.status).toBe(200)
+      expect(JSON.stringify(discover.data)).not.toContain(A.userId)
     })
   })
 })

@@ -10,14 +10,23 @@ export type BlockRelation = 'BLOCKED_BY_ME' | 'BLOCKED_BY_THEM'
 // connect with, invite or apply to each other, and each is hidden from the
 // other's discovery surfaces.
 
-/** Every user who has blocked `userId` or been blocked by them. */
+/**
+ * Every user who should be left out of `userId`'s browse and discovery lists: the
+ * ones who have blocked them or been blocked by them, plus accounts whose Clerk
+ * user was deleted (anonymised tombstones, see tombstoneClerkUser). Every caller
+ * is a list or search surface; interactions use blockRelation / blockGuard.
+ */
 export async function blockedUserIds(db: Db, userId: string): Promise<string[]> {
-  const rows = await db.block.findMany({
-    where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
-    select: { blockerId: true, blockedId: true },
-  })
+  const [rows, deleted] = await Promise.all([
+    db.block.findMany({
+      where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+      select: { blockerId: true, blockedId: true },
+    }),
+    db.user.findMany({ where: { deletedAt: { not: null } }, select: { id: true } }),
+  ])
   const ids = new Set<string>()
   for (const row of rows) ids.add(row.blockerId === userId ? row.blockedId : row.blockerId)
+  for (const row of deleted) ids.add(row.id)
   return [...ids]
 }
 
