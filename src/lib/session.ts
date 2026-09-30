@@ -1,5 +1,6 @@
 import { clerkClient, verifyToken } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
+import { createKidGuard, tokenKid } from '@/lib/jwks-guard'
 import { consumeSafely, type RateLimitDecision } from '@/lib/rate-limiter'
 import { AccountConflictError, SELECTED_USER_FIELDS, syncClerkUser, type LocalUser } from '@/lib/user-sync'
 
@@ -28,6 +29,11 @@ interface SessionClaims {
   sts?: unknown
   exp?: unknown
 }
+
+const kidGuard = createKidGuard(async () => {
+  const { keys } = await (await clerkClient()).jwks.getJwks()
+  return (keys ?? []).map((key) => key.kid).filter((kid): kid is string => typeof kid === 'string')
+})
 
 const SESSION_COOKIE = '__session'
 // A first-time sign-in causes one Clerk API call; bound it per Clerk account so
@@ -70,6 +76,10 @@ export async function verifyIdentity(headers: Headers): Promise<Identity | null>
     console.error('CLERK_SECRET_KEY is not set: every request is treated as signed out')
     return null
   }
+  // A token naming a signing key Clerk does not have never reaches the SDK, which
+  // would otherwise ask Clerk's API for the keys again on every such request.
+  const kid = tokenKid(token)
+  if (!kid || !(await kidGuard.allows(kid))) return null
   try {
     // In @clerk/backend 1.x the exported verifyToken returns the verified claims
     // directly and THROWS on any failure (bad signature, expired, wrong party).
