@@ -1,9 +1,12 @@
 # API Reference
 
 Generated from the actual route handlers in `src/app/api/`. Every route except
-`POST /api/auth/register` and the NextAuth handler requires an authenticated
-session (a valid `authjs.session-token` cookie) — routes marked **Auth: none**
-are the only exceptions. All request/response bodies are JSON unless noted.
+`GET /api/auth/session` and `POST /api/webhooks/clerk` requires an authenticated
+Clerk session: a session token sent as `Authorization: Bearer <token>` or in the
+`__session` cookie that Clerk sets in browsers. The token is verified on every request
+(signature, expiry and, when configured, authorized party); tokens last about 60 seconds,
+so a revoked session can stay valid for up to that long. Routes marked **Auth: none** are the
+only exceptions. All request/response bodies are JSON unless noted.
 
 Error responses share one shape: `{ "error": string, "details"?: unknown }`.
 Validation failures (`400`) return `{ "error": "Validation failed", "details": { field: [messages] } }`.
@@ -11,7 +14,7 @@ Unknown request-body keys are stripped, so a client cannot set `id`, `ownerId`, 
 
 Response types for the frontend are exported from `src/types/api.ts`; the page-by-page mapping (which endpoint each screen calls, and which mock fields have no API) is in `docs/FRONTEND_CONTRACT.md`.
 
-**Rate limiting.** Every route is limited per signed-in user (per route family; the limit is listed in the route's handler). Over the limit: `429 { error }` with a `Retry-After` header in seconds. If the limiter's store is unavailable, ordinary routes keep serving and credentials login answers `503` with `Retry-After`. Signed-out traffic is limited per client address, which is only known when `TRUSTED_PROXY_HOPS` says how many reverse proxies to trust (see the README); without it, anonymous callers share one generously sized bucket. Credentials sign-in is limited per email (10 per 15 minutes) and, when the address is known, per address (40 per 15 minutes).
+**Rate limiting.** Every route is limited per signed-in user (per route family; the limit is listed in the route's handler). Over the limit: `429 { error }` with a `Retry-After` header in seconds. If the limiter's store is unavailable, routes keep serving. Signed-out traffic is limited per client address (120 requests a minute), which is only known when `TRUSTED_PROXY_HOPS` says how many reverse proxies to trust (see the README); without it, anonymous callers share one generously sized bucket. A first sign-in, which costs one Clerk API call, is limited to 10 a minute per Clerk account.
 
 **Blocks.** Blocking is stored one way and enforced both ways. The blocked user gets `404` for the blocker's profile, content and conversations, and the blocker is left out of their lists, search, leaderboard and recommendations. The blocker who tries to interact with someone they blocked gets `403 "You have blocked this user"`. The blocked user is never told. Details under **Blocks** below.
 
@@ -21,15 +24,25 @@ Response types for the frontend are exported from `src/types/api.ts`; the page-b
 
 ## Auth
 
-### `POST /api/auth/register`
-**Auth:** none.
-Registers a new account with a hashed password.
-**Body:** `{ name: string, username: string, email: string, password: string(min 8) }`
-**Response `201`:** `{ id, name, username, email }`
-**Errors:** `409` email/username already taken.
+Sign-in, sign-up and passwords are Clerk's; there is no register or login route here. The
+first authenticated request from a Clerk account creates its local `User` row (or links an
+existing legacy row that has the same **Clerk-verified** email), so every route below can
+answer these extra statuses through the shared auth layer: `401` for a missing, invalid, expired
+or tampered token, or for an account that was deleted; `409 { error }` when the verified email
+belongs to a local account bound to a different Clerk user (nothing is taken over, the attempt is
+audited); `429` when first-time syncs from one Clerk account come too fast; `503` when Clerk's API
+cannot be reached during a first sync. Usernames are copied from Clerk; on a collision `_` plus
+the first characters of the Clerk id is appended, so sign-in never fails over a name. Linking a
+legacy row clears its password hash and its OAuth accounts.
 
-### `/api/auth/[...nextauth]`
-NextAuth's own handler (session, CSRF, OAuth/credentials callbacks). Not a hand-written route — see `src/lib/auth.ts`. On a GitHub sign-in, raises `User.verificationLevel` to `GITHUB` (never downgrades an existing higher level) and marks a `Verification` row `VERIFIED`.
+### `GET /api/auth/session`
+**Auth:** none (answers `null` when signed out). Compatibility for the frozen UI, which polls this path through `next-auth/react`'s `useSession()`. **Response:** `{ user: { id, name, email, image, role }, expires }` with the **local** user id, or `null`. Temporary: remove it when the UI moves to Clerk's hooks.
+
+### `GET /api/users/me`
+The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, onboardingComplete }`. `onboardingComplete` is true with a headline and at least one skill; the middleware and the onboarding page use it, because Clerk's user id is not the local id.
+
+### `POST /api/webhooks/clerk`
+**Auth:** none; the credential is the Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`) over the raw body, made with `CLERK_WEBHOOK_SECRET`, and timestamps more than five minutes off are refused. `503` when the secret is not configured, `400` for any signature failure, `413` over 1 MB, `500` on a transient failure (Clerk then retries). Handles `user.created` and `user.updated` by fetching the user from Clerk and applying its **current** state (the payload is only a notification, so replays and reordering cannot roll anything back), and `user.deleted` by tombstoning: the local row is anonymised and detached from Clerk (email replaced, personal fields cleared, username `deleted_…`, `deletedAt` set) but never deleted, because projects, teams, messages and endorsements cascade from it. Tombstoned accounts are left out of every list and search and refused by the auth layer. Other event types are acknowledged and ignored. **Response `200`:** `{ status: 'synced' | 'tombstoned' | 'conflict' | 'ignored', ... }`.
 
 ---
 

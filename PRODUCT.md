@@ -30,7 +30,7 @@ The product's mechanism is one skill graph serving multiple connection types at 
 
 ## Capabilities and Constraints
 
-- Stack: Next.js 14 (App Router), Prisma + PostgreSQL, NextAuth (`next-auth@5 beta`) with a Prisma adapter, React Query, Radix UI primitives, Tailwind, Framer Motion/`motion`, `@react-three/fiber` + `three` for 3D.
+- Stack: Next.js 14 (App Router), Prisma + PostgreSQL, Clerk (`@clerk/nextjs@6.12.8`, the last release that supports Next 14.1) for authentication, React Query, Radix UI primitives, Tailwind, Framer Motion/`motion`, `@react-three/fiber` + `three` for 3D.
 - Verification levels are staged: NONE → EMAIL → PHONE → GITHUB → PORTFOLIO → ORGANIZATION → IDENTITY. Design must be able to show a user's verification state credibly without overstating unverified claims.
 - Connection type (teammate vs. dating, etc.) is a real, user-facing distinction the UI must make legible — these are not interchangeable "matches."
 - Undecided: monetization model, mobile app plans (native vs. responsive web only), and moderation/trust-and-safety UI maturity beyond the data model above.

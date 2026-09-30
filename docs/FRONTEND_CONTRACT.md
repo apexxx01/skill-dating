@@ -14,7 +14,7 @@ come back, and every field the mocks invent that the API does not provide.
 
 | Topic | Rule |
 | --- | --- |
-| Auth | Session cookie. No session gives `401 { error }`. |
+| Auth | Clerk session: the `__session` cookie Clerk sets, or `Authorization: Bearer <token>`. No session gives `401 { error }`. Users are identified by their **local** id (`GET /api/users/me`), never by Clerk's id. |
 | Errors | Always `{ error: string, details?: unknown }`. Validation failures are `400` with `details` as `{ field: string[] }`. |
 | Pagination | `?page=1&limit=20`, response carries `pagination: { page, limit, total, totalPages }`. `limit` is capped per route (usually 50, messages and leaderboard 100). Asking for more than the cap is a `400`, not a silent clamp. |
 | Rate limits | Per signed-in user, per route family. Over the limit gives `429 { error }` with a `Retry-After` header (seconds). If the limiter store is down you may see `503` with `Retry-After`. Back off and retry; do not hammer. |

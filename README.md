@@ -31,8 +31,8 @@ Discover → Connect → Team up → Chat → Build → Ship → Compete → Win
 
 | Area | Details |
 | --- | --- |
-| Auth | Email/password registration (bcrypt, validated, rate limited) plus GitHub, Google and Discord OAuth. Sessions via NextAuth v5. A GitHub sign-in raises `verificationLevel`, never downgrading it. Password sign-in is throttled per account and, where the client address is known, per address. |
-| Rate limiting | Every API route is limited per signed-in user, with `429` and `Retry-After`. The limiter sits behind an interface (in-memory today, swappable for a shared store), bounds its own memory, and keeps serving if its store fails (login fails closed). See [Rate limiting and proxies](#rate-limiting-and-proxies). |
+| Auth | Sign-in, sign-up, passwords and social login belong to [Clerk](https://clerk.com). Every API route verifies the Clerk session token itself (bearer header or the `__session` cookie) and maps it to a local `User` row, created or linked on first sight; middleware only does redirects and is not trusted for security. A verified email raises `verificationLevel` to `EMAIL` and a connected GitHub account to `GITHUB`, never downgrading. A signed webhook keeps the row in step and turns a deleted Clerk account into an anonymised tombstone instead of erasing its content. See [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md). |
+| Rate limiting | Every API route is limited per signed-in user, with `429` and `Retry-After`; signed-out traffic shares a per-address flood bucket. The limiter sits behind an interface (in-memory today, swappable for a shared store), bounds its own memory, and keeps serving if its store fails. See [Rate limiting and proxies](#rate-limiting-and-proxies). |
 | Onboarding | Route-level gating: an account can't reach the app until it has a headline and at least one skill. |
 | Discovery | `GET /api/discover` — paginated, excludes yourself, ranked by a shared, unit-tested skill-compatibility score. |
 | Connections | Typed connection requests in either direction, checked both ways for conflicts, no self-connect. Accepting one atomically creates the shared DM conversation. |
@@ -62,7 +62,7 @@ endpoints it should call, including the mock fields that have no API behind them
 
 ## Stack
 
-Next.js 14 (App Router) · TypeScript · PostgreSQL · Prisma · NextAuth v5 · Zod ·
+Next.js 14 (App Router) · TypeScript · PostgreSQL · Prisma · Clerk · Zod ·
 Tailwind CSS · Radix UI · React Query · react-three-fiber · Vitest
 
 ## Getting started
@@ -75,11 +75,14 @@ cd skill-dating
 npm install
 
 cp .env.example .env.local
-# set DATABASE_URL and NEXTAUTH_SECRET (openssl rand -base64 32)
-# OAuth keys are optional — email/password works without them
+# set DATABASE_URL and the three Clerk values from your Clerk development
+# instance (dashboard, API keys): NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY and
+# CLERK_SECRET_KEY, plus CLERK_WEBHOOK_SECRET once you have created the webhook
+# endpoint (see docs/AUTH_MIGRATION.md, "Open items")
 
 npx prisma db push
-npm run db:seed   # optional — populates a small demo community; credentials in the file's header comment
+npm run db:seed         # optional — populates a small demo community
+npm run db:seed:clerk   # optional — creates the matching Clerk users so the demo accounts can sign in
 npm run dev
 ```
 
@@ -88,28 +91,33 @@ Open http://localhost:3000.
 Configuration lives in environment variables, all documented in `.env.example`.
 See [Configuration](#configuration) for the ones that matter when deploying.
 
-> Do not set `NEXTAUTH_URL`. With `next-auth@5` beta and Next 14.1 it crashes every
-> `/api/auth/*` route; v5 infers the URL on its own.
+> **The sign-in and sign-up pages are not wired to Clerk yet.** The frontend is frozen
+> on this branch, so `/signin` and `/signup` still call the removed NextAuth routes.
+> The API works with a Clerk session token. The pages that need changes are listed in
+> [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md#frontend-files-that-need-changes).
 
 ## Configuration
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | PostgreSQL connection string (PostgreSQL 13 or newer). |
-| `NEXTAUTH_SECRET` | yes | Session signing key: `openssl rand -base64 32`. |
-| `GITHUB_ID` / `GITHUB_SECRET`, `GOOGLE_ID` / `GOOGLE_SECRET`, `DISCORD_ID` / `DISCORD_SECRET` | no | OAuth sign-in. Email and password works without them. An OAuth sign-in also marks the account's email as verified, which endorsement rewards require. |
-| `TRUSTED_PROXY_HOPS` | set it when deploying | Number of reverse proxies you run in front of the app. `0` (the default) means the client address is unknown, so **all signed-out callers share one rate-limit bucket** and sign-in is limited per account only. Behind a single load balancer set `1`. Details below. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | yes | From the Clerk dashboard. Use a development (`pk_test_` / `sk_test_`) instance while developing; the integration suite refuses any other key. |
+| `CLERK_WEBHOOK_SECRET` | yes, to receive webhooks | The signing secret of the webhook endpoint that points at `/api/webhooks/clerk`. Without it the route answers `503` and processes nothing. |
+| `CLERK_AUTHORIZED_PARTIES` | set it in production | Comma separated origins allowed to mint session tokens (for example `https://app.example.com`). Unset skips the authorized-party check. |
+| `TRUSTED_PROXY_HOPS` | set it when deploying | Number of reverse proxies you run in front of the app. `0` (the default) means the client address is unknown, so **all signed-out callers share one rate-limit bucket**. Behind a single load balancer set `1`. Details below. |
+
+Sign-in providers (Google, GitHub, and so on) are configured in the Clerk dashboard, not here.
 
 ## Rate limiting and proxies
 
-Limits are keyed on the signed-in user. Signed-out traffic (registration, sign-in)
-needs the client's address, and a client address can only be trusted when a proxy you
+Limits are keyed on the signed-in user. Signed-out traffic needs the client's
+address, and a client address can only be trusted when a proxy you
 control writes it. So the address is read from `X-Forwarded-For` only when you say how
 many proxies sit in front of the app:
 
 | `TRUSTED_PROXY_HOPS` | Behaviour |
 | --- | --- |
-| `0` (default) | Forwarding headers are ignored. Signed-out callers share one generously sized bucket, and sign-in is limited per account only. Right for local development. |
+| `0` (default) | Forwarding headers are ignored. Signed-out callers share one generously sized bucket. Right for local development. |
 | `1` | One reverse proxy or load balancer in front. The address the proxy appended (the rightmost entry) is used. |
 | `N` | N trusted proxies; the Nth entry from the right is used. |
 
@@ -127,8 +135,9 @@ an exact global limit.
 | `npm run build` | Production build |
 | `npm run typecheck` | Type-check the project |
 | `npm test` | Run the unit tests (fast, mocked Prisma, no DB needed) |
-| `npm run test:integration` | Run the integration suite against a real, disposable database — spins up its own `next dev` server, no manual setup beyond a reachable Postgres. Configure with `TEST_PORT` (default 3459), `TEST_DB_NAME` (default `skill_dating_integration`) and `TEST_DB_BASE_URL` (default `postgresql://postgres:postgres@localhost:5432`). It refuses an occupied port and refuses to use the `skill_dating` database, so it cannot touch development data. Runs that share a machine need separate checkouts, since two dev servers cannot share one `.next` directory. |
-| `npm run db:seed` | Populate a small idempotent demo community |
+| `npm run test:integration` | Run the integration suite against a real, disposable database — spins up its own `next dev` server, no manual setup beyond a reachable Postgres **and a Clerk development secret key** (`CLERK_SECRET_KEY` in the environment or `.env.local`): the tests create real users and sessions on your development instance through the Backend API and delete them afterwards. It needs network access and refuses a non-development key. Configure with `TEST_PORT` (default 3459), `TEST_DB_NAME` (default `skill_dating_integration`) and `TEST_DB_BASE_URL` (default `postgresql://postgres:postgres@localhost:5432`). It refuses an occupied port and refuses to use the `skill_dating` database, so it cannot touch development data. Runs that share a machine need separate checkouts, since two dev servers cannot share one `.next` directory. |
+| `npm run db:seed` | Populate a small idempotent demo community (legacy rows: no password, no Clerk id) |
+| `npm run db:seed:clerk` | Create the matching Clerk users for the seeded accounts (password `DemoPass123!`) and store their ids. Idempotent; refuses a non-development key |
 | `npm run db:studio` | Browse the database in Prisma Studio |
 
 ## Project layout
