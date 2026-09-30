@@ -131,6 +131,51 @@ describe('clerk authentication', () => {
     })
   })
 
+  describe('middleware redirects (UX only)', () => {
+    const page = async (path: string, headers: Record<string, string> = {}) => {
+      const res = await fetch(INTEGRATION_BASE_URL + path, { redirect: 'manual', headers: { 'x-forwarded-for': syntheticIp(), ...headers } })
+      return { status: res.status, location: res.headers.get('location') ?? '' }
+    }
+    const isRedirect = (status: number) => [302, 303, 307, 308].includes(status)
+
+    it('sends a signed-out visitor from a protected page to /signin', async () => {
+      const res = await page('/dashboard')
+      expect(isRedirect(res.status)).toBe(true)
+      expect(res.location).toContain('/signin')
+      expect(res.location).toContain('callbackUrl=%2Fdashboard')
+    }, 60_000)
+
+    it('follows the onboarding state of a signed-in user, asking /api/users/me', async () => {
+      const A = await registerAndLogin(email('mw'), name('mw'))
+      const auth = async () => ({ authorization: `Bearer ${await A.jar.token()}` })
+
+      // Not onboarded: protected pages send them to /onboarding, which itself is reachable.
+      const dash = await page('/dashboard', await auth())
+      expect(isRedirect(dash.status)).toBe(true)
+      expect(dash.location).toContain('/onboarding')
+      const onboarding = await page('/onboarding', await auth())
+      expect(onboarding.status).toBe(200)
+
+      // Signed in users do not see the sign-in page.
+      const signin = await page('/signin', await auth())
+      expect(isRedirect(signin.status)).toBe(true)
+      expect(signin.location).toContain('/dashboard')
+
+      // Onboarded (a headline and at least one skill): /onboarding sends them on.
+      const skill = await testPrisma.skill.create({ data: { name: `Mw Skill ${suffix}`, slug: `mw-skill-${suffix}`, category: 'Test' } })
+      await testPrisma.user.update({ where: { id: A.userId }, data: { headline: 'Builder' } })
+      await testPrisma.userSkill.create({ data: { userId: A.userId, skillId: skill.id } })
+      const me = await req(A.jar, 'GET', '/api/users/me')
+      expect(me.data.onboardingComplete).toBe(true)
+      const after = await page('/onboarding', await auth())
+      expect(isRedirect(after.status)).toBe(true)
+      expect(after.location).toContain('/dashboard')
+
+      await testPrisma.userSkill.deleteMany({ where: { skillId: skill.id } })
+      await testPrisma.skill.delete({ where: { id: skill.id } })
+    }, 120_000)
+  })
+
   describe('first sight of a Clerk account', () => {
     it('creates one row when several first requests arrive at the same moment', async () => {
       const clerkUser = await createClerkUser(email('race'), name('race'))
