@@ -82,6 +82,22 @@ describe('clerk authentication', () => {
       expect(forged.status).toBe(401)
     })
 
+    it('refuses tokens that name an unknown signing key without asking Clerk about each one', async () => {
+      const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url')
+      const junk = (i: number) =>
+        `${b64({ alg: 'RS256', typ: 'JWT', kid: `ins_junk_${suffix}_${i}` })}.${b64({ sub: 'user_x', exp: 9999999999, iat: 1, nbf: 1 })}.AAAA`
+      const time = async (mk: (i: number) => Record<string, string>) => {
+        const start = Date.now()
+        for (let i = 0; i < 25; i++) expect((await req(null, 'GET', '/api/users/me', undefined, mk(i))).status).toBe(401)
+        return Date.now() - start
+      }
+      await time(() => ({})) // warm the route
+      const none = await time(() => ({}))
+      const forged = await time((i) => ({ Authorization: `Bearer ${junk(i)}` }))
+      // Each unguarded junk token cost a Clerk API round trip (about 100 ms), 2.5 s for 25.
+      expect(forged).toBeLessThan(none * 3 + 800)
+    }, 60_000)
+
     it('accepts the token from the __session cookie a browser sends', async () => {
       const A = await registerAndLogin(email('cookie'), name('cookie'))
       const res = await fetch(INTEGRATION_BASE_URL + '/api/users/me', {
@@ -194,6 +210,10 @@ describe('clerk authentication', () => {
       const legacy = await testPrisma.user.create({
         data: { email: email('legacy'), username: name('legacyold'), name: 'Legacy Person', xp: 250, passwordHash: 'x' },
       })
+      // What a squatter who pre-registered this address could still be holding.
+      await testPrisma.account.create({
+        data: { userId: legacy.id, type: 'oauth', provider: 'github', providerAccountId: `gh${suffix}` },
+      })
       const clerkUser = await createClerkUser(email('legacy'), name('legacynew'))
       const sessionId = await createSession(clerkUser.clerkId)
       const jar = cookieJar(syntheticIp(), () => mintToken(sessionId))
@@ -209,6 +229,9 @@ describe('clerk authentication', () => {
       expect(rows[0].name).toBe('Legacy Person')
       expect(rows[0].isEmailVerified).toBe(true)
       expect(await testPrisma.auditEvent.count({ where: { userId: legacy.id, action: 'USER_LINKED' } })).toBe(1)
+      // The previous claimant's ways in are gone: the unverified password and the linked OAuth account.
+      expect(rows[0].passwordHash).toBeNull()
+      expect(await testPrisma.account.count({ where: { userId: legacy.id } })).toBe(0)
     })
 
     it('refuses to take over an email that belongs to an account bound to a different Clerk user', async () => {

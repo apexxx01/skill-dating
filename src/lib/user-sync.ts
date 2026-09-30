@@ -115,10 +115,16 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<LocalUser> 
       if (linkable.clerkId !== null) throw new AccountConflictError()
       userId = linkable.id
       const username = await chosenUsername(tx, facts, linkable.username, userId)
+      // Whoever proves this address through Clerk now owns the account. Anything that
+      // could still let the previous claimant in (a password nobody verified the
+      // address for, OAuth accounts linked to it) is removed, so a pre-registered
+      // squatter cannot keep access to a victim's account after the victim links it.
       await tx.user.update({
         where: { id: userId },
-        data: { clerkId: facts.clerkId, ...(username ? { username } : {}), lastActiveAt: new Date() },
+        data: { clerkId: facts.clerkId, ...(username ? { username } : {}), lastActiveAt: new Date(), passwordHash: null },
       })
+      await tx.account.deleteMany({ where: { userId } })
+      await tx.session.deleteMany({ where: { userId } })
       await tx.auditEvent.create({
         data: { userId, action: 'USER_LINKED', targetType: 'USER', targetId: userId, newValue: { clerkId: facts.clerkId } },
       })
