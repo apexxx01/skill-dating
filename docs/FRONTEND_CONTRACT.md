@@ -244,7 +244,10 @@ Evidence rows come from `GET /api/evidence`; each has `endorsementCount` and
 `endorsedByMe`. Peer endorsements are rows on the same table with type
 `PEER_ENDORSEMENT`, so `skillEvidences[]` on the profile includes them; use the
 evidence endpoint for the display list. You cannot endorse your own evidence
-(`403`), and each person can endorse an item once.
+(`403`), and each person can endorse an item once. Endorsements from
+unverified accounts still show in `endorsementCount`, but only verified
+endorsers unlock the owner's "Vouched For" achievement and XP, so do not promise
+the owner a badge in the UI when an endorsement arrives.
 
 ### Fields the mock invents
 

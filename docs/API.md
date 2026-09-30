@@ -355,7 +355,7 @@ Creates evidence for the caller. Records activity and grants `first-evidence`.
 **Auth:** the evidence owner (`403` otherwise). Deleting evidence also removes the endorsements on it. **Response:** `{ success: true }`
 
 ### `POST /api/evidence/[id]/endorse`
-Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement, and grants the owner `endorsed`.
+Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement. Every endorsement counts toward `endorsementCount`, but the reward (the `endorsed` achievement and its XP) is only granted when the endorser is verified (`verificationLevel` above `NONE`: a password sign-up stays `NONE` until the account signs in through an OAuth provider), at most 10 rewards per endorser per rolling day, and at most 50 XP per recipient per rolling day from endorsements.
 **Response:** `{ endorsed: true, endorsementCount }` — `201` when created, `200` if already endorsed.
 **Errors:** `403` your own evidence; `403` you have blocked the owner; `404` missing, an endorsement row, or the owner has blocked you.
 

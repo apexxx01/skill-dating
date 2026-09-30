@@ -276,6 +276,7 @@ async function main() {
         xp: u.xp,
         passwordHash,
         isEmailVerified: true,
+        verificationLevel: 'EMAIL',
         emailVerified: new Date(),
       },
       create: {
@@ -289,6 +290,7 @@ async function main() {
         xp: u.xp,
         passwordHash,
         isEmailVerified: true,
+        verificationLevel: 'EMAIL',
         emailVerified: new Date(),
       },
     })

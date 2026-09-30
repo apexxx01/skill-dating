@@ -47,7 +47,7 @@ Discover → Connect → Team up → Chat → Build → Ship → Compete → Win
 | Moderation | Report a user (deduped, no self-reporting), moderator/admin review queue with forward-only status transitions, each resolution logged as a moderation action and an audit event. |
 | Reputation | Shared XP award logic, a real activity feed, achievements (granted idempotently, defined in one place), and a live leaderboard computed from the XP event log. |
 | Profiles | Skills, XP, a live rank, achievements, owned and joined projects, owned and joined teams, an activity feed (`GET /api/activity`), and your own email on your own profile only. |
-| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. |
+| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. The achievement and XP for being endorsed only count endorsements from verified accounts, with daily caps per endorser and per recipient. |
 | Project progress | Project updates and milestones, with a members-only write path, per-user posting limits, notifications to teammates, and achievements for a first update and first completed milestone. |
 | Dashboard | `GET /api/dashboard` returns everything the dashboard shows through the same rules as the rest of the API, including block filtering. |
 | My applications | `GET /api/teams/applications` — a user's own applications and their status, including invitations sent to them. |
