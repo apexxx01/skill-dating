@@ -20,7 +20,12 @@ describe('endorsement rewards', () => {
 
   async function user(label: string): Promise<TestUser> {
     const name = `er${label}${suffix}${n++}`
-    return registerAndLogin(`${name}@test.dev`, name)
+    const u = await registerAndLogin(`${name}@test.dev`, name)
+    // A Clerk account arrives with a verified email (and so at level EMAIL). These
+    // tests are about accounts that have NOT proven anything yet, so put the row
+    // back to that state; `verify` moves it up again where a test needs it.
+    await testPrisma.user.update({ where: { id: u.userId }, data: { verificationLevel: 'NONE', isEmailVerified: false } })
+    return u
   }
 
   async function skill() {
