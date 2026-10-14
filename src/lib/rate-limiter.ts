@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { env } from '@/lib/env'
 
 // Rate limiting behind a small interface so the in-memory implementation can
 // be swapped for a shared store (Redis, etc.) without touching any route:
@@ -107,8 +108,8 @@ export function setRateLimiter(limiter: RateLimiter) {
 // that does not depend on the IP (a user id, an account name, or one shared
 // bucket).
 export function clientIp(request: Request): string | null {
-  const hops = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? '0', 10)
-  if (!Number.isFinite(hops) || hops < 1) return null
+  const hops = env.TRUSTED_PROXY_HOPS
+  if (hops < 1) return null
 
   const forwarded = request.headers.get('x-forwarded-for')
   if (!forwarded) return null

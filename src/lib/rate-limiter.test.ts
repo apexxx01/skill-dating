@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { resetEnvCache } from '@/lib/env'
 import {
   MemoryRateLimiter,
   UNTRUSTED_SHARED_BUCKET_MULTIPLIER,
@@ -66,6 +67,7 @@ describe('clientIp', () => {
   const withEnv = (hops: string | undefined) => {
     if (hops === undefined) delete process.env.TRUSTED_PROXY_HOPS
     else process.env.TRUSTED_PROXY_HOPS = hops
+    resetEnvCache()
   }
   afterEach(() => withEnv(undefined))
 
@@ -104,6 +106,7 @@ describe('enforceRateLimit', () => {
   afterEach(() => {
     setRateLimiter(original)
     delete process.env.TRUSTED_PROXY_HOPS
+    resetEnvCache()
   })
 
   function capture() {
@@ -128,6 +131,7 @@ describe('enforceRateLimit', () => {
 
   it('keys on the trusted proxy address at the configured limit', async () => {
     process.env.TRUSTED_PROXY_HOPS = '1'
+    resetEnvCache()
     const calls = capture()
     await enforceRateLimit(request('6.6.6.6, 203.0.113.9'), config)
     expect(calls[0]).toEqual({ key: 'auth:register:ip:203.0.113.9', options: { windowMs: 60_000, maxRequests: 10 } })

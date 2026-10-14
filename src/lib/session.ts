@@ -1,5 +1,6 @@
 import { clerkClient, verifyToken } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
+import { env } from '@/lib/env'
 import { createKidGuard, tokenKid } from '@/lib/jwks-guard'
 import { consumeSafely, type RateLimitDecision } from '@/lib/rate-limiter'
 import { AccountConflictError, SELECTED_USER_FIELDS, syncClerkUser, type LocalUser } from '@/lib/user-sync'
@@ -61,9 +62,7 @@ export function extractSessionToken(headers: Headers): string | null {
 }
 
 function authorizedParties(): string[] | undefined {
-  const raw = process.env.CLERK_AUTHORIZED_PARTIES
-  if (!raw) return undefined
-  const list = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const list = env.CLERK_AUTHORIZED_PARTIES
   return list.length > 0 ? list : undefined
 }
 
@@ -71,11 +70,7 @@ function authorizedParties(): string[] | undefined {
 export async function verifyIdentity(headers: Headers): Promise<Identity | null> {
   const token = extractSessionToken(headers)
   if (!token) return null
-  const secretKey = process.env.CLERK_SECRET_KEY
-  if (!secretKey) {
-    console.error('CLERK_SECRET_KEY is not set: every request is treated as signed out')
-    return null
-  }
+  const secretKey = env.CLERK_SECRET_KEY
   // A token naming a signing key Clerk does not have never reaches the SDK, which
   // would otherwise ask Clerk's API for the keys again on every such request.
   const kid = tokenKid(token)

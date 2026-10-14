@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { Webhook } from 'svix'
 import { processClerkEvent } from '@/lib/clerk-webhook'
+import { env } from '@/lib/env'
 import { syncClerkUser, tombstoneClerkUser } from '@/lib/user-sync'
 
 // Unauthenticated by design: the only credential is the Svix signature over the
-// raw body, made with CLERK_WEBHOOK_SECRET. Without the secret the route refuses
-// everything (503) rather than processing unsigned input. Svix also rejects
+// raw body, made with CLERK_WEBHOOK_SECRET. Without the secret (optional outside
+// production) the route refuses everything (503) rather than processing unsigned input. Svix also rejects
 // timestamps outside a five minute window.
 
 const MAX_BODY_BYTES = 1_000_000
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.CLERK_WEBHOOK_SECRET
+  const secret = env.CLERK_WEBHOOK_SECRET
   if (!secret) {
     console.error('CLERK_WEBHOOK_SECRET is not set: refusing webhook deliveries')
     return NextResponse.json({ error: 'Webhook is not configured' }, { status: 503 })
