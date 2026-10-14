@@ -98,3 +98,19 @@ describe('no raw error bodies', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('documentation', () => {
+  const doc = fs.readFileSync(path.resolve(__dirname, '../../../docs/API.md'), 'utf-8')
+
+  it('lists every code in docs/API.md with its status and default message', () => {
+    for (const code of codes) {
+      const { status, message } = ERROR_CATALOG[code]
+      expect(doc, `${code} is missing or out of date in docs/API.md`).toContain(`| \`${code}\` | ${status} | ${message} |`)
+    }
+  })
+
+  it('lists no code that no longer exists', () => {
+    const documented = [...doc.matchAll(/^\| `([A-Z][A-Z0-9_]+)` \| \d{3} \|/gm)].map((match) => match[1])
+    expect(documented.filter((code) => !isErrorCode(code))).toEqual([])
+  })
+})

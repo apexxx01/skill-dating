@@ -14,10 +14,10 @@ come back, and every field the mocks invent that the API does not provide.
 
 | Topic | Rule |
 | --- | --- |
-| Auth | Clerk session: the `__session` cookie Clerk sets, or `Authorization: Bearer <token>`. No session gives `401 { error }`. Users are identified by their **local** id (`GET /api/users/me`), never by Clerk's id. |
-| Errors | Always `{ error: string, details?: unknown }`. Validation failures are `400` with `details` as `{ field: string[] }`. |
+| Auth | Clerk session: the `__session` cookie Clerk sets, or `Authorization: Bearer <token>`. No session gives `401` with code `UNAUTHORIZED`. Users are identified by their **local** id (`GET /api/users/me`), never by Clerk's id. |
+| Errors | Always `{ error: { code, message, params?, details? } }`. Branch on `code` (the list is in `docs/API.md`, "Errors"); `message` is an English default. `params` carries the values a translation needs. Validation failures are `400 VALIDATION_FAILED` with `details` as `{ field: string[] }`. |
 | Pagination | `?page=1&limit=20`, response carries `pagination: { page, limit, total, totalPages }`. `limit` is capped per route (usually 50, messages and leaderboard 100). Asking for more than the cap is a `400`, not a silent clamp. |
-| Rate limits | Per signed-in user, per route family. Over the limit gives `429 { error }` with a `Retry-After` header (seconds). If the limiter store is down you may see `503` with `Retry-After`. Back off and retry; do not hammer. |
+| Rate limits | Per signed-in user, per route family. Over the limit gives `429 RATE_LIMITED` (`error.params.retryAfter` is the seconds to wait) with a `Retry-After` header. If the limiter store is down you may see `503 SERVICE_UNAVAILABLE` with `Retry-After`. Back off and retry; do not hammer. |
 | Dates | ISO 8601 strings. |
 | Blocks | Blocking is symmetric. The blocked user cannot see or reach the blocker anywhere: they get `404` on the blocker's profile, and the blocker is missing from lists, search, leaderboard, recommendations and the dashboard. The blocker gets `403 "You have blocked this user"` if they try to interact with someone they blocked (so the UI can offer "Unblock"). Nothing tells the blocked user they were blocked. |
 | Missing vs forbidden | `404` means it does not exist **or** you may not know it exists. `403` means it exists and you lack the role for the action. |
@@ -295,9 +295,9 @@ The row with `participants[].user`, `hackathonTeams[]` (each with `name`, `team`
 `participation` (your own participant row or `null`). Note the count key on the
 detail is `hackathonTeams`, on the list it is `teams`.
 
-Registration rules the UI should mirror: `400 "Registration closed"` when the
-status is not open, `400 "Registration deadline passed"`, `400 "Already
-registered"`. Entering a team needs you to be registered first and to be a
+Registration rules the UI should mirror: `400 HACKATHON_REGISTRATION_CLOSED` when the
+status is not open, `400 HACKATHON_REGISTRATION_DEADLINE_PASSED`, `400
+HACKATHON_ALREADY_REGISTERED`. Entering a team needs you to be registered first and to be a
 member of the team; the team size must sit inside the hackathon's min/max.
 Only admins create hackathons (`403` otherwise).
 

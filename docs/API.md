@@ -1,22 +1,24 @@
 # API Reference
 
 Generated from the actual route handlers in `src/app/api/`. Every route except
-`GET /api/auth/session` and `POST /api/webhooks/clerk` requires an authenticated
+`GET /api/auth/session`, `POST /api/webhooks/clerk` and `/api/inngest` requires an authenticated
 Clerk session: a session token sent as `Authorization: Bearer <token>` or in the
 `__session` cookie that Clerk sets in browsers. The token is verified on every request
 (signature, expiry and, when configured, authorized party); tokens last about 60 seconds,
 so a revoked session can stay valid for up to that long. Routes marked **Auth: none** are the
 only exceptions. All request/response bodies are JSON unless noted.
 
-Error responses share one shape: `{ "error": string, "details"?: unknown }`.
-Validation failures (`400`) return `{ "error": "Validation failed", "details": { field: [messages] } }`.
+Error responses share one shape, `{ "error": { "code": "MACHINE_CODE", "message": "..." } }`, with
+`params` and `details` added when there are any. Branch on `code`; `message` is an English
+default and not a stable string. See [Errors](#errors) for the contract and every code.
+Validation failures (`400`) return `{ "error": { "code": "VALIDATION_FAILED", "message": "Validation failed", "details": { field: [messages] } } }`.
 Unknown request-body keys are stripped, so a client cannot set `id`, `ownerId`, `xp` or `role` by sending them.
 
 Response types for the frontend are exported from `src/types/api.ts`; the page-by-page mapping (which endpoint each screen calls, and which mock fields have no API) is in `docs/FRONTEND_CONTRACT.md`.
 
-**Rate limiting.** Every route is limited per signed-in user (per route family; the limit is listed in the route's handler). Over the limit: `429 { error }` with a `Retry-After` header in seconds. If the limiter's store is unavailable, routes keep serving. Signed-out traffic is limited per client address (120 requests a minute), which is only known when `TRUSTED_PROXY_HOPS` says how many reverse proxies to trust (see the README); without it, anonymous callers share one generously sized bucket. A first sign-in, which costs one Clerk API call, is limited to 10 a minute per Clerk account.
+**Rate limiting.** Every route is limited per signed-in user (per route family; the limit is listed in the route's handler). Over the limit: `429` with code `RATE_LIMITED` (the seconds to wait are `error.params.retryAfter`) and a `Retry-After` header. Counters live in the shared cache (Redis in production), so the limit holds across instances. If the cache is unavailable, routes keep serving. Signed-out traffic is limited per client address (120 requests a minute), which is only known when `TRUSTED_PROXY_HOPS` says how many reverse proxies to trust (see the README); without it, anonymous callers share one generously sized bucket. A first sign-in, which costs one Clerk API call, is limited to 10 a minute per Clerk account.
 
-**Blocks.** Blocking is stored one way and enforced both ways. The blocked user gets `404` for the blocker's profile, content and conversations, and the blocker is left out of their lists, search, leaderboard and recommendations. The blocker who tries to interact with someone they blocked gets `403 "You have blocked this user"`. The blocked user is never told. Details under **Blocks** below.
+**Blocks.** Blocking is stored one way and enforced both ways. The blocked user gets `404` for the blocker's profile, content and conversations, and the blocker is left out of their lists, search, leaderboard and recommendations. The blocker who tries to interact with someone they blocked gets `403 USER_BLOCKED`. The blocked user is never told. Details under **Blocks** below.
 
 **Requirements.** PostgreSQL 13 or newer (`gen_random_uuid()` is used when marking messages read).
 
@@ -28,7 +30,7 @@ Sign-in, sign-up and passwords are Clerk's; there is no register or login route 
 first authenticated request from a Clerk account creates its local `User` row (or links an
 existing legacy row that has the same **Clerk-verified** email), so every route below can
 answer these extra statuses through the shared auth layer: `401` for a missing, invalid, expired
-or tampered token, or for an account that was deleted; `409 { error }` when the verified email
+or tampered token, or for an account that was deleted; `409 ACCOUNT_CONFLICT` when the verified email
 belongs to a local account bound to a different Clerk user (nothing is taken over, the attempt is
 audited); `429` when first-time syncs from one Clerk account come too fast; `503` when Clerk's API
 cannot be reached during a first sync. Usernames are copied from Clerk; on a collision `_` plus
@@ -426,6 +428,140 @@ Your own feed is complete. Another user's feed shows entries with no project (ac
 ### `GET /api/dashboard`
 Everything the dashboard page shows, through the same rules as every other endpoint. Blocked users and their teams never appear in recommendations. The same data is available to a server component as `getDashboardData(prisma, userId)` from `src/lib/dashboard.ts`.
 **Response:** `{ currentBuild, userProjects (active, ≤5), userTeams, hackathonParticipations, userQuests, recentActivities, xpEvents, userSkills, recommendedBuilders (with compatibility and commonSkills), recruitingTeams, upcomingHackathons }`
+
+---
+
+## Realtime
+
+### `POST /api/realtime/token`
+**Auth:** required. **Rate limit:** 30 a minute per user. Issues a short-lived (15 minute), **subscribe-only** token request for the realtime provider (Ably), bound to the caller as client id. The provider's API key never leaves the server; the browser passes `tokenRequest` to the provider's client, which exchanges it for a token and asks for a new one when it expires.
+
+**Body (optional):** `{ channels?: string[] }`, 1 to 20 names. With no body, or no `channels`, the token covers the caller's own `user:<id>` channel.
+
+| Channel | Who may subscribe |
+| --- | --- |
+| `user:<userId>` | That user only |
+| `conversation:<id>` | Members of the conversation |
+| `team:<id>` | Members of the team |
+
+Any other name, a wildcard, or a channel the caller may not read refuses the **whole** request: `403 CHANNEL_FORBIDDEN` with `details: { denied: string[] }`, and no token. A `400 VALIDATION_FAILED` for a malformed body.
+
+**Response `200`:** `{ tokenRequest, channels, expiresAt }`. `tokenRequest` is the signed request (`keyName`, `clientId`, `capability`, `timestamp`, `nonce`, `mac`, `ttl`); `capability` is JSON granting `["subscribe"]` on each listed channel and nothing else, so a browser cannot publish. Only the server publishes. Without an Ably key (development, tests) the response has the same shape with an unsigned stand-in.
+
+## Background jobs
+
+### `GET | POST | PUT /api/inngest`
+**Auth:** none of ours. Inngest calls this route to discover and run the jobs declared in `src/lib/infra/jobs.ts`, and authenticates each request with its signature (`INNGEST_SIGNING_KEY`, required in production). Not for application clients. In development, without keys, `GET` answers a short description of the registered functions.
+
+---
+
+## Errors
+
+Every error response, from every route, has this shape:
+
+```json
+{ "error": { "code": "TEAM_FULL", "message": "Team is full" } }
+```
+
+| Field | Present | Meaning |
+| --- | --- | --- |
+| `error.code` | always | A stable `MACHINE_CODE` from the table below. Codes are only ever added, never reused for a different meaning. Branch on this. |
+| `error.message` | always | The English default for the code, with `params` filled in. Not a stable string: do not match on it. |
+| `error.params` | when the message has values in it | The values the message interpolates, such as `{ "max": 20 }`. To show another language, render your own text from `code` and `params`. |
+| `error.details` | when there is structured extra data | `VALIDATION_FAILED`: `{ field: string[] }`. `CONNECTION_PENDING` and `REPORT_ALREADY_PENDING`: the existing record. `CHANNEL_FORBIDDEN`: `{ denied: string[] }`. |
+
+The HTTP status comes from the code. Rate limited (`429`) and temporarily unavailable (`503`) responses
+also send `Retry-After`. The catalog is `ERROR_CATALOG` in `src/lib/api/errors.ts`; this table is generated from it
+and a unit test fails if a code is missing here.
+
+| Code | Status | Default message |
+| --- | --- | --- |
+| `UNAUTHORIZED` | 401 | Authentication required |
+| `FORBIDDEN` | 403 | You do not have permission to do this |
+| `VALIDATION_FAILED` | 400 | Validation failed |
+| `INVALID_JSON` | 400 | The request body is not valid JSON |
+| `MISSING_PARAMETER` | 400 | Missing required parameter: {parameters} |
+| `PAYLOAD_TOO_LARGE` | 413 | The request body is too large |
+| `RATE_LIMITED` | 429 | Too many requests. Try again in {retryAfter} seconds |
+| `SERVICE_UNAVAILABLE` | 503 | The service is temporarily unavailable. Try again shortly |
+| `AUTH_UNAVAILABLE` | 503 | Authentication is temporarily unavailable |
+| `ACCOUNT_CONFLICT` | 409 | This email belongs to a different account |
+| `INTERNAL_ERROR` | 500 | Something went wrong |
+| `WEBHOOK_NOT_CONFIGURED` | 503 | Webhook is not configured |
+| `WEBHOOK_SIGNATURE_MISSING` | 400 | Missing signature headers |
+| `WEBHOOK_SIGNATURE_INVALID` | 400 | Invalid signature |
+| `WEBHOOK_PROCESSING_FAILED` | 500 | Processing failed |
+| `CHANNEL_FORBIDDEN` | 403 | You cannot subscribe to one or more of these channels |
+| `USER_NOT_FOUND` | 404 | User not found |
+| `REPORTED_USER_NOT_FOUND` | 404 | Reported user not found |
+| `PROJECT_NOT_FOUND` | 404 | Project not found |
+| `PROJECT_NOT_OWNED` | 404 | Project not found or not owned by you |
+| `MILESTONE_NOT_FOUND` | 404 | Milestone not found |
+| `UPDATE_NOT_FOUND` | 404 | Update not found |
+| `TEAM_NOT_FOUND` | 404 | Team not found |
+| `MEMBER_NOT_FOUND` | 404 | Member not found |
+| `APPLICATION_NOT_FOUND` | 404 | Application not found |
+| `APPLICATION_NOT_PENDING` | 404 | Application not found or already resolved |
+| `HACKATHON_NOT_FOUND` | 404 | Hackathon not found |
+| `TEAM_NOT_IN_HACKATHON` | 404 | This team is not registered for this hackathon |
+| `CONNECTION_NOT_FOUND` | 404 | Connection not found |
+| `CONVERSATION_NOT_FOUND` | 404 | Conversation not found |
+| `MESSAGE_NOT_FOUND` | 404 | Message not found |
+| `NOTIFICATION_NOT_FOUND` | 404 | Notification not found |
+| `EVIDENCE_NOT_FOUND` | 404 | Evidence not found |
+| `SKILL_NOT_FOUND` | 404 | Skill not found |
+| `USER_SKILL_NOT_FOUND` | 404 | Skill not found for user |
+| `REPORT_NOT_FOUND` | 404 | Report not found |
+| `BUILD_NOT_FOUND` | 404 | No current build found |
+| `USER_BLOCKED` | 403 | You have blocked this user |
+| `CANNOT_BLOCK_SELF` | 400 | You cannot block yourself |
+| `CANNOT_CONNECT_SELF` | 400 | You cannot connect with yourself |
+| `CANNOT_REPORT_SELF` | 400 | You cannot report yourself |
+| `CANNOT_ENDORSE_OWN_EVIDENCE` | 403 | You cannot endorse your own evidence |
+| `USERS_NOT_FOUND` | 400 | One or more users were not found |
+| `CONNECTION_EXISTS` | 400 | Already connected with this user |
+| `CONNECTION_PENDING` | 409 | A connection request is already pending between you and this user |
+| `CONNECTION_ALREADY_RESOLVED` | 400 | Connection is already {status} |
+| `REPORT_ALREADY_PENDING` | 409 | You already have a pending report against this user |
+| `REPORT_INVALID_TRANSITION` | 400 | Cannot transition report from {from} to {to} |
+| `DIRECT_CONVERSATION_PARTICIPANTS` | 400 | Direct conversations require exactly 1 participant |
+| `READ_MARKER_NOT_IN_CONVERSATION` | 400 | upToMessageId does not belong to this conversation |
+| `MESSAGE_DELETED` | 400 | This message has been deleted |
+| `REACTION_LIMIT_PER_USER` | 400 | You can add at most {max} different reactions to one message |
+| `REACTION_LIMIT_PER_MESSAGE` | 400 | A message can have at most {max} different reactions |
+| `SKILL_ALREADY_ADDED` | 400 | Skill already added |
+| `EVIDENCE_SKILL_NOT_ON_PROFILE` | 400 | You can only attach evidence to a skill you have added to your profile |
+| `EVIDENCE_LIMIT_REACHED` | 400 | You can attach at most {max} pieces of evidence to one skill |
+| `MILESTONE_LIMIT_REACHED` | 400 | A project can have at most {max} milestones |
+| `SYSTEM_UPDATE_IMMUTABLE` | 400 | System-generated updates cannot be edited |
+| `PROJECT_HAS_TEAM` | 400 | Project already has a team |
+| `NOT_TEAM_MEMBER` | 403 | Not a team member |
+| `ALREADY_TEAM_MEMBER` | 400 | Already a member of this team |
+| `TEAM_FULL` | 400 | Team is full |
+| `TEAM_PROJECT_FULL` | 400 | This team's linked project is already at its max team size |
+| `TEAM_NOT_RECRUITING` | 400 | Team is not recruiting |
+| `ALREADY_APPLIED` | 400 | Already applied to this team |
+| `APPLICATION_ALREADY_REVIEWED` | 400 | Application already reviewed |
+| `INVITATION_PENDING` | 409 | An invitation to this user is already pending |
+| `APPLICATION_PENDING` | 409 | This user already has a pending application to this team |
+| `CANNOT_REMOVE_OWNER` | 403 | Cannot remove team owner |
+| `SOLE_OWNER_CANNOT_LEAVE` | 400 | Cannot leave: you're the sole owner. Promote another member or delete the team first |
+| `ALREADY_OWNER` | 400 | That user is already the owner |
+| `NEW_OWNER_NOT_MEMBER` | 400 | The new owner must already be a team member |
+| `HACKATHON_REGISTRATION_REQUIRED` | 400 | You must be registered for this hackathon |
+| `HACKATHON_ALREADY_REGISTERED` | 400 | Already registered |
+| `HACKATHON_REGISTRATION_CLOSED` | 400 | Registration closed |
+| `HACKATHON_REGISTRATION_DEADLINE_PASSED` | 400 | Registration deadline passed |
+| `HACKATHON_INVALID_TRANSITION` | 400 | Cannot transition hackathon from {from} to {to} |
+| `HACKATHON_NOT_ENDED` | 400 | Results can only be recorded once the hackathon has ended |
+| `HACKATHON_SUBMISSIONS_CLOSED` | 400 | Submissions are only open while the hackathon is active |
+| `HACKATHON_TEAM_MISMATCH` | 400 | One or more teams do not belong to this hackathon |
+| `HACKATHON_TEAM_REGISTRATION_CLOSED` | 400 | Team registration closed |
+| `ALREADY_IN_HACKATHON_TEAM` | 400 | Already in a team for this hackathon |
+| `TEAM_WRONG_HACKATHON` | 400 | Team belongs to a different hackathon |
+| `TEAM_NO_PROJECT` | 400 | This team has no linked project to submit |
+| `HACKATHON_TEAM_TOO_LARGE` | 400 | Team exceeds this hackathon's max team size of {max} |
+| `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
 
 ---
 
