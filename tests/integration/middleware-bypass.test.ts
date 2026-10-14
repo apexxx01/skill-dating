@@ -77,7 +77,12 @@ async function call(method: string, urlPath: string, bypass?: string): Promise<O
 
 const isRedirect = (status: number) => [301, 302, 303, 307, 308].includes(status)
 
-// Bounded parallelism: the dev server compiles each route on first request.
+// Bounded parallelism, used only for requests to routes that are already compiled.
+// `next dev` compiles a route on its first request, and several first requests to
+// dynamic-segment routes at once can make the dev server read a manifest file
+// while another compile is still writing it ("Unexpected end of JSON input" from
+// inside next/dist, a 500 before any of our code runs). So every route is
+// requested once, one at a time, before anything is sent in parallel.
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
@@ -106,8 +111,11 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
     const guarded = pages.filter((p) => !PUBLIC_PAGES.has(p))
     const failures: string[] = []
 
+    const controls = new Map<string, Observed>()
+    for (const pagePath of guarded) controls.set(pagePath, await call('GET', pagePath)) // compiles each page
+
     await mapLimit(guarded, 6, async (pagePath) => {
-      const control = await call('GET', pagePath)
+      const control = controls.get(pagePath)!
       if (!isRedirect(control.status) || !control.location.includes('/signin')) {
         failures.push(`${pagePath}: without the header an anonymous visitor got ${control.status} ${control.location}`)
         return
@@ -127,8 +135,11 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
     const guarded = apiRoutes.filter((r) => !PUBLIC_API_ROUTES.has(r.path))
     const failures: string[] = []
 
+    const controls = new Map<string, Observed>()
+    for (const { method, path: routePath } of guarded) controls.set(`${method} ${routePath}`, await call(method, routePath)) // compiles each route
+
     await mapLimit(guarded, 6, async ({ method, path: routePath }) => {
-      const control = await call(method, routePath)
+      const control = controls.get(`${method} ${routePath}`)!
       if (control.status !== 401) {
         failures.push(`${method} ${routePath}: without the header an anonymous call got ${control.status}`)
         return
