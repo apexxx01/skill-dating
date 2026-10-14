@@ -182,11 +182,22 @@ and the integration suite against a Postgres service container.
 
 ## Known limitations and open items
 
-- The sign-in and sign-up screens are not wired to Clerk. The UI reads sessions through
-  `src/lib/session-client.tsx`, whose `signIn` reports failure until they are.
-- The onboarding page and the legacy sign-up page read `data.error` as a string. It is now an
-  object, so they need `data.error?.message` (UI files, not changed here).
 - Nothing publishes realtime events and the only job is `system/ping`.
-- `npm audit` reports vulnerabilities in the dependency tree that were not part of this work.
+- `npm audit` still reports advisories against Next 14.2.35 and its build tooling; see
+  [Dependency advisories](#dependency-advisories).
 - `inngest` was installed with `--legacy-peer-deps` (an optional SvelteKit peer needs Vite 8, the
   test runner uses Vite 5).
+
+## Dependency advisories
+
+`npm audit --omit=dev` after the fixes that stay within a major version: **9 findings, none
+fixable without a major upgrade.** Fixed: `@clerk/nextjs` (critical, 6.12.8 to 6.39.7), `glob` (high,
+pinned to 10.5.0 on the one runtime path that used 10.3.10 through an `overrides` entry for
+`gaxios > rimraf`), `source-map-js` (high, lockfile update).
+
+| Finding | Why it remains | Exposure |
+| --- | --- | --- |
+| `next` 14.2.35 (critical, many advisories) | 14.2.35 is the last 14.x release; the fix is Next 15 or 16, a major upgrade needing its own change | **Not dismissed.** Reachable in principle: this is a self-hosted App Router app, so the Server Components / request-handling advisories apply to it, and `/_next/image` exists although no code uses `next/image`. Not applicable here: Server Actions (none), `i18n` and rewrites (not configured), WebSocket upgrades. Plan the Next upgrade. Turning the image optimizer off in `next.config.js` would shrink the surface meanwhile (not tried here). |
+| `postcss` below 8.5.23 inside `next` (high) | Next bundles its own copy; moves with Next | Build time only: it processes this repository's own stylesheets, never request input, so its stringify and source-map issues have no attacker-controlled input. |
+| `tailwindcss` 3.4, `braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-selector-parser`, `postcss-nested` (high, moderate) | Reported because `tailwindcss-animate` (a runtime dependency) lists `tailwindcss` as a peer; the fix is Tailwind 4, a major upgrade | Build time only: `tailwindcss` is a dev dependency that generates CSS during the build and is not part of the running server. |
+| `glob` 10.3.10 under `eslint-config-next` | Pinned exactly by `@next/eslint-plugin-next` | Dev only (not in the `--omit=dev` report); the advisory concerns the `glob` command-line `-c` flag, which no script here calls. |

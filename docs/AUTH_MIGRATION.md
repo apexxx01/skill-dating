@@ -285,8 +285,8 @@ instance has a user cap and Backend API rate limits (the harness retries on `429
    `TRUSTED_PROXY_HOPS` to the number of proxies in front of the app.
 5. **CI:** add `CLERK_SECRET_KEY` and `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (development instance)
    as repository secrets, or the integration job is skipped with a warning.
-6. **Frontend wiring** (frozen here): the table below. Until then the sign-in and sign-up pages do
-   not work.
+6. **Frontend wiring:** `/signin` and `/signup` now render Clerk's components (see the update below
+   and the table). The remaining files in the table are still to do.
 7. **Product decisions taken on your behalf, easy to reverse:** a deleted Clerk account is
    anonymised, not erased (section 4.5); linking a legacy account clears its password hash and
    OAuth accounts (section 9).
@@ -299,7 +299,12 @@ instance has a user cap and Backend API rate limits (the harness retries on `429
    `socket.io-client` packages have since been removed. The seven frozen UI files that imported
    `next-auth/react` now import the same `useSession` / `signIn` / `signOut` / `SessionProvider`
    names from `src/lib/session-client.tsx`; only the import line of each changed. Its `signIn`
-   reports failure until the sign-in screens are wired to Clerk.
+   now hands off to the Clerk sign-in page (it used to report failure).
+
+   *Update:* the sign-in and sign-up pages are Clerk's `<SignIn />` and `<SignUp />` under
+   optional catch-all routes (`/signin/[[...signin]]`, `/signup/[[...signup]]`, needed for path
+   routing), `ClerkProvider` wraps the root layout, and the middleware matcher covers the nested
+   paths. `@clerk/nextjs` is 6.39.7.
 
 ## 9. What was built, and what the live runs changed
 
@@ -351,9 +356,9 @@ None edited on this branch. When you wire the UI:
 
 | File | Uses | Change needed |
 | --- | --- | --- |
-| `src/components/providers.tsx` | `SessionProvider` from `next-auth/react` | Wrap in `ClerkProvider`; drop `SessionProvider` once the files below stop calling `useSession`. |
-| `src/app/(auth)/signin/page.tsx` | `signIn('credentials' \| provider)` | Replace the form with Clerk's `<SignIn />` (or custom flow). |
-| `src/app/(auth)/signup/page.tsx` | `POST /api/auth/register` then `signIn('credentials')` | Replace with `<SignUp />`; `/api/auth/register` is gone after the removal commit. |
+| `src/components/providers.tsx` | `SessionProvider` from `@/lib/session-client` | `ClerkProvider` is now in the root layout;  drop `SessionProvider` once the files below stop calling `useSession`. |
+| `src/app/(auth)/signin/[[...signin]]/page.tsx` | `signIn('credentials' \| provider)` | **Done:** Clerk's `<SignIn />`. |
+| `src/app/(auth)/signup/[[...signup]]/page.tsx` | `POST /api/auth/register` then `signIn('credentials')` | **Done:** Clerk's `<SignUp />`. |
 | `src/app/(auth)/error/page.tsx` | NextAuth error page | Likely delete: no NextAuth error redirects remain. |
 | `src/components/navigation/NavMain.tsx` | `useSession`, `signOut({ callbackUrl })` | `useUser` and `useClerk().signOut`. |
 | `src/components/navigation/MobileNavigation.tsx` | `useSession`, `signOut` | Same. |
@@ -362,5 +367,6 @@ None edited on this branch. When you wire the UI:
 | `src/app/(dashboard)/layout.tsx` | `auth()` from `@/lib/auth` | Works unchanged through the compat `auth()`. Optional cleanup later. |
 | `src/app/(dashboard)/dashboard/page.tsx` | `auth()`, then Prisma reads directly | Works unchanged. Note: it still bypasses block rules (existing issue, unrelated to auth). |
 
-Until those changes are made, **signing in through the app's UI does not work on this branch**
-(the credentials provider and its forms are what the migration replaces). API access with a Clerk session token does.
+The sign-in and sign-up screens render and are served to anonymous visitors (checked in the browser
+against a Clerk development instance, and by the integration suite). Completing a sign-up or sign-in
+in the browser, with a real account, has not been exercised by the automated checks.

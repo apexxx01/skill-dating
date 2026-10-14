@@ -91,10 +91,10 @@ Open http://localhost:3000.
 Configuration lives in environment variables, all documented in `.env.example`.
 See [Configuration](#configuration) for the ones that matter when deploying.
 
-> **The sign-in and sign-up pages are not wired to Clerk yet.** The frontend is frozen
-> on this branch, so `/signin` and `/signup` still call routes that no longer exist.
-> The API works with a Clerk session token. The pages that need changes are listed in
-> [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md#frontend-files-that-need-changes).
+`/signin` and `/signup` render Clerk's `<SignIn />` and `<SignUp />` with path routing, so the
+sign-in methods offered (password, Google, GitHub, and so on) are whatever the Clerk instance enables
+in its dashboard. Returning users go to `/dashboard`, new accounts to `/onboarding`. The rest of the
+frontend is unchanged; see [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md#frontend-files-that-need-changes).
 
 ## Configuration
 
