@@ -102,11 +102,25 @@ See [Configuration](#configuration) for the ones that matter when deploying.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | PostgreSQL connection string (PostgreSQL 13 or newer). |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | yes | From the Clerk dashboard. Use a development (`pk_test_` / `sk_test_`) instance while developing; the integration suite refuses any other key. |
-| `CLERK_WEBHOOK_SECRET` | yes, to receive webhooks | The signing secret of the webhook endpoint that points at `/api/webhooks/clerk`. Without it the route answers `503` and processes nothing. |
+| `CLERK_WEBHOOK_SECRET` | in production | The signing secret of the webhook endpoint that points at `/api/webhooks/clerk`. Without it the route answers `503` and processes nothing. |
 | `CLERK_AUTHORIZED_PARTIES` | set it in production | Comma separated origins allowed to mint session tokens (for example `https://app.example.com`). Unset skips the authorized-party check. |
 | `TRUSTED_PROXY_HOPS` | set it when deploying | Number of reverse proxies you run in front of the app. `0` (the default) means the client address is unknown, so **all signed-out callers share one rate-limit bucket**. Behind a single load balancer set `1`. Details below. |
 
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | in production | Upstash Redis (REST). Holds rate-limit counters, leaderboards, presence. Set both or neither. |
+| `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | in production | Inngest, for background jobs (served at `/api/inngest`). Set both or neither. |
+| `ABLY_API_KEY` | in production | Ably (`appId.keyId:secret`), for realtime. Used only on the server; browsers get tokens from `POST /api/realtime/token`. |
+
 Sign-in providers (Google, GitHub, and so on) are configured in the Clerk dashboard, not here.
+
+### Validation
+
+Every setting is checked by `src/lib/env.ts` when the server starts. A missing or malformed one
+stops it, with all the problems listed by name (never by value). Empty values count as unset.
+`next build` needs none of them. In development and tests the Redis, Inngest and Ably settings are
+optional: an in-memory stand-in is used, which keeps state per process and delivers nothing
+outside it. In production they are required, because those stand-ins cannot work across instances.
+Code reads settings through the typed `env` object, never `process.env`. See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Rate limiting and proxies
 
@@ -122,10 +136,9 @@ many proxies sit in front of the app:
 | `N` | N trusted proxies; the Nth entry from the right is used. |
 
 Never set it higher than the number of proxies you actually run: anything to the left
-of the trusted entries can be forged by the client. The default limiter keeps its
-counters in process memory, so with more than one instance each keeps its own count;
-plug a shared store into the `RateLimiter` interface in `src/lib/rate-limiter.ts` for
-an exact global limit.
+of the trusted entries can be forged by the client. Counters live in the shared cache
+(`src/lib/infra/cache.ts`): Upstash Redis when configured, so the limit is exact across
+instances, and process memory otherwise, where each instance keeps its own count.
 
 ## Database migrations
 
@@ -174,9 +187,14 @@ prisma/seed.ts         idempotent demo data
 src/app/api/           route handlers
 src/app/(dashboard)/   authenticated app pages
 src/lib/               scoring, XP, activity/achievements, auth, shared API helpers
+src/lib/env.ts         validated, typed environment (the only reader of process.env)
+src/lib/api/errors.ts  the error codes and the { error: { code, message } } contract
+src/lib/infra/         cache (Redis), jobs (Inngest) and realtime (Ably) behind interfaces
+src/instrumentation.ts validates the environment when the server starts
 src/hooks/             client data hooks
 tests/integration/     real-server, real-database integration tests
-docs/API.md            full route reference, generated from the handlers
+docs/API.md            full route reference and the error code list
+docs/ARCHITECTURE.md   how it fits together and why
 docs/FRONTEND_CONTRACT.md  page-by-page endpoint and response contract for the interface
 src/types/api.ts       shared response types
 ```
@@ -195,15 +213,15 @@ container, which builds its database from the migrations.
   route) and full skill-evidence verification beyond the GitHub sign-in signal
   are modelled in the schema but have no further API routes yet.
 - Muting (blocking is done).
-- A shared store behind the rate limiter for multi-instance deployments (the
-  interface is in place; the in-memory implementation is per-process).
 - A dedicated endorsement table, and an index on activity by project, if evidence or
   activity volume grows: both need a schema change. Endorsements currently live as
   evidence rows of their own type, matched through JSON metadata.
 - Presence, typing indicators, project stars and forks, followers and streaks: the
   interface mocks show them, but no data model or API exists yet (see
   `docs/FRONTEND_CONTRACT.md`).
-- Real-time delivery. Notifications currently refresh by polling.
+- Real-time delivery. The Ably adapter and the subscription token endpoint exist, but nothing
+  publishes yet, so notifications still refresh by polling.
+- Real jobs. The Inngest pipeline is in place with a single `system/ping` job.
 - Full interface design.
 
 See [PRODUCT.md](PRODUCT.md) for the product vision and principles.
