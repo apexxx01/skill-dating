@@ -292,8 +292,14 @@ instance has a user cap and Backend API rate limits (the harness retries on `429
    OAuth accounts (section 9).
 8. **Later:** upgrade Next to 14.2.35 as its own change (the middleware bypass, section 1), then
    move to a current `@clerk/nextjs`; drop `User.passwordHash` and the NextAuth tables once every
-   user is on Clerk (needs `db push --accept-data-loss`, so it is yours to run); and remove
-   `next-auth`, `GET /api/auth/session` and `src/types/next-auth.d.ts` when the UI uses Clerk's hooks.
+   user is on Clerk (now a Prisma migration, see the README); and remove `GET /api/auth/session`
+   and `src/lib/session-client.tsx` when the UI uses Clerk's hooks.
+
+   *Update:* the `next-auth` package, `src/types/next-auth.d.ts` and the unused `socket.io` /
+   `socket.io-client` packages have since been removed. The seven frozen UI files that imported
+   `next-auth/react` now import the same `useSession` / `signIn` / `signOut` / `SessionProvider`
+   names from `src/lib/session-client.tsx`; only the import line of each changed. Its `signIn`
+   reports failure until the sign-in screens are wired to Clerk.
 
 ## 9. What was built, and what the live runs changed
 

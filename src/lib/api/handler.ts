@@ -135,7 +135,7 @@ export function createApiError(message: string, status = 500, details?: unknown)
   return NextResponse.json({ error: message, details }, { status })
 }
 
-// Permission checks live in permissions.ts (no next-auth/next import there,
+// Permission checks live in permissions.ts (no Next import there,
 // so they're mockable under Vitest without pulling in the Next runtime).
 // Re-exported here so existing `from '@/lib/api/handler'` imports keep working.
 export { checkOwnership, checkMembership, authorize } from './permissions'

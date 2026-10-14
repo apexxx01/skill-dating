@@ -36,7 +36,7 @@ the first characters of the Clerk id is appended, so sign-in never fails over a 
 legacy row clears its password hash and its OAuth accounts.
 
 ### `GET /api/auth/session`
-**Auth:** none (answers `null` when signed out). Compatibility for the frozen UI, which polls this path through `next-auth/react`'s `useSession()`. **Response:** `{ user: { id, name, email, image, role }, expires }` with the **local** user id, or `null`. Temporary: remove it when the UI moves to Clerk's hooks.
+**Auth:** none (answers `null` when signed out). Compatibility for the frozen UI, which polls this path through `useSession()` in `src/lib/session-client.tsx`. **Response:** `{ user: { id, name, email, image, role }, expires }` with the **local** user id, or `null`. Temporary: remove it when the UI moves to Clerk's hooks.
 
 ### `GET /api/users/me`
 The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, onboardingComplete }`. `onboardingComplete` is true with a headline and at least one skill; the middleware and the onboarding page use it, because Clerk's user id is not the local id.

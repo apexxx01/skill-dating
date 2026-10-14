@@ -1,6 +1,6 @@
 "use client"
 
-// Bare placeholder — frontend is frozen. Maps NextAuth's `error` query param
+// Bare placeholder — frontend is frozen. Maps the `error` query param
 // to a human-readable message; no visual design pass yet.
 
 import { Suspense } from "react"

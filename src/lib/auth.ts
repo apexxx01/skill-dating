@@ -2,8 +2,8 @@ import { headers } from 'next/headers'
 import { authenticate, type AuthOutcome } from '@/lib/session'
 
 // Server-side session lookup for server components and for the compat session
-// route. The shape is the one NextAuth's auth() used to return, so the frozen
-// frontend files that call it keep compiling and working. `user.id` is the LOCAL
+// route. The shape is the one the frontend was written against, so the frozen
+// files that call it keep compiling and working. `user.id` is the LOCAL
 // user id, never the Clerk id. The token is verified on every call (see
 // session.ts); nothing middleware sets is read.
 

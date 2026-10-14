@@ -1,4 +1,4 @@
-// Pure permission checks, deliberately kept free of any Next.js/next-auth
+// Pure permission checks, deliberately kept free of any Next.js
 // import so they're unit-testable with a mocked Prisma client outside the
 // Next runtime. `handler.ts` re-exports these for existing route imports.
 import type { prisma as PrismaClient } from '@/lib/prisma'
