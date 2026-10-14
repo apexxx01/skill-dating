@@ -251,6 +251,13 @@ describe('clerk authentication', () => {
         expect(isRedirect(onboarding.status)).toBe(false)
         expect(onboarding.location).not.toContain('/dashboard')
 
+        // Nor is the sign-in page they were just sent to. Redirecting it back to
+        // /dashboard is what made /dashboard and /signin bounce between each other
+        // for a browser whose session cookie had gone stale.
+        const signin = await page('/signin', authorization)
+        expect(signin.status).toBe(200)
+        expect(signin.location).toBe('')
+
         await U.cleanup()
       }, 120_000)
     })

@@ -59,7 +59,16 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   }
 
   if (isAuthRoute && signedIn) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    // Leave the sign-in pages only on a definite answer from the API. When it is
+    // unknown, typically because the session cookie went stale while the browser
+    // sat idle and the page's own check will not accept it, the page that sent the
+    // visitor here would send them straight back: /dashboard to /signin to
+    // /dashboard, forever. Serving the page instead lets its Clerk component load
+    // clerk-js, which refreshes the cookie and moves on.
+    if ((await onboardingState(request)) !== 'unknown') {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
+    return NextResponse.next()
   }
 
   if (pathname === '/onboarding' && signedIn) {
