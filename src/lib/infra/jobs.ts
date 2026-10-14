@@ -136,9 +136,10 @@ export function createJobQueue(): JobQueue {
   if (env.INNGEST_EVENT_KEY && env.INNGEST_SIGNING_KEY) {
     return new InngestJobQueue(getInngest() as unknown as EventSender)
   }
-  // Without credentials (development, tests) jobs run in this process. In
-  // development they start on their own; tests decide when with drain().
-  return new MemoryJobQueue(jobs, { autoRun: env.NODE_ENV === 'development' })
+  // Without credentials (development, preview deployments, tests) jobs run in
+  // this process. They start on their own everywhere but tests, which decide
+  // when with drain(); otherwise a preview would queue jobs that never run.
+  return new MemoryJobQueue(jobs, { autoRun: env.NODE_ENV !== 'test' })
 }
 
 const globalForJobs = globalThis as unknown as { __jobQueue?: JobQueue }

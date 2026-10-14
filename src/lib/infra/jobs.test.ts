@@ -154,6 +154,24 @@ describe('createJobQueue', () => {
     expect(createJobQueue().kind).toBe('memory')
   })
 
+  it('runs in-process jobs on their own except under test, so a preview does not queue them forever', async () => {
+    delete process.env.INNGEST_EVENT_KEY
+    delete process.env.INNGEST_SIGNING_KEY
+    for (const [nodeEnv, autoRuns] of [['production', true], ['development', true], ['test', false]] as const) {
+      Object.assign(process.env, { NODE_ENV: nodeEnv, VERCEL_ENV: 'preview' }) // a production process without the services is a preview
+      resetEnvCache()
+      const queue = createJobQueue() as MemoryJobQueue
+      vi.useFakeTimers()
+      try {
+        await queue.enqueue('system/ping', { note: 'x' })
+        await vi.runAllTimersAsync()
+        expect(queue.waiting, nodeEnv).toBe(autoRuns ? 0 : 1)
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+  })
+
   it('uses Inngest when both credentials are set', () => {
     process.env.INNGEST_EVENT_KEY = 'event-key'
     process.env.INNGEST_SIGNING_KEY = 'signing-key'
