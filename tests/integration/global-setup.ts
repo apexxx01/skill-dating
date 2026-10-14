@@ -3,7 +3,8 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { randomBytes } from 'crypto'
-import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_PORT } from './config'
+import { PrismaClient } from '@prisma/client'
+import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_DB_NAME, INTEGRATION_DB_ADMIN_URL, INTEGRATION_PORT } from './config'
 import { loadEnvLocal } from './env'
 import { clerkSecretKey, deleteRegisteredUsers, sweepStaleTestUsers } from './clerk-api'
 
@@ -17,6 +18,19 @@ export { INTEGRATION_BASE_URL }
 const TEST_DATABASE_URL = INTEGRATION_DATABASE_URL
 
 let serverProcess: ChildProcess | undefined
+
+// DROP/CREATE DATABASE cannot run against the database being dropped, so this
+// connects to the server's maintenance database. The name is validated in
+// config.ts to letters, digits and underscores, so interpolating it is safe.
+async function recreateDatabase() {
+  const admin = new PrismaClient({ datasources: { db: { url: INTEGRATION_DB_ADMIN_URL } } })
+  try {
+    await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${INTEGRATION_DB_NAME}" WITH (FORCE)`)
+    await admin.$executeRawUnsafe(`CREATE DATABASE "${INTEGRATION_DB_NAME}"`)
+  } finally {
+    await admin.$disconnect()
+  }
+}
 
 function waitForServer(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now()
@@ -73,11 +87,11 @@ export default async function setup() {
     )
   }
 
-  // `prisma db push` creates the target Postgres database if it doesn't
-  // already exist (confirmed live) and syncs the schema either way - so
-  // this suite needs nothing beyond a reachable Postgres server, not a
-  // pre-created database.
-  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+  // The database is disposable: dropped and rebuilt from the real migrations on
+  // every run, so the suite exercises exactly what `prisma migrate deploy` does
+  // in production and never inherits a schema from an earlier run.
+  await recreateDatabase()
+  execSync('npx prisma migrate deploy', {
     cwd: projectRoot,
     env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
     stdio: 'ignore',

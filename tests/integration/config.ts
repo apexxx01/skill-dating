@@ -23,7 +23,7 @@ function readPort(): number {
 
 function readDbName(): string {
   const name = process.env.TEST_DB_NAME || 'skill_dating_integration'
-  // The name ends up in a connection string and is created by db push, so
+  // The name ends up in a connection string and is created by the harness, so
   // keep it to safe identifier characters.
   if (!/^[A-Za-z0-9_]+$/.test(name)) {
     throw new Error(`TEST_DB_NAME may only contain letters, digits and underscores, got "${name}"`)
@@ -39,3 +39,5 @@ export const INTEGRATION_BASE_URL = `http://localhost:${INTEGRATION_PORT}`
 export const INTEGRATION_DB_NAME = readDbName()
 const dbBase = (process.env.TEST_DB_BASE_URL || 'postgresql://postgres:postgres@localhost:5432').replace(/\/+$/, '')
 export const INTEGRATION_DATABASE_URL = `${dbBase}/${INTEGRATION_DB_NAME}?schema=public`
+// The server's maintenance database, used only to drop and create the one above.
+export const INTEGRATION_DB_ADMIN_URL = `${dbBase}/postgres?schema=public`
