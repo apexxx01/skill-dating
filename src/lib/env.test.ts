@@ -80,6 +80,11 @@ describe('parseEnv', () => {
     expect(error.message).not.toContain('hunter2')
   })
 
+  it('does not echo a value that fails an enum check, which is where Zod quotes it', () => {
+    const list = problems({ ...base, NODE_ENV: 'production sk_live_SUPERSECRET' })
+    expect(list).toEqual(['NODE_ENV: must be one of: development, test, production'])
+  })
+
   it('requires both halves of a provider credential pair', () => {
     expect(problems({ ...base, UPSTASH_REDIS_REST_URL: 'https://x.upstash.io' })).toEqual([
       'UPSTASH_REDIS_REST_TOKEN: is required when UPSTASH_REDIS_REST_URL is set',

@@ -98,6 +98,24 @@ export class EnvValidationError extends Error {
   }
 }
 
+// Zod's own wording for some issues (an unknown enum value, for one) quotes the
+// value it received, and a setting's value may be a secret. Only issue kinds
+// whose message is known not to carry the value use Zod's text.
+function describe(issue: z.ZodIssue): string {
+  switch (issue.code) {
+    case z.ZodIssueCode.invalid_enum_value:
+      return `must be one of: ${issue.options.join(', ')}`
+    case z.ZodIssueCode.invalid_type:
+    case z.ZodIssueCode.too_small:
+    case z.ZodIssueCode.too_big:
+    case z.ZodIssueCode.invalid_string:
+    case z.ZodIssueCode.custom:
+      return issue.message
+    default:
+      return 'is invalid'
+  }
+}
+
 /** Parses a set of variables. Empty strings count as unset, so a copied .env.example works. */
 export function parseEnv(source: Record<string, string | undefined> = process.env): Env {
   const cleaned: Record<string, string | undefined> = {}
@@ -108,7 +126,7 @@ export function parseEnv(source: Record<string, string | undefined> = process.en
   const result = envSchema.safeParse(cleaned)
   const problems = new Map<string, string>()
   if (!result.success) {
-    for (const issue of result.error.issues) problems.set(issue.path.join('.') || 'environment', issue.message)
+    for (const issue of result.error.issues) problems.set(issue.path.join('.') || 'environment', describe(issue))
   }
   // A setting already reported as malformed is not also reported as missing.
   for (const [name, message] of crossRuleProblems(cleaned)) if (!problems.has(name)) problems.set(name, message)
