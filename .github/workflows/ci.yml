@@ -64,6 +64,45 @@ jobs:
       - run: npx prisma generate
       - run: npm run build
 
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shadow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Replays every migration into an empty database and compares the result with
+      # schema.prisma. A non-empty diff (exit code 2) means the schema was edited
+      # without a migration, or a migration was edited after it was committed.
+      - name: Schema and migrations agree
+        run: >-
+          npx prisma migrate diff
+          --from-migrations prisma/migrations
+          --to-schema-datamodel prisma/schema.prisma
+          --shadow-database-url postgresql://postgres:postgres@localhost:5432/shadow
+          --exit-code
+      - name: Migrations apply to an empty database
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?schema=public
+
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -94,8 +133,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # Read by the integration harness, which creates the database, pushes
-      # the schema and starts its own server on TEST_PORT.
+      # Read by the integration harness, which recreates the database, applies the
+      # migrations and starts its own server on TEST_PORT.
       TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
       TEST_DB_NAME: skill_dating_ci
       TEST_PORT: 3459

@@ -80,7 +80,7 @@ cp .env.example .env.local
 # CLERK_SECRET_KEY, plus CLERK_WEBHOOK_SECRET once you have created the webhook
 # endpoint (see docs/AUTH_MIGRATION.md, "Open items")
 
-npx prisma db push
+npm run db:migrate:deploy   # applies prisma/migrations to an empty database
 npm run db:seed         # optional — populates a small demo community
 npm run db:seed:clerk   # optional — creates the matching Clerk users so the demo accounts can sign in
 npm run dev
@@ -127,6 +127,27 @@ counters in process memory, so with more than one instance each keeps its own co
 plug a shared store into the `RateLimiter` interface in `src/lib/rate-limiter.ts` for
 an exact global limit.
 
+## Database migrations
+
+The schema changes through Prisma migrations only. `prisma db push` is not used (there is
+no script for it) because it changes a database without leaving a record that can be
+reviewed, replayed or rolled forward elsewhere.
+
+- **New database:** `npm run db:migrate:deploy`.
+- **Changing the schema:** edit `prisma/schema.prisma`, run `npm run db:migrate` and give
+  the migration a descriptive name, read the generated SQL, and commit the schema change and
+  the migration directory together. CI fails a pull request whose schema differs from what
+  the migrations produce.
+- **A database that already exists** (created earlier with `prisma db push`): it already has
+  the baseline schema, so do not run the baseline SQL against it. Run `npm run db:baseline`
+  once to record `20261014000000_baseline` as applied, then `npm run db:migrate:deploy` for
+  anything newer. `npm run db:migrate:status` should then report the database is up to date.
+- **Rolling back** is a new forward migration; Prisma does not generate down migrations.
+
+`20261014000000_baseline` was generated with
+`prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`. Applied
+to an empty database it produces exactly the schema `db push` produced.
+
 ## Scripts
 
 | Command | What it does |
@@ -138,12 +159,17 @@ an exact global limit.
 | `npm run test:integration` | Run the integration suite against a real, disposable database — spins up its own `next dev` server, no manual setup beyond a reachable Postgres **and a Clerk development secret key** (`CLERK_SECRET_KEY` in the environment or `.env.local`): the tests create real users and sessions on your development instance through the Backend API and delete them afterwards. It needs network access and refuses a non-development key. Configure with `TEST_PORT` (default 3459), `TEST_DB_NAME` (default `skill_dating_integration`) and `TEST_DB_BASE_URL` (default `postgresql://postgres:postgres@localhost:5432`). It refuses an occupied port and refuses to use the `skill_dating` database, so it cannot touch development data. Runs that share a machine need separate checkouts, since two dev servers cannot share one `.next` directory. |
 | `npm run db:seed` | Populate a small idempotent demo community (legacy rows: no password, no Clerk id) |
 | `npm run db:seed:clerk` | Create the matching Clerk users for the seeded accounts (password `DemoPass123!`) and store their ids. Idempotent; refuses a non-development key |
+| `npm run db:migrate` | Create and apply a migration after editing `prisma/schema.prisma` (development only; review the SQL it writes before committing) |
+| `npm run db:migrate:deploy` | Apply every pending migration. This is what to run in CI and in production |
+| `npm run db:migrate:status` | Show which migrations the database has applied |
+| `npm run db:baseline` | One-off for a database that already has the current schema (created with the old `prisma db push`): mark the baseline migration as applied without running it |
 | `npm run db:studio` | Browse the database in Prisma Studio |
 
 ## Project layout
 
 ```
 prisma/schema.prisma   data model
+prisma/migrations/     SQL migrations; the only way the schema changes
 prisma/seed.ts         idempotent demo data
 src/app/api/           route handlers
 src/app/(dashboard)/   authenticated app pages
@@ -159,8 +185,9 @@ src/types/api.ts       shared response types
 
 `.github/workflows/ci.yml` runs on every push: type-check, backend lint (blocking),
 whole-repository lint (report only, so interface lint issues do not block backend
-work), a production build, unit tests, and the integration suite against a Postgres 16
-service container.
+work), a production build, unit tests, a check that `prisma/schema.prisma` and
+`prisma/migrations` agree, and the integration suite against a Postgres 16 service
+container, which builds its database from the migrations.
 
 ## Roadmap
 
