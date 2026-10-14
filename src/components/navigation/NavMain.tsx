@@ -88,10 +88,12 @@ export function NavMain() {
       const rect = item.getBoundingClientRect();
       const navRect = navRef.current?.getBoundingClientRect();
       if (navRect) {
-        setActiveIndicator({
-          x: rect.left - navRect.left + (navRef.current?.scrollLeft || 0),
-          width: rect.width,
-        });
+        const x = rect.left - navRect.left + (navRef.current?.scrollLeft || 0);
+        const width = rect.width;
+        // Keep the previous object when nothing moved, so this can never re-render in a loop.
+        setActiveIndicator((previous) =>
+          previous && previous.x === x && previous.width === width ? previous : { x, width }
+        );
       }
     } else {
       setActiveIndicator(null);
@@ -150,9 +152,6 @@ export function NavMain() {
                     <Tooltip key={item.href}>
                       <TooltipTrigger asChild>
                         <Link
-                          ref={(el) => {
-                            if (isActive && el) updateActiveIndicator(el);
-                          }}
                           href={item.href}
                           className={cn(
                             "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200",
