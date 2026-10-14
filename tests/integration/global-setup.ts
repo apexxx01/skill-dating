@@ -94,10 +94,14 @@ export default async function setup() {
   // differently in ways unrelated to the actual env-loading fix above.
   const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret }
 
+  // TEST_SERVER_LOG=<file> keeps the dev server's output, for diagnosing a failing run.
+  const logPath = process.env.TEST_SERVER_LOG
+  const serverLog = logPath ? fs.openSync(logPath, 'w') : 'ignore'
+
   serverProcess = spawn('npx', ['next', 'dev', '-p', String(INTEGRATION_PORT)], {
     cwd: projectRoot,
     env: childEnv,
-    stdio: 'ignore',
+    stdio: ['ignore', serverLog, serverLog],
     detached: true,
   })
 
