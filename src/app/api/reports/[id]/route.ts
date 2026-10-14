@@ -25,14 +25,14 @@ const userSummarySelect = { id: true, name: true, username: true, image: true } 
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const url = new URL(request.url)
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Report ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'reportId' } })
   }
 
   const bodyResult = await validateBody(updateReportSchema)(request)
@@ -41,15 +41,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const report = await prisma.report.findUnique({ where: { id } })
   if (!report) {
-    return createApiError('Report not found', 404)
+    return createApiError('REPORT_NOT_FOUND')
   }
 
   const allowed = ALLOWED_TRANSITIONS[report.status] ?? []
   if (!allowed.includes(nextStatus)) {
-    return createApiError(
-      `Cannot transition report from ${report.status} to ${nextStatus}`,
-      400
-    )
+    return createApiError('REPORT_INVALID_TRANSITION', { params: { from: report.status, to: nextStatus } })
   }
 
   // Judgment call: the ModerationAction targets the REPORT itself

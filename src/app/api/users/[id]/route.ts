@@ -10,7 +10,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('User ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId' } })
   }
 
   const targetUser = await prisma.user.findUnique({
@@ -103,14 +103,14 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!targetUser) {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   // Someone who has blocked the viewer looks, to the viewer, like an account
   // that does not exist. The blocker can still open the profile (to unblock).
   const relation = await blockRelation(prisma, user.id, id)
   if (relation === 'BLOCKED_BY_THEM') {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   let compatibility = null

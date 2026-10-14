@@ -8,7 +8,7 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const targetId = new URL(request.url).pathname.split('/').pop()
 
   if (!targetId) {
-    return createApiError('User ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId' } })
   }
 
   const result = await prisma.block.deleteMany({

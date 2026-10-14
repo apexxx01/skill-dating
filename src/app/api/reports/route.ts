@@ -32,12 +32,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { reportedId, reason, description } = bodyResult.data
 
   if (reportedId === user.id) {
-    return createApiError('You cannot report yourself', 400)
+    return createApiError('CANNOT_REPORT_SELF')
   }
 
   const reportedUser = await prisma.user.findUnique({ where: { id: reportedId }, select: { id: true } })
   if (!reportedUser) {
-    return createApiError('Reported user not found', 404)
+    return createApiError('REPORTED_USER_NOT_FOUND')
   }
 
   // Judgment call: dedupe on (reporterId, reportedId) while a prior report
@@ -51,9 +51,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     where: { reporterId: user.id, reportedId, status: 'PENDING' },
   })
   if (existingPending) {
-    return createApiError('You already have a pending report against this user', 409, {
+    return createApiError('REPORT_ALREADY_PENDING', { details: {
       existingReport: existingPending,
-    })
+    } })
   }
 
   const report = await prisma.report.create({
@@ -84,7 +84,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const queryResult = validateQuery(querySchema)(request)

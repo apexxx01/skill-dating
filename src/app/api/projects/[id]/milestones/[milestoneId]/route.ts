@@ -36,14 +36,14 @@ async function resolve(
 ): Promise<Resolved> {
   const projectId = projectIdFromPath(request)
   const milestoneId = childIdFromPath(request)
-  if (!isValidId(projectId) || !isValidId(milestoneId)) return { ok: false, error: createApiError('Milestone not found', 404) }
+  if (!isValidId(projectId) || !isValidId(milestoneId)) return { ok: false, error: createApiError('MILESTONE_NOT_FOUND') }
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return { ok: false, error: createApiError('Project not found', 404) }
-  if (!allow(access)) return { ok: false, error: createApiError('Forbidden', 403) }
+  if (!access) return { ok: false, error: createApiError('PROJECT_NOT_FOUND') }
+  if (!allow(access)) return { ok: false, error: createApiError('FORBIDDEN') }
 
   const exists = await prisma.milestone.findFirst({ where: { id: milestoneId, projectId }, select: { id: true } })
-  if (!exists) return { ok: false, error: createApiError('Milestone not found', 404) }
+  if (!exists) return { ok: false, error: createApiError('MILESTONE_NOT_FOUND') }
 
   return { ok: true, access, projectId, milestoneId }
 }
@@ -120,7 +120,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     return tx.milestone.findFirst({ where: { id: milestoneId, projectId }, select: milestoneSelect })
   })
 
-  if (!updated) return createApiError('Milestone not found', 404)
+  if (!updated) return createApiError('MILESTONE_NOT_FOUND')
   return createApiResponse(milestoneResponse(updated))
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:milestone-edit' } })
 

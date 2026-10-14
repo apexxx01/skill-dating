@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { errorResponse, type ErrorCode } from '@/lib/api/errors'
 import type { Prisma, PrismaClient } from '@prisma/client'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -60,14 +61,14 @@ export async function blockGuard(
   db: Db,
   me: string,
   other: string,
-  notFoundMessage = 'User not found'
+  notFound: ErrorCode = 'USER_NOT_FOUND'
 ): Promise<NextResponse | null> {
   const relation = await blockRelation(db, me, other)
   if (relation === 'BLOCKED_BY_ME') {
-    return NextResponse.json({ error: 'You have blocked this user' }, { status: 403 })
+    return errorResponse('USER_BLOCKED')
   }
   if (relation === 'BLOCKED_BY_THEM') {
-    return NextResponse.json({ error: notFoundMessage }, { status: 404 })
+    return errorResponse(notFound)
   }
   return null
 }
@@ -77,7 +78,7 @@ export async function blockGuardAny(
   db: Db,
   me: string,
   others: string[],
-  notFoundMessage = 'User not found'
+  notFound: ErrorCode = 'USER_NOT_FOUND'
 ): Promise<NextResponse | null> {
   const unique = [...new Set(others)].filter((id) => id !== me)
   if (unique.length === 0) return null
@@ -92,6 +93,6 @@ export async function blockGuardAny(
   })
   if (rows.length === 0) return null
   return rows.some((r) => r.blockerId === me)
-    ? NextResponse.json({ error: 'You have blocked this user' }, { status: 403 })
-    : NextResponse.json({ error: notFoundMessage }, { status: 404 })
+    ? errorResponse('USER_BLOCKED')
+    : errorResponse(notFound)
 }

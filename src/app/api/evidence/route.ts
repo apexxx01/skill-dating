@@ -53,13 +53,13 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   // Same rule as the profile itself: someone who has blocked the viewer looks
   // like an account that does not exist.
   if (ownerId !== user.id && (await blockRelation(prisma, user.id, ownerId)) === 'BLOCKED_BY_THEM') {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
   const skip = (page - 1) * limit
 
   if (ownerId !== user.id) {
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true } })
-    if (!owner) return createApiError('User not found', 404)
+    if (!owner) return createApiError('USER_NOT_FOUND')
   }
 
   const where = {
@@ -147,10 +147,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (result.outcome === 'not_held') {
-    return createApiError('You can only attach evidence to a skill you have added to your profile', 400)
+    return createApiError('EVIDENCE_SKILL_NOT_ON_PROFILE')
   }
   if (result.outcome === 'cap') {
-    return createApiError(`You can attach at most ${MAX_EVIDENCE_PER_SKILL} pieces of evidence to one skill`, 400)
+    return createApiError('EVIDENCE_LIMIT_REACHED', { params: { max: MAX_EVIDENCE_PER_SKILL } })
   }
 
   return createApiResponse({ ...result.created, endorsementCount: 0, endorsedByMe: false }, 201)

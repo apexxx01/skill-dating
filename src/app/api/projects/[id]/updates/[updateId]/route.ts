@@ -44,14 +44,14 @@ async function resolve(
 ): Promise<Resolved> {
   const projectId = projectIdFromPath(request)
   const updateId = childIdFromPath(request)
-  if (!isValidId(projectId) || !isValidId(updateId)) return { ok: false, error: createApiError('Update not found', 404) }
+  if (!isValidId(projectId) || !isValidId(updateId)) return { ok: false, error: createApiError('UPDATE_NOT_FOUND') }
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return { ok: false, error: createApiError('Project not found', 404) }
-  if (!access.isMember && !access.isAdmin) return { ok: false, error: createApiError('Forbidden', 403) }
+  if (!access) return { ok: false, error: createApiError('PROJECT_NOT_FOUND') }
+  if (!access.isMember && !access.isAdmin) return { ok: false, error: createApiError('FORBIDDEN') }
 
   const update = await prisma.projectUpdate.findFirst({ where: { id: updateId, projectId }, select: updateSelect })
-  if (!update) return { ok: false, error: createApiError('Update not found', 404) }
+  if (!update) return { ok: false, error: createApiError('UPDATE_NOT_FOUND') }
 
   return { ok: true, access, update, projectId }
 }
@@ -65,9 +65,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const { access, update, projectId } = resolved
 
   const isAuthor = update.authorId === user.id
-  if (!(isAuthor && access.isMember) && !access.isAdmin) return createApiError('Forbidden', 403)
+  if (!(isAuthor && access.isMember) && !access.isAdmin) return createApiError('FORBIDDEN')
   if (update.type !== 'UPDATE' && update.type !== 'ANNOUNCEMENT') {
-    return createApiError('System-generated updates cannot be edited', 400)
+    return createApiError('SYSTEM_UPDATE_IMMUTABLE')
   }
 
   const body = await validateBody(editUpdateSchema)(request)
@@ -78,7 +78,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     data: { title: body.data.title, content: body.data.content },
   })
   const fresh = await prisma.projectUpdate.findFirst({ where: { id: update.id, projectId }, select: updateSelect })
-  if (!fresh) return createApiError('Update not found', 404)
+  if (!fresh) return createApiError('UPDATE_NOT_FOUND')
 
   return createApiResponse(fresh)
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:update-edit' } })
@@ -91,7 +91,7 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const { access, update, projectId } = resolved
 
   const isAuthor = update.authorId === user.id
-  if (!(isAuthor && access.isMember) && !access.isOwner && !access.isAdmin) return createApiError('Forbidden', 403)
+  if (!(isAuthor && access.isMember) && !access.isOwner && !access.isAdmin) return createApiError('FORBIDDEN')
 
   await prisma.projectUpdate.deleteMany({ where: { id: update.id, projectId } })
   return createApiResponse({ success: true })

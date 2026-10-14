@@ -26,7 +26,7 @@ export const PUT = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (data.hackathonId) {
     const hackathon = await prisma.hackathon.findUnique({ where: { id: data.hackathonId } })
     if (!hackathon) {
-      return createApiError('Hackathon not found', 404)
+      return createApiError('HACKATHON_NOT_FOUND')
     }
   }
 
@@ -80,7 +80,7 @@ export const PUT = withAuth(async (request: NextRequest, { prisma, user }) => {
 export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) => {
   const existing = await prisma.currentBuild.findUnique({ where: { userId: user.id } })
   if (!existing) {
-    return createApiError('No current build found', 404)
+    return createApiError('BUILD_NOT_FOUND')
   }
 
   await prisma.currentBuild.delete({ where: { userId: user.id } })

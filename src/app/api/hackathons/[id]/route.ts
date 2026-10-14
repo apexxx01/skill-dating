@@ -44,7 +44,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const hackathon = await prisma.hackathon.findUnique({
@@ -69,7 +69,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!hackathon) {
-    return createApiError('Hackathon not found', 404)
+    return createApiError('HACKATHON_NOT_FOUND')
   }
 
   const participation = await prisma.hackathonParticipant.findUnique({
@@ -84,27 +84,27 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const hackathon = await prisma.hackathon.findUnique({ where: { id } })
   if (!hackathon) {
-    return createApiError('Hackathon not found', 404)
+    return createApiError('HACKATHON_NOT_FOUND')
   }
 
   if (hackathon.status !== 'UPCOMING') {
-    return createApiError('Registration closed', 400)
+    return createApiError('HACKATHON_REGISTRATION_CLOSED')
   }
 
   if (hackathon.registrationDeadline && new Date() > hackathon.registrationDeadline) {
-    return createApiError('Registration deadline passed', 400)
+    return createApiError('HACKATHON_REGISTRATION_DEADLINE_PASSED')
   }
 
   const existing = await prisma.hackathonParticipant.findUnique({
     where: { userId_hackathonId: { userId: user.id, hackathonId: id } }
   })
   if (existing) {
-    return createApiError('Already registered', 400)
+    return createApiError('HACKATHON_ALREADY_REGISTERED')
   }
 
   const bodyResult = await validateBody(registerSchema)(request)
@@ -148,14 +148,14 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const url = new URL(request.url)
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const bodyResult = await validateBody(updateHackathonSchema)(request)
@@ -164,11 +164,11 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   if (bodyResult.data.status) {
     const current = await prisma.hackathon.findUnique({ where: { id }, select: { status: true } })
     if (!current) {
-      return createApiError('Hackathon not found', 404)
+      return createApiError('HACKATHON_NOT_FOUND')
     }
     const allowed = HACKATHON_STATUS_TRANSITIONS[current.status] ?? []
     if (current.status !== bodyResult.data.status && !allowed.includes(bodyResult.data.status)) {
-      return createApiError(`Cannot transition hackathon from ${current.status} to ${bodyResult.data.status}`, 400)
+      return createApiError('HACKATHON_INVALID_TRANSITION', { params: { from: current.status, to: bodyResult.data.status } })
     }
   }
 
@@ -187,14 +187,14 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
 export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const url = new URL(request.url)
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   await prisma.hackathon.delete({ where: { id } })

@@ -26,7 +26,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Project ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'projectId' } })
   }
 
   const project = await prisma.project.findUnique({
@@ -48,7 +48,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!project) {
-    return createApiError('Project not found', 404)
+    return createApiError('PROJECT_NOT_FOUND')
   }
 
   const isOwner = project.ownerId === user.id
@@ -56,7 +56,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const canView = project.isPublic || isOwner || isMember
 
   if (!canView) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   return createApiResponse({ ...project, isOwner, isMember })
@@ -67,12 +67,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Project ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'projectId' } })
   }
 
   const canEdit = await authorize(prisma, user.id, user.role, 'write', 'project', id)
   if (!canEdit) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(updateProjectSchema)(request)
@@ -125,12 +125,12 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Project ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'projectId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'project', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   await prisma.project.delete({ where: { id } })

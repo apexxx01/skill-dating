@@ -12,12 +12,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const memberId = url.pathname.split('/').pop()
 
   if (!id || !memberId) {
-    return createApiError('Team ID and Member ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId, memberId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(updateMemberSchema)(request)
@@ -28,7 +28,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   })
 
   if (!member) {
-    return createApiError('Member not found', 404)
+    return createApiError('MEMBER_NOT_FOUND')
   }
 
   if (bodyResult.data.role === 'OWNER' && member.userId !== user.id) {
@@ -56,14 +56,14 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const memberId = url.pathname.split('/').pop()
 
   if (!id || !memberId) {
-    return createApiError('Team ID and Member ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId, memberId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   const isSelf = memberId === user.id
 
   if (!isOwner && !isSelf && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const member = await prisma.teamMember.findUnique({
@@ -71,11 +71,11 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   })
 
   if (!member) {
-    return createApiError('Member not found', 404)
+    return createApiError('MEMBER_NOT_FOUND')
   }
 
   if (member.role === 'OWNER' && !isOwner) {
-    return createApiError('Cannot remove team owner', 403)
+    return createApiError('CANNOT_REMOVE_OWNER')
   }
 
   if (isSelf && member.role === 'OWNER') {
@@ -84,7 +84,7 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
     })
 
     if (ownerCount === 1) {
-      return createApiError("Cannot leave — you're the sole owner. Promote another member or delete the team first.", 400)
+      return createApiError('SOLE_OWNER_CANNOT_LEAVE')
     }
   }
 

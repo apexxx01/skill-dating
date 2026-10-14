@@ -113,7 +113,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { type, name, participantIds } = bodyResult.data
 
   if (type === 'DIRECT' && participantIds.length !== 1) {
-    return createApiError('Direct conversations require exactly 1 participant', 400)
+    return createApiError('DIRECT_CONVERSATION_PARTICIPANTS')
   }
 
   const allParticipantIds = [...new Set([user.id, ...participantIds])]
@@ -122,7 +122,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // surface as a foreign-key error).
   const knownUsers = await prisma.user.count({ where: { id: { in: allParticipantIds } } })
   if (knownUsers !== allParticipantIds.length) {
-    return createApiError('One or more users were not found', 400)
+    return createApiError('USERS_NOT_FOUND')
   }
 
   // No one can start a conversation with a user they have blocked or who has

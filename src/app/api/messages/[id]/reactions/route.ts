@@ -20,13 +20,13 @@ function messageIdFrom(request: NextRequest): string | undefined {
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = messageIdFrom(request)
-  if (!id) return createApiError('Message ID required', 400)
+  if (!id) return createApiError('MISSING_PARAMETER', { params: { parameters: 'messageId' } })
 
   const message = await prisma.message.findUnique({ where: { id }, select: { conversationId: true } })
-  if (!message) return createApiError('Message not found', 404)
+  if (!message) return createApiError('MESSAGE_NOT_FOUND')
 
   if (!(await checkMembership(prisma, user.id, 'conversation', message.conversationId))) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   return createApiResponse({ messageId: id, reactions: await reactionSummary(prisma, id, user.id) })
@@ -34,18 +34,18 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = messageIdFrom(request)
-  if (!id) return createApiError('Message ID required', 400)
+  if (!id) return createApiError('MISSING_PARAMETER', { params: { parameters: 'messageId' } })
 
   const message = await prisma.message.findUnique({
     where: { id },
     select: { conversationId: true, deletedAt: true },
   })
-  if (!message) return createApiError('Message not found', 404)
+  if (!message) return createApiError('MESSAGE_NOT_FOUND')
 
   if (!(await checkMembership(prisma, user.id, 'conversation', message.conversationId))) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
-  if (message.deletedAt) return createApiError('Cannot react to a deleted message', 400)
+  if (message.deletedAt) return createApiError('MESSAGE_DELETED')
 
   // Reacting in a direct conversation is addressed to one person, so it is
   // closed while either side has blocked the other (shared rooms stay open).
@@ -54,7 +54,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     select: { type: true, members: { select: { userId: true } } },
   })
   if (conversation?.type === 'DIRECT') {
-    const blocked = await blockGuardAny(prisma, user.id, conversation.members.map((m) => m.userId), 'Message not found')
+    const blocked = await blockGuardAny(prisma, user.id, conversation.members.map((m) => m.userId), 'MESSAGE_NOT_FOUND')
     if (blocked) return blocked
   }
 
@@ -76,10 +76,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       prisma.messageReaction.groupBy({ by: ['emoji'], where: { messageId: id }, _count: { _all: true } }),
     ])
     if (mine >= MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE) {
-      return createApiError(`You can add at most ${MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE} different reactions to one message`, 400)
+      return createApiError('REACTION_LIMIT_PER_USER', { params: { max: MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE } })
     }
     if (distinct.length >= MAX_DISTINCT_EMOJI_PER_MESSAGE && !distinct.some((d) => d.emoji === emoji)) {
-      return createApiError(`A message can have at most ${MAX_DISTINCT_EMOJI_PER_MESSAGE} different reactions`, 400)
+      return createApiError('REACTION_LIMIT_PER_MESSAGE', { params: { max: MAX_DISTINCT_EMOJI_PER_MESSAGE } })
     }
     try {
       await prisma.messageReaction.create({ data: { messageId: id, userId: user.id, emoji } })

@@ -3,6 +3,7 @@ import { authenticate } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { clientIp, consumeSafely, enforceRateLimit, tooManyRequests, type RateLimitConfig } from '@/lib/rate-limiter'
+import { errorResponse, type ErrorCode, type ErrorOptions } from '@/lib/api/errors'
 
 export interface AuthenticatedUser {
   id: string
@@ -50,16 +51,16 @@ export function withAuth(
           maxRequests: 120,
         })
         if (!anonymous.allowed) return tooManyRequests(anonymous)
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        return errorResponse('UNAUTHORIZED')
       }
       case 'deleted':
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        return errorResponse('UNAUTHORIZED')
       case 'conflict':
-        return NextResponse.json({ error: 'This email belongs to a different account' }, { status: 409 })
+        return errorResponse('ACCOUNT_CONFLICT')
       case 'limited':
         return tooManyRequests(outcome.decision)
       case 'unavailable':
-        return NextResponse.json({ error: 'Authentication is temporarily unavailable' }, { status: 503 })
+        return errorResponse('AUTH_UNAVAILABLE')
     }
 
     const { user } = outcome
@@ -71,7 +72,7 @@ export function withAuth(
     }
 
     if (options.requiredRole && !options.requiredRole.includes(user.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      return errorResponse('FORBIDDEN')
     }
 
     const context: ApiContext = {
@@ -97,15 +98,12 @@ export function validateBody<T>(schema: z.ZodSchema<T>) {
       const result = schema.safeParse(body)
       
       if (!result.success) {
-        return NextResponse.json(
-          { error: 'Validation failed', details: result.error.flatten().fieldErrors },
-          { status: 400 }
-        )
+        return errorResponse('VALIDATION_FAILED', { details: result.error.flatten().fieldErrors })
       }
-      
+
       return { data: result.data }
     } catch {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+      return errorResponse('INVALID_JSON')
     }
   }
 }
@@ -117,12 +115,9 @@ export function validateQuery<T>(schema: z.ZodSchema<T>) {
     const result = schema.safeParse(params)
     
     if (!result.success) {
-      return NextResponse.json(
-        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
-        { status: 400 }
-      )
+      return errorResponse('VALIDATION_FAILED', { details: result.error.flatten().fieldErrors })
     }
-    
+
     return { data: result.data }
   }
 }
@@ -131,8 +126,9 @@ export function createApiResponse<T>(data: T, status = 200) {
   return NextResponse.json(data, { status })
 }
 
-export function createApiError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ error: message, details }, { status })
+/** An error response for a code from src/lib/api/errors.ts; the status comes from the catalog. */
+export function createApiError(code: ErrorCode, options?: ErrorOptions) {
+  return errorResponse(code, options)
 }
 
 // Permission checks live in permissions.ts (no Next import there,

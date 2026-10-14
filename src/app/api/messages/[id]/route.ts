@@ -11,22 +11,22 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Message ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'messageId' } })
   }
 
   const message = await prisma.message.findUnique({ where: { id } })
   if (!message) {
-    return createApiError('Message not found', 404)
+    return createApiError('MESSAGE_NOT_FOUND')
   }
   if (message.deletedAt) {
-    return createApiError('Cannot edit a deleted message', 400)
+    return createApiError('MESSAGE_DELETED')
   }
 
   // Only the sender can edit their own message — no admin override here
   // (unlike delete, editing someone else's words isn't a moderation action).
   const isSender = await checkOwnership(prisma, user.id, 'message', id)
   if (!isSender) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(editMessageSchema)(request)
@@ -46,15 +46,15 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Message ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'messageId' } })
   }
 
   const message = await prisma.message.findUnique({ where: { id } })
   if (!message) {
-    return createApiError('Message not found', 404)
+    return createApiError('MESSAGE_NOT_FOUND')
   }
   if (message.deletedAt) {
-    return createApiError('Message already deleted', 400)
+    return createApiError('MESSAGE_DELETED')
   }
 
   const isSender = await checkOwnership(prisma, user.id, 'message', id)
@@ -64,7 +64,7 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const isConversationModerator = conversationMember?.role === 'OWNER' || conversationMember?.role === 'ADMIN'
 
   if (!isSender && !isConversationModerator && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   // Soft delete: content is preserved in the DB (moderation/audit trail,

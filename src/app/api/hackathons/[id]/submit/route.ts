@@ -14,16 +14,16 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const hackathon = await prisma.hackathon.findUnique({ where: { id } })
   if (!hackathon) {
-    return createApiError('Hackathon not found', 404)
+    return createApiError('HACKATHON_NOT_FOUND')
   }
 
   if (hackathon.status !== 'ACTIVE') {
-    return createApiError('Submissions are only open while the hackathon is active', 400)
+    return createApiError('HACKATHON_SUBMISSIONS_CLOSED')
   }
 
   const bodyResult = await validateBody(submitSchema)(request)
@@ -36,16 +36,16 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!hackathonTeam || hackathonTeam.hackathonId !== id) {
-    return createApiError('This team is not registered for this hackathon', 404)
+    return createApiError('TEAM_NOT_IN_HACKATHON')
   }
 
   const isTeamMember = hackathonTeam.members.some((m: { userId: string }) => m.userId === user.id)
   if (!isTeamMember) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   if (!hackathonTeam.team.projectId) {
-    return createApiError('This team has no linked project to submit', 400)
+    return createApiError('TEAM_NO_PROJECT')
   }
 
   const updateResult = await prisma.hackathonParticipant.updateMany({

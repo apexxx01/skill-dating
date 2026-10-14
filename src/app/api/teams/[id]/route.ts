@@ -15,7 +15,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const team = await prisma.team.findUnique({
@@ -36,7 +36,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   const isOwner = team.ownerId === user.id
@@ -44,7 +44,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const canView = isOwner || isMember
 
   if (!canView) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   return createApiResponse({ ...team, isOwner, isMember })
@@ -55,12 +55,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(updateTeamSchema)(request)
@@ -87,12 +87,12 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   await prisma.team.delete({ where: { id } })

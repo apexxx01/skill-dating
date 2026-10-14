@@ -14,11 +14,11 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const skillId = pathParts[pathParts.length - 1]
 
   if (!id || !skillId) {
-    return createApiError('User ID and Skill ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId, skillId' } })
   }
 
   if (id !== user.id && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(updateUserSkillSchema)(request)
@@ -28,7 +28,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     where: { userId_skillId: { userId: id, skillId } }
   })
   if (!existing) {
-    return createApiError('Skill not found for user', 404)
+    return createApiError('USER_SKILL_NOT_FOUND')
   }
 
   const userSkill = await prisma.userSkill.update({
@@ -47,11 +47,11 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   const skillId = pathParts[pathParts.length - 1]
 
   if (!id || !skillId) {
-    return createApiError('User ID and Skill ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId, skillId' } })
   }
 
   if (id !== user.id && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   await prisma.userSkill.delete({

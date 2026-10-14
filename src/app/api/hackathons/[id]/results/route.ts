@@ -15,26 +15,26 @@ const resultsSchema = z.object({
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const url = new URL(request.url)
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const hackathon = await prisma.hackathon.findUnique({ where: { id } })
   if (!hackathon) {
-    return createApiError('Hackathon not found', 404)
+    return createApiError('HACKATHON_NOT_FOUND')
   }
 
   // Results are final placements - only meaningful (and only awarded) once
   // the hackathon has actually ended, so a mid-competition rank can't
   // accidentally hand out win XP/achievements before judging is done.
   if (hackathon.status !== 'ENDED') {
-    return createApiError('Results can only be recorded once the hackathon has ENDED', 400)
+    return createApiError('HACKATHON_NOT_ENDED')
   }
 
   const bodyResult = await validateBody(resultsSchema)(request)
@@ -47,7 +47,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   })
 
   if (hackathonTeams.length !== hackathonTeamIds.length) {
-    return createApiError('One or more hackathonTeamId does not belong to this hackathon', 400)
+    return createApiError('HACKATHON_TEAM_MISMATCH')
   }
 
   const teamById = new Map(hackathonTeams.map(t => [t.id, t]))

@@ -6,12 +6,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Notification ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'notificationId' } })
   }
 
   const notification = await prisma.notification.findUnique({ where: { id } })
   if (!notification || notification.userId !== user.id) {
-    return createApiError('Notification not found', 404)
+    return createApiError('NOTIFICATION_NOT_FOUND')
   }
 
   const updated = await prisma.notification.update({

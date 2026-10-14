@@ -15,7 +15,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const applicationId = url.pathname.split('/').pop()
 
   if (!teamId || !applicationId) {
-    return createApiError('Team ID and Application ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId, applicationId' } })
   }
 
   const bodyResult = await validateBody(reviewSchema)(request)
@@ -35,7 +35,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       // Either it doesn't exist, isn't this caller's application, or isn't
       // PENDING anymore - don't distinguish "not yours" from "not found" in
       // the error, so this can't be used to probe for other users' application IDs.
-      return createApiError('Application not found or already resolved', 404)
+      return createApiError('APPLICATION_NOT_PENDING')
     }
 
     return createApiResponse({ status: 'WITHDRAWN', applicationId })
@@ -60,7 +60,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
         where: { userId_teamId: { userId: user.id, teamId } }
       })
       if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
-        return createApiError('Forbidden', 403)
+        return createApiError('FORBIDDEN')
       }
     }
   }
@@ -189,16 +189,16 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   })
 
   if (result.outcome === 'not_found') {
-    return createApiError('Application not found', 404)
+    return createApiError('APPLICATION_NOT_FOUND')
   }
   if (result.outcome === 'already_reviewed') {
-    return createApiError('Application already reviewed', 400)
+    return createApiError('APPLICATION_ALREADY_REVIEWED')
   }
   if (result.outcome === 'team_full') {
-    return createApiError('Team is full', 400)
+    return createApiError('TEAM_FULL')
   }
   if (result.outcome === 'project_full') {
-    return createApiError("This team's linked project is already at its max team size", 400)
+    return createApiError('TEAM_PROJECT_FULL')
   }
 
   const { application } = result

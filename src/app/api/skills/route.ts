@@ -80,7 +80,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(createSkillSchema)(request)

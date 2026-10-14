@@ -15,7 +15,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Connection ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'connectionId' } })
   }
 
   const bodyResult = await validateBody(reviewSchema)(request)
@@ -23,17 +23,17 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const connection = await prisma.connection.findUnique({ where: { id } })
   if (!connection) {
-    return createApiError('Connection not found', 404)
+    return createApiError('CONNECTION_NOT_FOUND')
   }
 
   // Only the receiver can respond to a request - the sender proposed it,
   // they don't get to also accept it.
   if (connection.receiverId !== user.id) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   if (connection.status !== 'PENDING') {
-    return createApiError(`Connection is already ${connection.status.toLowerCase()}`, 400)
+    return createApiError('CONNECTION_ALREADY_RESOLVED', { params: { status: connection.status.toLowerCase() } })
   }
 
   const nextStatus = bodyResult.data.status

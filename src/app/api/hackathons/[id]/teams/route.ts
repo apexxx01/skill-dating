@@ -15,27 +15,27 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Hackathon ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   }
 
   const hackathon = await prisma.hackathon.findUnique({ where: { id } })
   if (!hackathon) {
-    return createApiError('Hackathon not found', 404)
+    return createApiError('HACKATHON_NOT_FOUND')
   }
 
   if (hackathon.status !== 'UPCOMING' && hackathon.status !== 'ACTIVE') {
-    return createApiError('Team registration closed', 400)
+    return createApiError('HACKATHON_TEAM_REGISTRATION_CLOSED')
   }
 
   const participant = await prisma.hackathonParticipant.findUnique({
     where: { userId_hackathonId: { userId: user.id, hackathonId: id } }
   })
   if (!participant) {
-    return createApiError('Must register for hackathon first', 400)
+    return createApiError('HACKATHON_REGISTRATION_REQUIRED')
   }
 
   if (participant.teamId) {
-    return createApiError('Already in a team for this hackathon', 400)
+    return createApiError('ALREADY_IN_HACKATHON_TEAM')
   }
 
   const bodyResult = await validateBody(registerTeamSchema)(request)
@@ -47,15 +47,15 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   if (team.hackathonId && team.hackathonId !== id) {
-    return createApiError('Team belongs to different hackathon', 400)
+    return createApiError('TEAM_WRONG_HACKATHON')
   }
 
   if (team.members.length >= (team.maxSize || 5)) {
-    return createApiError('Team is full', 400)
+    return createApiError('TEAM_FULL')
   }
 
   // Team.maxSize is the team's own cap (enforced above); this hackathon may
@@ -63,10 +63,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // number - a team within its own maxSize can still be too big or too
   // small for this specific hackathon's rules.
   if (team.members.length > hackathon.maxTeamSize) {
-    return createApiError(`Team exceeds this hackathon's max team size of ${hackathon.maxTeamSize}`, 400)
+    return createApiError('HACKATHON_TEAM_TOO_LARGE', { params: { max: hackathon.maxTeamSize } })
   }
   if (team.members.length < hackathon.minTeamSize) {
-    return createApiError(`Team is below this hackathon's min team size of ${hackathon.minTeamSize}`, 400)
+    return createApiError('HACKATHON_TEAM_TOO_SMALL', { params: { min: hackathon.minTeamSize } })
   }
 
   const isMember = team.members.some((m: { userId: string }) => m.userId === user.id)
@@ -77,14 +77,14 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       where: { userId_teamId: { userId: user.id, teamId: team.id } }
     })
     if (!application || application.status !== 'ACCEPTED') {
-      return createApiError('Not a team member', 403)
+      return createApiError('NOT_TEAM_MEMBER')
     }
   }
 
   if (bodyResult.data.projectId) {
     const project = await prisma.project.findUnique({ where: { id: bodyResult.data.projectId } })
     if (!project || project.ownerId !== user.id) {
-      return createApiError('Project not found or not owned by you', 404)
+      return createApiError('PROJECT_NOT_OWNED')
     }
   }
 

@@ -90,11 +90,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (projectId) {
     const project = await prisma.project.findUnique({ where: { id: projectId } })
     if (!project || project.ownerId !== user.id) {
-      return createApiError('Project not found or not owned by you', 404)
+      return createApiError('PROJECT_NOT_OWNED')
     }
     const existingTeam = await prisma.team.findUnique({ where: { projectId } })
     if (existingTeam) {
-      return createApiError('Project already has a team', 400)
+      return createApiError('PROJECT_HAS_TEAM')
     }
   }
 
@@ -103,7 +103,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       where: { userId_hackathonId: { userId: user.id, hackathonId } }
     })
     if (!participant) {
-      return createApiError('You must be registered for this hackathon', 400)
+      return createApiError('HACKATHON_REGISTRATION_REQUIRED')
     }
   }
 

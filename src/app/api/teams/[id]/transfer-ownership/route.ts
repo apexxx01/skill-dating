@@ -19,12 +19,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(transferSchema)(request)
@@ -33,18 +33,18 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const team = await prisma.team.findUnique({ where: { id } })
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   if (newOwnerId === team.ownerId) {
-    return createApiError('That user is already the owner', 400)
+    return createApiError('ALREADY_OWNER')
   }
 
   const newOwnerMembership = await prisma.teamMember.findUnique({
     where: { userId_teamId: { userId: newOwnerId, teamId: id } }
   })
   if (!newOwnerMembership) {
-    return createApiError('The new owner must already be a team member', 400)
+    return createApiError('NEW_OWNER_NOT_MEMBER')
   }
 
   // The ownerId flip, the role swap on both sides, and the notification all

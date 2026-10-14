@@ -4,7 +4,7 @@ import { ENDORSEMENT_TYPE, deleteEvidenceWithEndorsements } from '@/lib/skill-ev
 
 export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').pop()
-  if (!id) return createApiError('Evidence ID required', 400)
+  if (!id) return createApiError('MISSING_PARAMETER', { params: { parameters: 'evidenceId' } })
 
   const evidence = await prisma.skillEvidence.findUnique({
     where: { id },
@@ -13,10 +13,10 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   // Endorsement rows are not evidence a user manages: they are removed by the
   // endorser (unendorse) or together with the evidence they point at.
   if (!evidence || evidence.type === ENDORSEMENT_TYPE) {
-    return createApiError('Evidence not found', 404)
+    return createApiError('EVIDENCE_NOT_FOUND')
   }
   if (evidence.userId !== user.id) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   await deleteEvidenceWithEndorsements(prisma, id)

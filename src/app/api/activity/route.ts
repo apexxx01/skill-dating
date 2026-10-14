@@ -42,7 +42,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (ownerId !== user.id) {
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true } })
     if (!owner || (await blockRelation(prisma, user.id, ownerId)) === 'BLOCKED_BY_THEM') {
-      return createApiError('User not found', 404)
+      return createApiError('USER_NOT_FOUND')
     }
     where.OR = [
       { projectId: null },

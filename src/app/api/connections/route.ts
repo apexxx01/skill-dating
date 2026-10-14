@@ -26,12 +26,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { receiverId, type, message } = bodyResult.data
 
   if (receiverId === user.id) {
-    return createApiError('You cannot connect with yourself', 400)
+    return createApiError('CANNOT_CONNECT_SELF')
   }
 
   const receiver = await prisma.user.findUnique({ where: { id: receiverId }, select: { id: true } })
   if (!receiver) {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   const blocked = await blockGuard(prisma, user.id, receiverId)
@@ -52,10 +52,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   if (existing) {
     if (existing.status === 'ACCEPTED') {
-      return createApiError('Already connected with this user', 400)
+      return createApiError('CONNECTION_EXISTS')
     }
     if (existing.status === 'PENDING') {
-      return createApiError('A connection request is already pending between you and this user', 409, { existingConnection: existing })
+      return createApiError('CONNECTION_PENDING', { details: { existingConnection: existing } })
     }
     // DECLINED/BLOCKED from a prior round - fall through and let a fresh
     // request be sent, but reuse the existing row (unique on

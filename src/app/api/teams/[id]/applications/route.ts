@@ -12,12 +12,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const team = await prisma.team.findUnique({ where: { id } })
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   // The people who would review this application must not be blocked with,
@@ -26,11 +26,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     where: { teamId: id, role: { in: ['OWNER', 'ADMIN'] } },
     select: { userId: true },
   })
-  const blocked = await blockGuardAny(prisma, user.id, [team.ownerId, ...reviewers.map((r) => r.userId)], 'Team not found')
+  const blocked = await blockGuardAny(prisma, user.id, [team.ownerId, ...reviewers.map((r) => r.userId)], 'TEAM_NOT_FOUND')
   if (blocked) return blocked
 
   if (!team.isRecruiting) {
-    return createApiError('Team is not recruiting', 400)
+    return createApiError('TEAM_NOT_RECRUITING')
   }
 
   // Cheap up-front check so a doomed application doesn't sit in the queue
@@ -39,19 +39,19 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // point where two writes can actually race for the same open slot.
   const memberCount = await prisma.teamMember.count({ where: { teamId: id } })
   if (memberCount >= team.maxSize) {
-    return createApiError('Team is full', 400)
+    return createApiError('TEAM_FULL')
   }
 
   const isMember = await checkMembership(prisma, user.id, 'team', id)
   if (isMember) {
-    return createApiError('Already a member of this team', 400)
+    return createApiError('ALREADY_TEAM_MEMBER')
   }
 
   const existingApplication = await prisma.teamApplication.findUnique({
     where: { userId_teamId: { userId: user.id, teamId: id } }
   })
   if (existingApplication) {
-    return createApiError('Already applied to this team', 400)
+    return createApiError('ALREADY_APPLIED')
   }
 
   const bodyResult = await validateBody(applySchema)(request)
@@ -87,12 +87,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const applications = await prisma.teamApplication.findMany({

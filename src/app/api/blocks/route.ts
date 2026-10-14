@@ -20,12 +20,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { userId: targetId, reason } = bodyResult.data
 
   if (targetId === user.id) {
-    return createApiError('You cannot block yourself', 400)
+    return createApiError('CANNOT_BLOCK_SELF')
   }
 
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } })
   if (!target) {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   // Creating the block and severing everything between the pair commit

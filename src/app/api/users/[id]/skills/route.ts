@@ -19,11 +19,11 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('User ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId' } })
   }
 
   if (id !== user.id && (await blockRelation(prisma, user.id, id)) === 'BLOCKED_BY_THEM') {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   const userSkills = await prisma.userSkill.findMany({
@@ -42,11 +42,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('User ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'userId' } })
   }
 
   if (id !== user.id && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(addUserSkillSchema)(request)
@@ -54,14 +54,14 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const skill = await prisma.skill.findUnique({ where: { id: bodyResult.data.skillId } })
   if (!skill) {
-    return createApiError('Skill not found', 404)
+    return createApiError('SKILL_NOT_FOUND')
   }
 
   const existing = await prisma.userSkill.findUnique({
     where: { userId_skillId: { userId: id, skillId: bodyResult.data.skillId } }
   })
   if (existing) {
-    return createApiError('Skill already added', 400)
+    return createApiError('SKILL_ALREADY_ADDED')
   }
 
   const userSkill = await prisma.userSkill.create({

@@ -14,12 +14,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
   if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const team = await prisma.team.findUnique({
@@ -27,7 +27,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     include: { members: { select: { userId: true } } }
   })
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   if (team.lookingFor.length === 0) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { env } from '@/lib/env'
 import { getCache, type Cache } from '@/lib/infra/cache'
+import { errorResponse } from '@/lib/api/errors'
 
 // Rate limiting behind a small interface so no route depends on where the
 // counters live: implement RateLimiter and call setRateLimiter() to replace it.
@@ -118,20 +119,10 @@ export async function enforceRateLimit(
 }
 
 export function tooManyRequests(decision: RateLimitDecision): NextResponse {
-  if (decision.unavailable) {
-    return NextResponse.json(
-      { error: 'Service temporarily unavailable' },
-      { status: 503, headers: { 'Retry-After': String(decision.retryAfterSeconds) } }
-    )
-  }
-  return NextResponse.json(
-    { error: 'Too many requests', retryAfter: decision.retryAfterSeconds },
-    {
-      status: 429,
-      headers: {
-        'Retry-After': String(decision.retryAfterSeconds),
-        'X-RateLimit-Remaining': String(decision.remaining),
-      },
-    }
-  )
+  const headers: Record<string, string> = { 'Retry-After': String(decision.retryAfterSeconds) }
+  if (decision.unavailable) return errorResponse('SERVICE_UNAVAILABLE', { headers })
+  return errorResponse('RATE_LIMITED', {
+    params: { retryAfter: decision.retryAfterSeconds },
+    headers: { ...headers, 'X-RateLimit-Remaining': String(decision.remaining) },
+  })
 }

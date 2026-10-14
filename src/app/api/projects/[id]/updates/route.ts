@@ -37,11 +37,11 @@ const MAX_NOTIFIED_MEMBERS = 200
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const projectId = projectIdFromPath(request)
-  if (!isValidId(projectId)) return createApiError('Project not found', 404)
+  if (!isValidId(projectId)) return createApiError('PROJECT_NOT_FOUND')
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return createApiError('Project not found', 404)
-  if (!access.canRead) return createApiError('Forbidden', 403)
+  if (!access) return createApiError('PROJECT_NOT_FOUND')
+  if (!access.canRead) return createApiError('FORBIDDEN')
 
   const query = validateQuery(querySchema)(request)
   if (query instanceof Response) return query
@@ -68,11 +68,11 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const projectId = projectIdFromPath(request)
-  if (!isValidId(projectId)) return createApiError('Project not found', 404)
+  if (!isValidId(projectId)) return createApiError('PROJECT_NOT_FOUND')
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return createApiError('Project not found', 404)
-  if (!access.isMember) return createApiError('Forbidden', 403)
+  if (!access) return createApiError('PROJECT_NOT_FOUND')
+  if (!access.isMember) return createApiError('FORBIDDEN')
 
   const body = await validateBody(createUpdateSchema)(request)
   if (body instanceof Response) return body

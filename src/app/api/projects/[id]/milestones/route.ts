@@ -17,11 +17,11 @@ const querySchema = z.object({
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const projectId = projectIdFromPath(request)
-  if (!isValidId(projectId)) return createApiError('Project not found', 404)
+  if (!isValidId(projectId)) return createApiError('PROJECT_NOT_FOUND')
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return createApiError('Project not found', 404)
-  if (!access.canRead) return createApiError('Forbidden', 403)
+  if (!access) return createApiError('PROJECT_NOT_FOUND')
+  if (!access.canRead) return createApiError('FORBIDDEN')
 
   const query = validateQuery(querySchema)(request)
   if (query instanceof Response) return query
@@ -48,11 +48,11 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const projectId = projectIdFromPath(request)
-  if (!isValidId(projectId)) return createApiError('Project not found', 404)
+  if (!isValidId(projectId)) return createApiError('PROJECT_NOT_FOUND')
 
   const access = await loadProjectAccess(prisma, projectId, user)
-  if (!access) return createApiError('Project not found', 404)
-  if (!access.isMember) return createApiError('Forbidden', 403)
+  if (!access) return createApiError('PROJECT_NOT_FOUND')
+  if (!access.isMember) return createApiError('FORBIDDEN')
 
   const body = await validateBody(createMilestoneSchema)(request)
   if (body instanceof Response) return body
@@ -82,7 +82,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!result) {
-    return createApiError(`A project can have at most ${MAX_MILESTONES_PER_PROJECT} milestones`, 400)
+    return createApiError('MILESTONE_LIMIT_REACHED', { params: { max: MAX_MILESTONES_PER_PROJECT } })
   }
 
   return createApiResponse(milestoneResponse(result), 201)

@@ -18,12 +18,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').slice(-2)[0]
 
   if (!id) {
-    return createApiError('Team ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'teamId' } })
   }
 
   const team = await prisma.team.findUnique({ where: { id } })
   if (!team) {
-    return createApiError('Team not found', 404)
+    return createApiError('TEAM_NOT_FOUND')
   }
 
   if (user.role !== 'ADMIN') {
@@ -31,7 +31,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       where: { userId_teamId: { userId: user.id, teamId: id } }
     })
     if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
-      return createApiError('Forbidden', 403)
+      return createApiError('FORBIDDEN')
     }
   }
 
@@ -41,7 +41,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const invitee = await prisma.user.findUnique({ where: { id: inviteeId }, select: { id: true } })
   if (!invitee) {
-    return createApiError('User not found', 404)
+    return createApiError('USER_NOT_FOUND')
   }
 
   const blocked = await blockGuard(prisma, user.id, inviteeId)
@@ -49,17 +49,14 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const alreadyMember = await checkMembership(prisma, inviteeId, 'team', id)
   if (alreadyMember) {
-    return createApiError('That user is already a member of this team', 400)
+    return createApiError('ALREADY_TEAM_MEMBER')
   }
 
   const existing = await prisma.teamApplication.findUnique({
     where: { userId_teamId: { userId: inviteeId, teamId: id } }
   })
   if (existing && existing.status === 'PENDING') {
-    return createApiError(
-      existing.invitedById ? 'An invitation to this user is already pending' : 'This user already has a pending application to this team',
-      409
-    )
+    return createApiError(existing.invitedById ? 'INVITATION_PENDING' : 'APPLICATION_PENDING')
   }
 
   // A prior resolved row (REJECTED/DECLINED/WITHDRAWN) for this pairing is

@@ -10,17 +10,17 @@ const readSchema = z.object({
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]
   if (!id) {
-    return createApiError('Conversation ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'conversationId' } })
   }
 
   const conversation = await prisma.conversation.findUnique({ where: { id }, select: { id: true } })
   if (!conversation) {
-    return createApiError('Conversation not found', 404)
+    return createApiError('CONVERSATION_NOT_FOUND')
   }
 
   const isMember = await checkMembership(prisma, user.id, 'conversation', id)
   if (!isMember) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   // Body is optional: an empty body means "mark everything read".
@@ -31,11 +31,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     try {
       parsed = JSON.parse(raw)
     } catch {
-      return createApiError('Invalid JSON', 400)
+      return createApiError('INVALID_JSON')
     }
     const result = readSchema.safeParse(parsed)
     if (!result.success) {
-      return createApiError('Validation failed', 400, result.error.flatten().fieldErrors)
+      return createApiError('VALIDATION_FAILED', { details: result.error.flatten().fieldErrors })
     }
     upToMessageId = result.data.upToMessageId
   }
@@ -46,7 +46,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       select: { conversationId: true },
     })
     if (!boundary || boundary.conversationId !== id) {
-      return createApiError('upToMessageId does not belong to this conversation', 400)
+      return createApiError('READ_MARKER_NOT_IN_CONVERSATION')
     }
   }
 

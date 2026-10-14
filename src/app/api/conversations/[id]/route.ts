@@ -23,12 +23,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Conversation ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'conversationId' } })
   }
 
   const isMember = await checkMembership(prisma, user.id, 'conversation', id)
   if (!isMember) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const queryResult = validateQuery(querySchema)(request)
@@ -52,7 +52,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (!conversation) {
-    return createApiError('Conversation not found', 404)
+    return createApiError('CONVERSATION_NOT_FOUND')
   }
 
   const where: Record<string, unknown> = { conversationId: id }
@@ -117,12 +117,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = url.pathname.split('/').pop()
 
   if (!id) {
-    return createApiError('Conversation ID required', 400)
+    return createApiError('MISSING_PARAMETER', { params: { parameters: 'conversationId' } })
   }
 
   const isMember = await checkMembership(prisma, user.id, 'conversation', id)
   if (!isMember) {
-    return createApiError('Forbidden', 403)
+    return createApiError('FORBIDDEN')
   }
 
   const bodyResult = await validateBody(sendMessageSchema)(request)
@@ -140,7 +140,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       prisma,
       user.id,
       conversationInfo.members.map((m) => m.userId),
-      'Conversation not found'
+      'CONVERSATION_NOT_FOUND'
     )
     if (blocked) return blocked
   }
