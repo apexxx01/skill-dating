@@ -1,6 +1,7 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { readOnboardingState, type OnboardingState } from '@/lib/onboarding-state'
 
 // UX redirects only. This is NOT a security boundary: Next 14.1.0 lets a client
 // skip middleware altogether (CVE-2025-29927), so every API route verifies the
@@ -26,20 +27,20 @@ const authRoutes = [
 ]
 
 // Same live check used from both directions: /onboarding redirects away once
-// this is true, every other protected route redirects here while it's
-// false. One source of truth, no duplicated "what counts as onboarded" logic.
-// Asks /api/users/me, which answers with the caller's LOCAL profile.
-async function isOnboardingComplete(request: NextRequest): Promise<boolean> {
+// this says 'complete', every other protected route redirects here only while it
+// says 'incomplete'. One source of truth, no duplicated "what counts as
+// onboarded" logic. Asks /api/users/me, which answers with the caller's LOCAL
+// profile. Anything but a definite answer is 'unknown' (see onboarding-state.ts)
+// and never redirects.
+async function onboardingState(request: NextRequest): Promise<OnboardingState> {
   try {
     const headers: Record<string, string> = { cookie: request.headers.get('cookie') || '' }
     const authorization = request.headers.get('authorization')
     if (authorization) headers.authorization = authorization
     const response = await fetch(`${request.nextUrl.origin}/api/users/me`, { headers })
-    if (!response.ok) return false
-    const me = await response.json()
-    return Boolean(me?.onboardingComplete)
+    return readOnboardingState(response.status, await response.json().catch(() => null))
   } catch {
-    return false
+    return 'unknown'
   }
 }
 
@@ -62,13 +63,13 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   }
 
   if (pathname === '/onboarding' && signedIn) {
-    if (await isOnboardingComplete(request)) {
+    if ((await onboardingState(request)) === 'complete') {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
   }
 
   if (isProtectedRoute && pathname !== '/onboarding' && signedIn) {
-    if (!(await isOnboardingComplete(request))) {
+    if ((await onboardingState(request)) === 'incomplete') {
       return NextResponse.redirect(new URL('/onboarding', request.url))
     }
   }

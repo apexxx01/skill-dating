@@ -190,6 +190,70 @@ describe('clerk authentication', () => {
       await testPrisma.userSkill.deleteMany({ where: { skillId: skill.id } })
       await testPrisma.skill.delete({ where: { id: skill.id } })
     }, 120_000)
+
+    // An onboarded user must never be sent to /onboarding because the middleware's
+    // own /api/users/me check failed. A 401 there means "could not tell", not "not
+    // onboarded".
+    describe('an onboarded user whose onboarding check does not succeed', () => {
+      async function onboardedUser(label: string) {
+        const U = await registerAndLogin(email(label), name(label))
+        const skill = await testPrisma.skill.create({ data: { name: `${label} Skill ${suffix}`, slug: `${label}-skill-${suffix}`, category: 'Test' } })
+        await testPrisma.user.update({ where: { id: U.userId }, data: { headline: 'Builder' } })
+        await testPrisma.userSkill.create({ data: { userId: U.userId, skillId: skill.id } })
+        const me = await req(U.jar, 'GET', '/api/users/me')
+        expect(me.data.onboardingComplete).toBe(true)
+        const cleanup = async () => {
+          await testPrisma.userSkill.deleteMany({ where: { skillId: skill.id } })
+          await testPrisma.skill.delete({ where: { id: skill.id } })
+        }
+        return { ...U, cleanup }
+      }
+
+      it('is served the dashboard with a valid token (baseline)', async () => {
+        const U = await onboardedUser('okdash')
+        const res = await page('/dashboard', { authorization: `Bearer ${await U.jar.token()}` })
+        expect(res.status).toBe(200)
+        await U.cleanup()
+      }, 120_000)
+
+      it('goes to /signin, not /onboarding, with a tampered token', async () => {
+        const U = await onboardedUser('badtok')
+        const token = (await U.jar.token()) ?? ''
+        const [header, payload, signature] = token.split('.')
+        const flipped = signature.slice(0, -2) + (signature.endsWith('AA') ? 'BB' : 'AA')
+        for (const bad of [`${header}.${payload}.${flipped}`, `${header}.${payload}.`, 'not-a-token']) {
+          const res = await page('/dashboard', { authorization: `Bearer ${bad}` })
+          expect(isRedirect(res.status), bad.slice(0, 12)).toBe(true)
+          expect(res.location, bad.slice(0, 12)).toContain('/signin')
+          expect(res.location, bad.slice(0, 12)).not.toContain('/onboarding')
+        }
+        await U.cleanup()
+      }, 120_000)
+
+      it('is not sent to /onboarding when the API answers 401 for a token Clerk still accepts', async () => {
+        const U = await onboardedUser('gone401')
+        const authorization = { authorization: `Bearer ${await U.jar.token()}` }
+
+        // The local account is gone, so /api/users/me answers 401 while the Clerk token
+        // is still valid and the middleware still sees a signed-in user.
+        await testPrisma.user.update({ where: { id: U.userId }, data: { deletedAt: new Date() } })
+        expect((await req(U.jar, 'GET', '/api/users/me')).status).toBe(401)
+
+        // The request goes on to the page, whose own check sends a visitor with no
+        // usable local session to /signin. Never to /onboarding.
+        const dash = await page('/dashboard', authorization)
+        expect(isRedirect(dash.status)).toBe(true)
+        expect(dash.location).toContain('/signin')
+        expect(dash.location).not.toContain('/onboarding')
+
+        // /onboarding itself is not redirected on an unknown answer either.
+        const onboarding = await page('/onboarding', authorization)
+        expect(isRedirect(onboarding.status)).toBe(false)
+        expect(onboarding.location).not.toContain('/dashboard')
+
+        await U.cleanup()
+      }, 120_000)
+    })
   })
 
   describe('first sight of a Clerk account', () => {
