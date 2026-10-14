@@ -57,7 +57,9 @@ exposes it as a typed `env` object.
   listening, answering every request with a 500, which a supervisor would take for a healthy
   process. In development the error is thrown instead, so the dev server stays up for a fixed
   `.env.local`. `next build` does not run it, so builds and CI need no secrets; they need only the public Clerk
-  publishable key, which the root layout's `ClerkProvider` reads while pages are prerendered.
+  publishable key, which the root layout's `ClerkProvider` reads while pages are prerendered. Fonts
+  are self-hosted (`src/app/fonts`, `next/font/local`, SIL Open Font License texts included), so a
+  build needs no network access for them.
 - **Empty means unset**, so a copied `.env.example` parses.
 - **Production is stricter.** The webhook secret and the Redis, Inngest and Ably credentials
   are required, because the in-memory stand-ins would give each instance its own rate limits

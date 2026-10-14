@@ -341,7 +341,7 @@ Everything here was run against a real Clerk development instance with real user
   does not use it, the same existing gap as for blocks.
 - **`next build` failed twice with a `next/font` Google Fonts error** during this work, unrelated to
   auth (`main` built fine in a separate checkout, and three later builds of this branch passed).
-  If it appears, retry. The build has no Edge-runtime warnings any more. Since `ClerkProvider` joined the
+  If it appears, retry (fonts are self-hosted now, so it cannot recur). The build has no Edge-runtime warnings any more. Since `ClerkProvider` joined the
   root layout it needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (no secret).
 
 **Known limits, accepted:** a revoked or banned Clerk session stays valid until its token expires
