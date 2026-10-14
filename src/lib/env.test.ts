@@ -84,9 +84,27 @@ describe('parseEnv', () => {
     expect(problems({ ...base, UPSTASH_REDIS_REST_URL: 'https://x.upstash.io' })).toEqual([
       'UPSTASH_REDIS_REST_TOKEN: is required when UPSTASH_REDIS_REST_URL is set',
     ])
+    expect(problems({ ...production, UPSTASH_REDIS_REST_TOKEN: undefined })).toEqual([
+      'UPSTASH_REDIS_REST_TOKEN: is required when UPSTASH_REDIS_REST_URL is set',
+    ])
     expect(problems({ ...base, INNGEST_SIGNING_KEY: 'k' })).toEqual([
       'INNGEST_EVENT_KEY: is required when INNGEST_SIGNING_KEY is set',
     ])
+  })
+
+  it('reports field problems and cross-setting problems in the same pass', () => {
+    const list = problems({ NODE_ENV: 'production', CLERK_SECRET_KEY: 'nope' })
+    expect(list).toContain('DATABASE_URL: is required')
+    expect(list).toContain('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: is required')
+    expect(list).toContain('CLERK_SECRET_KEY: must start with sk_')
+    expect(list).toContain('ABLY_API_KEY: is required in production')
+  })
+
+  it('does not call a malformed setting missing as well', () => {
+    const list = problems({ ...production, ABLY_API_KEY: 'not-a-key' })
+    expect(list).toHaveLength(1)
+    expect(list[0]).toContain('ABLY_API_KEY')
+    expect(list[0]).not.toContain('required in production')
   })
 
   it('accepts a complete production configuration', () => {

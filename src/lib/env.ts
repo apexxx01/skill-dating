@@ -13,8 +13,7 @@ const csv = z
   .optional()
   .transform((value) => (value ?? '').split(',').map((part) => part.trim()).filter(Boolean))
 
-const envSchema = z
-  .object({
+const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
     // PostgreSQL connection string.
@@ -49,32 +48,46 @@ const envSchema = z
       .regex(/^[^.\s]+\.[^:\s]+:\S+$/, 'must look like appId.keyId:secret')
       .optional(),
   })
-  .superRefine((value, ctx) => {
-    const requireSet = (name: keyof typeof value, reason: string) => {
-      if (value[name] === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: reason })
-    }
-    const pair = (a: keyof typeof value, b: keyof typeof value) => {
-      if ((value[a] === undefined) !== (value[b] === undefined)) {
-        const missing = value[a] === undefined ? a : b
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [missing], message: `is required when ${missing === a ? b : a} is set` })
-      }
-    }
 
-    pair('UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN')
-    pair('INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY')
+// Rules that span several settings. They are checked from which settings are
+// present, outside Zod, because Zod skips refinements once any field is invalid
+// and a boot should report every problem, not make you fix them in rounds.
+type Setting = keyof z.input<typeof envSchema>
 
-    // Production runs more than one instance, so the in-memory stand-ins would
-    // silently give each instance its own rate limits and presence, and jobs and
-    // realtime delivery would not exist at all.
-    if (value.NODE_ENV === 'production') {
-      requireSet('CLERK_WEBHOOK_SECRET', 'is required in production')
-      requireSet('UPSTASH_REDIS_REST_URL', 'is required in production')
-      requireSet('UPSTASH_REDIS_REST_TOKEN', 'is required in production')
-      requireSet('INNGEST_EVENT_KEY', 'is required in production')
-      requireSet('INNGEST_SIGNING_KEY', 'is required in production')
-      requireSet('ABLY_API_KEY', 'is required in production')
+const CREDENTIAL_PAIRS: [Setting, Setting][] = [
+  ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
+  ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'],
+]
+
+// Production runs more than one instance, so the in-memory stand-ins would
+// silently give each instance its own rate limits and presence, and jobs and
+// realtime delivery would not exist at all.
+const REQUIRED_IN_PRODUCTION: Setting[] = [
+  'CLERK_WEBHOOK_SECRET',
+  'UPSTASH_REDIS_REST_URL',
+  'UPSTASH_REDIS_REST_TOKEN',
+  'INNGEST_EVENT_KEY',
+  'INNGEST_SIGNING_KEY',
+  'ABLY_API_KEY',
+]
+
+function crossRuleProblems(source: Record<string, string | undefined>): Map<string, string> {
+  const problems = new Map<string, string>()
+  const present = (name: Setting) => source[name] !== undefined
+
+  for (const [a, b] of CREDENTIAL_PAIRS) {
+    if (present(a) !== present(b)) {
+      const missing = present(a) ? b : a
+      problems.set(missing, `is required when ${present(a) ? a : b} is set`)
     }
-  })
+  }
+  if (source.NODE_ENV === 'production') {
+    for (const name of REQUIRED_IN_PRODUCTION) {
+      if (!present(name) && !problems.has(name)) problems.set(name, 'is required in production')
+    }
+  }
+  return problems
+}
 
 export type Env = z.infer<typeof envSchema>
 
@@ -91,11 +104,17 @@ export function parseEnv(source: Record<string, string | undefined> = process.en
   for (const [key, raw] of Object.entries(source)) {
     cleaned[key] = typeof raw === 'string' && raw.trim() === '' ? undefined : raw
   }
+
   const result = envSchema.safeParse(cleaned)
+  const problems = new Map<string, string>()
   if (!result.success) {
-    throw new EnvValidationError(
-      result.error.issues.map((issue) => `${issue.path.join('.') || 'environment'}: ${issue.message}`)
-    )
+    for (const issue of result.error.issues) problems.set(issue.path.join('.') || 'environment', issue.message)
+  }
+  // A setting already reported as malformed is not also reported as missing.
+  for (const [name, message] of crossRuleProblems(cleaned)) if (!problems.has(name)) problems.set(name, message)
+
+  if (problems.size > 0 || !result.success) {
+    throw new EnvValidationError([...problems].map(([name, message]) => `${name}: ${message}`))
   }
   return result.data
 }
