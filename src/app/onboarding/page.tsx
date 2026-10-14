@@ -75,7 +75,7 @@ export default function OnboardingPage() {
       })
       if (!headlineRes.ok) {
         const data = await headlineRes.json()
-        throw new Error(data.error || "Failed to save headline")
+        throw new Error(data.error?.message || "Failed to save headline")
       }
 
       for (const skillId of selectedSkillIds) {
@@ -88,7 +88,7 @@ export default function OnboardingPage() {
         // failure don't block on skills that already saved.
         if (!res.ok && res.status !== 400) {
           const data = await res.json()
-          throw new Error(data.error || "Failed to save skills")
+          throw new Error(data.error?.message || "Failed to save skills")
         }
       }
 

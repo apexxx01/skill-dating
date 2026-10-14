@@ -27,7 +27,7 @@ export default function SignUpPage() {
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || "Something went wrong")
+        setError(data.error?.message || "Something went wrong")
         return
       }
 
