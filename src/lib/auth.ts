@@ -31,5 +31,5 @@ export function toSession(outcome: AuthOutcome): AppSession | null {
 }
 
 export async function auth(): Promise<AppSession | null> {
-  return toSession(await authenticate(headers()))
+  return toSession(await authenticate(await headers()))
 }

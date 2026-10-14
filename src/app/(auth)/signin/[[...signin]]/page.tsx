@@ -10,7 +10,8 @@ function localPath(value: string | undefined): string | undefined {
   return value
 }
 
-export default function SignInPage({ searchParams }: { searchParams: { callbackUrl?: string } }) {
+export default async function SignInPage(props: { searchParams: Promise<{ callbackUrl?: string }> }) {
+  const searchParams = await props.searchParams
   const callbackUrl = localPath(searchParams.callbackUrl)
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">

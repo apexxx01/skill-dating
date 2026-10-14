@@ -34,10 +34,15 @@ export function rateLimit(config: RateLimitConfig) {
     enforceRateLimit(request, config, userId)
 }
 
+// What withAuth returns is the route handler Next calls: it takes only the request
+// (Next 15 rejects a route export whose second argument is not its own route
+// context), and builds the ApiContext that `handler` receives itself.
+export type RouteHandler = (request: NextRequest) => Promise<NextResponse>
+
 export function withAuth(
   handler: ApiHandler,
   options: { requiredRole?: string[]; rateLimit?: RateLimitConfig } = {}
-): ApiHandler {
+): RouteHandler {
   return async (request: NextRequest) => {
     // The session token is verified here, per request; see session.ts.
     const outcome = await authenticate(request.headers)

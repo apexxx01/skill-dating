@@ -4,6 +4,7 @@
 // to a human-readable message; no visual design pass yet.
 
 import { Suspense } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -25,7 +26,7 @@ function ErrorContent() {
       <h1>Sign-in error</h1>
       <p>{message}</p>
       <p>
-        <a href="/signin">Back to sign in</a>
+        <Link href="/signin">Back to sign in</Link>
       </p>
     </div>
   )
