@@ -68,10 +68,18 @@ export interface SignInResult {
   url: string | null;
 }
 
-// The sign-in screens are not wired to Clerk yet (that is UI work), so signing in
-// from the client reports failure rather than calling a route that no longer exists.
-export async function signIn(_provider?: string, _options?: Record<string, unknown>): Promise<SignInResult> {
-  return { error: "SignInUnavailable", ok: false, status: 501, url: null };
+// Signing in is Clerk's job: this hands the visitor to the /signin page, which
+// renders Clerk's component. Credentials and OAuth providers are chosen there, so
+// the provider and any credentials passed in are ignored. `callbackUrl` is kept,
+// but only as a path on this site. Resolves immediately: the browser is leaving.
+export async function signIn(_provider?: string, options: { callbackUrl?: string } = {}): Promise<SignInResult> {
+  const target = new URL("/signin", window.location.origin);
+  const callbackUrl = options.callbackUrl;
+  if (callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !callbackUrl.includes("\\")) {
+    target.searchParams.set("callbackUrl", callbackUrl);
+  }
+  window.location.assign(target.toString());
+  return { error: null, ok: true, status: 200, url: target.toString() };
 }
 
 export async function signOut(options: { callbackUrl?: string } = {}): Promise<void> {
