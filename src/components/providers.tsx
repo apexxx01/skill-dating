@@ -3,13 +3,14 @@
 import { SessionProvider } from "@/lib/session-client";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "react-hot-toast";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReactNode } from "react";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
         <Toaster
           position="bottom-right"
           toastOptions={{
