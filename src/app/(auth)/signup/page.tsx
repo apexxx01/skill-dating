@@ -4,7 +4,7 @@
 // registration + sign-in), no visual design pass yet.
 
 import { useState } from "react"
-import { signIn } from "next-auth/react"
+import { signIn } from "@/lib/session-client"
 import { useRouter } from "next/navigation"
 
 export default function SignUpPage() {

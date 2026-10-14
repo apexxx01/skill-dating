@@ -5,7 +5,7 @@
 // consider onboarding done. No visual design pass yet.
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
+import { useSession } from "@/lib/session-client"
 import { useRouter } from "next/navigation"
 
 // Depends on session state; not a candidate for static generation.

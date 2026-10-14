@@ -22,7 +22,7 @@ import {
   ChevronDown,
   Command,
 } from "lucide-react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "@/lib/session-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

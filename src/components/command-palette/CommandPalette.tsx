@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/lib/session-client";
 import {
   Search,
   Command as CommandIcon,

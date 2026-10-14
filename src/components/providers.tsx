@@ -1,6 +1,6 @@
 "use client";
 
-import { SessionProvider } from "next-auth/react";
+import { SessionProvider } from "@/lib/session-client";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "react-hot-toast";
 import { ReactNode } from "react";

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { X, LayoutDashboard, Users, FolderGit2, Trophy, Code, MessageSquare, Bell, Settings, User, LogOut, Zap, UserCheck } from "lucide-react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "@/lib/session-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

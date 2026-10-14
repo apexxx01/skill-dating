@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, Suspense } from 'react'
-import { signIn } from 'next-auth/react'
+import { signIn } from '@/lib/session-client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Github, Mail, Lock, Eye, EyeOff } from 'lucide-react'
