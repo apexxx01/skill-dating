@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { formatDistanceToNow } from "date-fns";
 import { useNotifications, type Notification } from "@/hooks/useNotifications";
@@ -117,7 +117,7 @@ export default function NotificationsPage() {
                   <p className="font-medium">{pref.label}</p>
                   <p className="text-sm text-muted-foreground">{pref.description}</p>
                 </div>
-                <DropdownMenuCheckboxItem checked={true} onCheckedChange={() => {}}>{pref.label}</DropdownMenuCheckboxItem>
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked onChange={() => {}} aria-label={pref.label} />
               </div>
             ))}
           </CardContent>
