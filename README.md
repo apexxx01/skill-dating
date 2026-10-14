@@ -120,6 +120,12 @@ stops it (in production the process exits with code 1), with all the problems li
 `next build` needs none of them. In development and tests the Redis, Inngest and Ably settings are
 optional: an in-memory stand-in is used, which keeps state per process and delivers nothing
 outside it. In production they are required, because those stand-ins cannot work across instances.
+
+"Production" means `VERCEL_ENV=production`, or `NODE_ENV=production` where `VERCEL_ENV` is not set
+(self-hosting stays strict). A Vercel **preview** deployment also runs with `NODE_ENV=production`;
+with `VERCEL_ENV=preview` it may start without the "in production" settings above, on the in-memory
+stand-ins, and prints a startup warning naming each one it is running without. Settings that are
+present are still validated, and credential pairs must still be set together.
 Code reads settings through the typed `env` object, never `process.env`. See
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

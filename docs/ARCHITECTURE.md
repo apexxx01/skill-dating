@@ -58,7 +58,13 @@ exposes it as a typed `env` object.
 - **Production is stricter.** The webhook secret and the Redis, Inngest and Ably credentials
   are required, because the in-memory stand-ins would give each instance its own rate limits
   and presence, and would run no real jobs or realtime delivery. Each credential pair must be
-  set together.
+  set together. Production means `VERCEL_ENV=production`, or `NODE_ENV=production` when
+  `VERCEL_ENV` is unset (`requiresProductionConfig`). A Vercel preview runs with
+  `NODE_ENV=production` as well, so `VERCEL_ENV=preview` is what lets it boot on the in-memory
+  stand-ins: `src/lib/boot.ts` then prints a warning naming every service it is running without
+  (`inMemoryFallbacks`), and the stand-in job queue runs jobs in-process. The services, and what
+  each stand-in loses, are listed once in `SERVICES` in `env.ts`, which both the production
+  requirement and the warning read.
 - Module-scope code that cannot wait for the whole configuration uses `nodeEnv`, which parses
   `NODE_ENV` alone.
 - Tests that change `process.env` call `resetEnvCache()`. Unit tests get dummy values for the

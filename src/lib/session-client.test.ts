@@ -8,7 +8,9 @@ describe('signIn', () => {
     assign.mockReset()
     vi.stubGlobal('window', { location: { origin: 'https://app.test', assign } })
   })
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('hands the visitor to the Clerk sign-in page instead of failing', async () => {
     const result = await signIn()

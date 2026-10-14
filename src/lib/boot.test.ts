@@ -63,4 +63,54 @@ describe('validateEnvOrExit', () => {
     expect(() => loaded.boot.validateEnvOrExit((() => { throw new Error('x') }) as never, log)).toThrow()
     expect(log.mock.calls[0][0]).not.toContain('SECRETVALUE123')
   })
+
+  it('boots a preview on the in-memory fallbacks and says so loudly', async () => {
+    const loaded = await load('production', { ...valid, VERCEL_ENV: 'preview', CLERK_WEBHOOK_SECRET: undefined, UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined, INNGEST_EVENT_KEY: undefined, INNGEST_SIGNING_KEY: undefined, ABLY_API_KEY: undefined })
+    restore = loaded.restore
+    const exit = vi.fn() as never
+    const warn = vi.fn()
+    const config = loaded.boot.validateEnvOrExit(exit, () => {}, warn)
+    expect(config.VERCEL_ENV).toBe('preview')
+    expect(exit).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = warn.mock.calls[0][0] as string
+    expect(message).toContain('WARNING: starting on in-memory fallbacks (VERCEL_ENV=preview)')
+    for (const name of ['UPSTASH_REDIS_REST_URL', 'INNGEST_EVENT_KEY', 'ABLY_API_KEY', 'CLERK_WEBHOOK_SECRET']) expect(message).toContain(name)
+    expect(message).not.toContain(valid.CLERK_SECRET_KEY)
+  })
+
+  it('still exits for a production deployment missing the same services', async () => {
+    const loaded = await load('production', { ...valid, VERCEL_ENV: 'production', CLERK_WEBHOOK_SECRET: undefined, UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined, INNGEST_EVENT_KEY: undefined, INNGEST_SIGNING_KEY: undefined, ABLY_API_KEY: undefined })
+    restore = loaded.restore
+    const exit = vi.fn(() => { throw new Error('exit') }) as never
+    const warn = vi.fn()
+    expect(() => loaded.boot.validateEnvOrExit(exit, () => {}, warn)).toThrow('exit')
+    expect(exit).toHaveBeenCalledWith(1)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn in development, where the stand-ins are the default', async () => {
+    const loaded = await load('development', { ...valid, VERCEL_ENV: undefined })
+    restore = loaded.restore
+    const warn = vi.fn()
+    loaded.boot.validateEnvOrExit(vi.fn() as never, () => {}, warn)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when production has every service', async () => {
+    const loaded = await load('production', {
+      ...valid,
+      VERCEL_ENV: 'production',
+      CLERK_WEBHOOK_SECRET: 'whsec_x',
+      UPSTASH_REDIS_REST_URL: 'https://x.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 't',
+      INNGEST_EVENT_KEY: 'e',
+      INNGEST_SIGNING_KEY: 's',
+      ABLY_API_KEY: 'a.b:c',
+    })
+    restore = loaded.restore
+    const warn = vi.fn()
+    loaded.boot.validateEnvOrExit(vi.fn() as never, () => {}, warn)
+    expect(warn).not.toHaveBeenCalled()
+  })
 })

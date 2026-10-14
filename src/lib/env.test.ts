@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseEnv, EnvValidationError } from './env'
+import { parseEnv, requiresProductionConfig, inMemoryFallbacks, EnvValidationError } from './env'
 
 const base = {
   DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/skill_dating?schema=public',
@@ -122,5 +122,70 @@ describe('parseEnv', () => {
       expect(list).toContain(`${name}: is required in production`)
     }
     expect(() => parseEnv({ ...base, NODE_ENV: 'test' })).not.toThrow()
+  })
+})
+
+describe('deployment tiers', () => {
+  const SERVICE_SETTINGS = ['CLERK_WEBHOOK_SECRET', 'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY', 'ABLY_API_KEY']
+
+  it('stays strict for a Vercel production deployment', () => {
+    const list = problems({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'production' })
+    for (const name of SERVICE_SETTINGS) expect(list).toContain(`${name}: is required in production`)
+  })
+
+  it('stays strict for NODE_ENV=production outside Vercel', () => {
+    const list = problems({ ...base, NODE_ENV: 'production' })
+    for (const name of SERVICE_SETTINGS) expect(list).toContain(`${name}: is required in production`)
+  })
+
+  it('is strict when VERCEL_ENV says production, whatever NODE_ENV says', () => {
+    expect(problems({ ...base, NODE_ENV: 'development', VERCEL_ENV: 'production' })).toContain('ABLY_API_KEY: is required in production')
+  })
+
+  it('lets a Vercel preview boot without the shared services', () => {
+    const preview = parseEnv({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview' })
+    expect(preview.VERCEL_ENV).toBe('preview')
+    expect(preview.UPSTASH_REDIS_REST_URL).toBeUndefined()
+    expect(preview.ABLY_API_KEY).toBeUndefined()
+  })
+
+  it('still validates what is set on a preview', () => {
+    const list = problems({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', ABLY_API_KEY: 'not-a-key' })
+    expect(list).toEqual(['ABLY_API_KEY: must look like appId.keyId:secret'])
+  })
+
+  it('still requires credential pairs to be set together on a preview', () => {
+    const list = problems({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', UPSTASH_REDIS_REST_URL: 'https://example.upstash.io' })
+    expect(list).toEqual(['UPSTASH_REDIS_REST_TOKEN: is required when UPSTASH_REDIS_REST_URL is set'])
+  })
+
+  it('still requires the base settings on a preview', () => {
+    expect(problems({ NODE_ENV: 'production', VERCEL_ENV: 'preview' })).toEqual(
+      expect.arrayContaining(['DATABASE_URL: is required', 'CLERK_SECRET_KEY: is required'])
+    )
+  })
+
+  it('rejects an unknown VERCEL_ENV without echoing it', () => {
+    const list = problems({ ...base, VERCEL_ENV: 'staging-sk_live_SECRET' })
+    expect(list).toEqual(['VERCEL_ENV: must be one of: production, preview, development'])
+  })
+
+  it('decides strictness from VERCEL_ENV first, then NODE_ENV', () => {
+    expect(requiresProductionConfig({ VERCEL_ENV: 'production' })).toBe(true)
+    expect(requiresProductionConfig({ VERCEL_ENV: 'preview', NODE_ENV: 'production' })).toBe(false)
+    expect(requiresProductionConfig({ VERCEL_ENV: 'development', NODE_ENV: 'production' })).toBe(false)
+    expect(requiresProductionConfig({ NODE_ENV: 'production' })).toBe(true)
+    expect(requiresProductionConfig({ NODE_ENV: 'development' })).toBe(false)
+    expect(requiresProductionConfig({})).toBe(false)
+  })
+
+  it('lists the services a configuration is running without', () => {
+    expect(inMemoryFallbacks(parseEnv(production))).toEqual([])
+    const preview = inMemoryFallbacks(parseEnv({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', ABLY_API_KEY: 'appId.keyId:secret' }))
+    expect(preview).toHaveLength(3)
+    expect(preview.join('\n')).toContain('UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set')
+    expect(preview.join('\n')).toContain('INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY not set')
+    expect(preview.join('\n')).toContain('CLERK_WEBHOOK_SECRET not set')
+    expect(preview.join('\n')).not.toContain('ABLY_API_KEY not set')
   })
 })

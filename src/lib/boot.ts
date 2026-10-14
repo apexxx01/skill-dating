@@ -1,4 +1,4 @@
-import { EnvValidationError, nodeEnv, validateEnv, type Env } from '@/lib/env'
+import { EnvValidationError, inMemoryFallbacks, nodeEnv, validateEnv, type Env } from '@/lib/env'
 
 // Called once when the server starts (src/instrumentation.ts).
 //
@@ -9,12 +9,35 @@ import { EnvValidationError, nodeEnv, validateEnv, type Env } from '@/lib/env'
 // back. Exiting non-zero is what makes a bad deploy visibly fail. In development
 // the error is thrown instead, so the dev server stays up to pick up a fixed
 // .env.local.
+// A deployed process (NODE_ENV=production) that got past validation yet is
+// missing a service can only be a Vercel preview, since production requires
+// them all. It is allowed to run on the in-memory stand-ins, but not quietly.
+// Development and tests use the stand-ins by design and are not warned.
+function warnOnFallbacks(config: Env, warn: (message: string) => void) {
+  if (config.NODE_ENV !== 'production') return
+  const fallbacks = inMemoryFallbacks(config)
+  if (fallbacks.length === 0) return
+  const rule = '='.repeat(72)
+  warn(
+    [
+      rule,
+      `WARNING: starting on in-memory fallbacks (VERCEL_ENV=${config.VERCEL_ENV ?? 'unset'}).`,
+      ...fallbacks.map((line) => `  - ${line}`),
+      'Acceptable for a preview deployment only: a production deployment refuses to start without these.',
+      rule,
+    ].join('\n')
+  )
+}
+
 export function validateEnvOrExit(
   exit: (code: number) => never = (code) => process.exit(code),
-  log: (message: string) => void = (message) => console.error(message)
+  log: (message: string) => void = (message) => console.error(message),
+  warn: (message: string) => void = (message) => console.warn(message)
 ): Env {
   try {
-    return validateEnv()
+    const config = validateEnv()
+    warnOnFallbacks(config, warn)
+    return config
   } catch (error) {
     log(error instanceof EnvValidationError ? error.message : `Could not read the environment: ${String(error)}`)
     if (nodeEnv === 'production') return exit(1)

@@ -15,6 +15,9 @@ const csv = z
 
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    // Set by Vercel. A preview deployment runs with NODE_ENV=production too, so
+    // this is what tells a preview from the real thing (see requiresProductionConfig).
+    VERCEL_ENV: z.enum(['production', 'preview', 'development']).optional(),
 
     // PostgreSQL connection string.
     DATABASE_URL: z
@@ -59,17 +62,41 @@ const CREDENTIAL_PAIRS: [Setting, Setting][] = [
   ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'],
 ]
 
-// Production runs more than one instance, so the in-memory stand-ins would
-// silently give each instance its own rate limits and presence, and jobs and
-// realtime delivery would not exist at all.
-const REQUIRED_IN_PRODUCTION: Setting[] = [
-  'CLERK_WEBHOOK_SECRET',
-  'UPSTASH_REDIS_REST_URL',
-  'UPSTASH_REDIS_REST_TOKEN',
-  'INNGEST_EVENT_KEY',
-  'INNGEST_SIGNING_KEY',
-  'ABLY_API_KEY',
+// Services the in-memory stand-ins replace when they are not configured. Each
+// stand-in is fine for one process and wrong for a fleet: instances would each
+// keep their own rate limits and presence, and jobs and realtime delivery would
+// not reach anyone. `fallback` says what is lost, for the startup warning.
+const SERVICES: { settings: Setting[]; fallback: string }[] = [
+  {
+    settings: ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
+    fallback: 'cache, rate limits and presence live in process memory: every instance counts on its own',
+  },
+  {
+    settings: ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'],
+    fallback: 'background jobs run inside the request process and are lost on restart',
+  },
+  {
+    settings: ['ABLY_API_KEY'],
+    fallback: 'realtime is an in-memory stand-in: nothing is delivered to other instances or browsers',
+  },
+  {
+    settings: ['CLERK_WEBHOOK_SECRET'],
+    fallback: 'the Clerk webhook answers 503, so changes made in Clerk are not synced',
+  },
 ]
+
+const REQUIRED_IN_PRODUCTION: Setting[] = SERVICES.flatMap((service) => service.settings)
+
+/**
+ * Whether the services above must all be configured. True for a Vercel
+ * production deployment, and for NODE_ENV=production anywhere that is not Vercel
+ * (so self-hosting stays strict). A Vercel preview also runs with
+ * NODE_ENV=production, but may use the stand-ins: the boot warns loudly instead.
+ */
+export function requiresProductionConfig(source: Record<string, string | undefined>): boolean {
+  if (source.VERCEL_ENV !== undefined) return source.VERCEL_ENV === 'production'
+  return source.NODE_ENV === 'production'
+}
 
 function crossRuleProblems(source: Record<string, string | undefined>): Map<string, string> {
   const problems = new Map<string, string>()
@@ -81,7 +108,7 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
       problems.set(missing, `is required when ${present(a) ? a : b} is set`)
     }
   }
-  if (source.NODE_ENV === 'production') {
+  if (requiresProductionConfig(source)) {
     for (const name of REQUIRED_IN_PRODUCTION) {
       if (!present(name) && !problems.has(name)) problems.set(name, 'is required in production')
     }
@@ -90,6 +117,13 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
 }
 
 export type Env = z.infer<typeof envSchema>
+
+/** What this process is running without: one line per service that has no credentials. */
+export function inMemoryFallbacks(config: Env): string[] {
+  return SERVICES.filter((service) => service.settings.some((name) => config[name as keyof Env] === undefined)).map(
+    (service) => `${service.settings.join(' / ')} not set: ${service.fallback}`
+  )
+}
 
 export class EnvValidationError extends Error {
   constructor(readonly problems: string[]) {
