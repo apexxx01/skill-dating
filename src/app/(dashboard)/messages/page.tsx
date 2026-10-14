@@ -45,7 +45,7 @@ export default function MessagesPage() {
         <div className="lg:w-96 flex flex-col border-r border-border min-w-0">
           <div className="p-4 border-b border-border flex flex-col gap-4">
             <div className="flex items-center gap-2">
-              <Button asChild variant="outline" size="sm" className="flex-1">
+              <Button variant="outline" size="sm" className="flex-1">
                 <Plus className="h-4 w-4 mr-2" aria-hidden="true" />
                 New Message
               </Button>
