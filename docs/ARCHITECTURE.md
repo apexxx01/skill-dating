@@ -156,6 +156,18 @@ Redis client, which proves command mapping, key prefixing and reply parsing but 
 Cloud. The Ably adapter's token signing is tested against the real SDK offline, but publishing is
 not. Run each against a real instance before depending on it.
 
+`/api/inngest` is the Inngest SDK's own handler. Without keys (development, tests) it runs in the
+SDK's dev mode: `GET` describes the functions, an unsigned `POST` is refused with `401`, and `PUT`
+(registration) answers `500` because it tries to reach a local Inngest dev server that is not
+running. That `500` is the SDK's behaviour, not a fault in the route. That an unsigned request is
+rejected when `INNGEST_SIGNING_KEY` is set has not been exercised, since it needs a real key.
+
+Run against `next dev`, the integration suite can hit a race inside Next itself: several first
+requests to dynamic-segment routes at once make the dev server read a manifest file while another
+compile is writing it, giving a `500` from inside `next/dist` before any application code runs. The
+bypass test therefore requests each route once, one at a time, before sending anything in parallel.
+`next start` uses prebuilt manifests and is not affected.
+
 ## Continuous integration
 
 Type-check, backend lint (blocking), whole-repo lint (report only), production build, unit tests,
