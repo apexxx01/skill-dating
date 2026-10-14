@@ -176,7 +176,9 @@ rejected when `INNGEST_SIGNING_KEY` is set has not been exercised, since it need
 
 Run against `next dev`, the integration suite can hit a race inside Next itself: several first
 requests to dynamic-segment routes at once make the dev server read a manifest file while another
-compile is writing it, giving a `500` from inside `next/dist` before any application code runs. The
+compile is writing it, giving a `500` from inside `next/dist` before any application code runs, or a brief `404` for a
+page that exists (`SyntaxError: Unexpected end of data` in the server log). A single such failure in a
+full run is a flake, and re-running clears it. The
 bypass test therefore requests each route once, one at a time, before sending anything in parallel.
 `next start` uses prebuilt manifests and is not affected.
 
