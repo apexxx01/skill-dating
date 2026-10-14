@@ -299,7 +299,10 @@ instance has a user cap and Backend API rate limits (the harness retries on `429
    `socket.io-client` packages have since been removed. The seven frozen UI files that imported
    `next-auth/react` now import the same `useSession` / `signIn` / `signOut` / `SessionProvider`
    names from `src/lib/session-client.tsx`; only the import line of each changed. Its `signIn`
-   now hands off to the Clerk sign-in page (it used to report failure).
+   now hands off to the Clerk sign-in page (it used to report failure), and its `signOut` ends the
+   Clerk session through `useClerk()` (captured by `SessionProvider`, with `window.Clerk` as the
+   fallback) and redirects to `callbackUrl` or `/`. It first only navigated, which left the user
+   signed in. `SessionProvider` also refreshes when Clerk finishes loading or the signed-in state changes.
 
    *Update:* the sign-in and sign-up pages are Clerk's `<SignIn />` and `<SignUp />` under
    optional catch-all routes (`/signin/[[...signin]]`, `/signup/[[...signup]]`, needed for path
@@ -360,7 +363,7 @@ None edited on this branch. When you wire the UI:
 | `src/app/(auth)/signin/[[...signin]]/page.tsx` | `signIn('credentials' \| provider)` | **Done:** Clerk's `<SignIn />`. |
 | `src/app/(auth)/signup/[[...signup]]/page.tsx` | `POST /api/auth/register` then `signIn('credentials')` | **Done:** Clerk's `<SignUp />`. |
 | `src/app/(auth)/error/page.tsx` | NextAuth error page | Likely delete: no NextAuth error redirects remain. |
-| `src/components/navigation/NavMain.tsx` | `useSession`, `signOut({ callbackUrl })` | `useUser` and `useClerk().signOut`. |
+| `src/components/navigation/NavMain.tsx` | `useSession`, `signOut({ callbackUrl })` | Works through `session-client` (which calls Clerk's `signOut`); `useUser` / `useClerk` later. |
 | `src/components/navigation/MobileNavigation.tsx` | `useSession`, `signOut` | Same. |
 | `src/components/command-palette/CommandPalette.tsx` | `useSession` (truthy check only) | `useAuth().isSignedIn`. |
 | `src/app/onboarding/page.tsx` | `useSession().data.user.id` as the **local** id in `/api/users/{id}/skills` | Get the local id from `GET /api/users/me` (Clerk's `user.id` is not the local id). |

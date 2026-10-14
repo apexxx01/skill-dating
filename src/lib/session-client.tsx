@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useAuth, useClerk } from "@clerk/nextjs";
 
 // Client-side session access for the existing UI. It answers the same
 // useSession() / signIn() / signOut() calls the pages were written against, from
@@ -34,8 +35,34 @@ async function fetchSession(): Promise<ClientSession | null> {
   return body && body.user ? body : null;
 }
 
+// signOut() is called as a plain function from event handlers, so the provider
+// hands it the Clerk instance it got from useClerk(). window.Clerk (set by
+// clerk-js once it loads) is the fallback when the provider is not mounted.
+interface ClerkLike {
+  signOut(options?: { redirectUrl?: string }): Promise<unknown>;
+}
+
+let attachedClerk: ClerkLike | undefined;
+
+/** Called by SessionProvider; exported so tests can stand in for it. */
+export function attachClerk(clerk: ClerkLike | undefined) {
+  attachedClerk = clerk;
+}
+
+function currentClerk(): ClerkLike | undefined {
+  if (attachedClerk) return attachedClerk;
+  return typeof window === "undefined" ? undefined : (window as unknown as { Clerk?: ClerkLike }).Clerk;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>({ data: null, status: "loading" });
+  const clerk = useClerk();
+  const { isLoaded, isSignedIn } = useAuth();
+
+  useEffect(() => {
+    attachClerk(clerk as unknown as ClerkLike);
+    return () => attachClerk(undefined);
+  }, [clerk]);
 
   const refresh = useCallback(async () => {
     try {
@@ -45,6 +72,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setState({ data: null, status: "unauthenticated" });
     }
   }, []);
+
+  // Clerk finishing its load, a sign-in and a sign-out all change what the
+  // session endpoint answers, so ask again then, not only on focus.
+  useEffect(() => {
+    if (isLoaded) void refresh();
+  }, [isLoaded, isSignedIn, refresh]);
 
   useEffect(() => {
     void refresh();
@@ -74,14 +107,20 @@ export interface SignInResult {
 // but only as a path on this site. Resolves immediately: the browser is leaving.
 export async function signIn(_provider?: string, options: { callbackUrl?: string } = {}): Promise<SignInResult> {
   const target = new URL("/signin", window.location.origin);
-  const callbackUrl = options.callbackUrl;
-  if (callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//") && !callbackUrl.includes("\\")) {
-    target.searchParams.set("callbackUrl", callbackUrl);
-  }
+  const callbackUrl = localPath(options.callbackUrl);
+  if (callbackUrl) target.searchParams.set("callbackUrl", callbackUrl);
   window.location.assign(target.toString());
   return { error: null, ok: true, status: 200, url: target.toString() };
 }
 
+function localPath(value: string | undefined): string | undefined {
+  return value && value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") ? value : undefined;
+}
+
+// Ends the Clerk session, then goes to callbackUrl (a path on this site, "/" by
+// default). Navigating alone would leave the user signed in.
 export async function signOut(options: { callbackUrl?: string } = {}): Promise<void> {
-  window.location.assign(options.callbackUrl ?? "/");
+  const clerk = currentClerk();
+  if (!clerk) throw new Error("Cannot sign out: Clerk has not loaded");
+  await clerk.signOut({ redirectUrl: localPath(options.callbackUrl) ?? "/" });
 }
