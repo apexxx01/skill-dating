@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { resetEnvCache } from '@/lib/env'
+import { setCache } from '@/lib/infra/cache'
+import { MemoryCache } from '@/lib/infra/cache.memory'
 import {
-  MemoryRateLimiter,
+  CacheRateLimiter,
   UNTRUSTED_SHARED_BUCKET_MULTIPLIER,
   clientIp,
   consumeSafely,
@@ -15,13 +17,16 @@ import {
 
 const opts = { windowMs: 1000, maxRequests: 3 }
 
-describe('MemoryRateLimiter', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+describe('CacheRateLimiter', () => {
+  // The limiter holds no state of its own: a clock-controlled in-memory cache stands in for Redis.
+  function setup() {
+    const clock = { now: 1_000_000 }
+    const cache = new MemoryCache(1000, () => clock.now)
+    return { clock, cache, limiter: new CacheRateLimiter(() => cache) }
+  }
 
   it('allows up to the limit then blocks with a positive retry-after', async () => {
-    const limiter = new MemoryRateLimiter()
+    const { limiter } = setup()
     for (let i = 0; i < 3; i++) {
       expect((await limiter.consume('k', opts)).allowed).toBe(true)
     }
@@ -30,36 +35,55 @@ describe('MemoryRateLimiter', () => {
     expect(blocked.retryAfterSeconds).toBeGreaterThanOrEqual(1)
   })
 
+  it('reports how many requests are left', async () => {
+    const { limiter } = setup()
+    expect((await limiter.consume('k', opts)).remaining).toBe(2)
+    expect((await limiter.consume('k', opts)).remaining).toBe(1)
+    expect((await limiter.consume('k', opts)).remaining).toBe(0)
+    expect((await limiter.consume('k', opts)).remaining).toBe(0)
+  })
+
   it('tracks keys independently', async () => {
-    const limiter = new MemoryRateLimiter()
+    const { limiter } = setup()
     for (let i = 0; i < 3; i++) await limiter.consume('a', opts)
     expect((await limiter.consume('a', opts)).allowed).toBe(false)
     expect((await limiter.consume('b', opts)).allowed).toBe(true)
   })
 
   it('opens a fresh window after the old one expires', async () => {
-    vi.useFakeTimers()
-    const limiter = new MemoryRateLimiter()
+    const { limiter, clock } = setup()
     for (let i = 0; i < 3; i++) await limiter.consume('k', opts)
     expect((await limiter.consume('k', opts)).allowed).toBe(false)
-    vi.advanceTimersByTime(1001)
+    clock.now += 1001
     expect((await limiter.consume('k', opts)).allowed).toBe(true)
   })
 
-  it('sweeps expired buckets so memory does not grow forever', async () => {
-    vi.useFakeTimers()
-    const limiter = new MemoryRateLimiter()
-    for (let i = 0; i < 100; i++) await limiter.consume(`k${i}`, opts)
-    expect(limiter.size).toBe(100)
-    vi.advanceTimersByTime(60_000)
-    await limiter.consume('trigger-sweep', opts)
-    expect(limiter.size).toBe(1)
+  it('does not extend the window when a blocked caller keeps trying', async () => {
+    const { limiter, clock } = setup()
+    for (let i = 0; i < 3; i++) await limiter.consume('k', opts)
+    clock.now += 600
+    expect((await limiter.consume('k', opts)).allowed).toBe(false)
+    clock.now += 450
+    expect((await limiter.consume('k', opts)).allowed).toBe(true)
   })
 
-  it('hard-caps the number of tracked keys, evicting the oldest', async () => {
-    const limiter = new MemoryRateLimiter(10)
-    for (let i = 0; i < 50; i++) await limiter.consume(`attacker-${i}`, { windowMs: 60_000, maxRequests: 3 })
-    expect(limiter.size).toBeLessThanOrEqual(10)
+  it('counts a shared cache across limiter instances, as separate app instances would', async () => {
+    const { cache } = setup()
+    const one = new CacheRateLimiter(() => cache)
+    const two = new CacheRateLimiter(() => cache)
+    for (let i = 0; i < 3; i++) await one.consume('k', opts)
+    expect((await two.consume('k', opts)).allowed).toBe(false)
+  })
+
+  it('uses the process-wide cache by default', async () => {
+    const cache = new MemoryCache()
+    setCache(cache)
+    try {
+      await new CacheRateLimiter().consume('shared', opts)
+      expect(await cache.get('ratelimit:shared')).toBe('1')
+    } finally {
+      setCache(undefined)
+    }
   })
 })
 
@@ -144,7 +168,7 @@ describe('enforceRateLimit', () => {
     expect(calls[0].options.maxRequests).toBe(10 * UNTRUSTED_SHARED_BUCKET_MULTIPLIER)
 
     // Ten sign-ups from one caller no longer lock everyone else out.
-    setRateLimiter(new MemoryRateLimiter())
+    setRateLimiter(new CacheRateLimiter(() => new MemoryCache()))
     for (let i = 0; i < 10; i++) expect(await enforceRateLimit(request(), config)).toBeNull()
     expect(await enforceRateLimit(request(), config)).toBeNull()
   })
