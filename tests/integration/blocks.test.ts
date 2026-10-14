@@ -109,7 +109,7 @@ describe('blocking', () => {
     expect(fromBlocker.status).toBe(403)
     const fromBlocked = await req(b.jar, 'POST', '/api/connections', { receiverId: a.userId, type: 'NETWORK' })
     expect(fromBlocked.status).toBe(404)
-    expect(fromBlocked.data.error).toBe('User not found')
+    expect(fromBlocked.data.error.code).toBe('USER_NOT_FOUND')
 
     await req(a.jar, 'DELETE', `/api/blocks/${b.userId}`)
     const after = await req(b.jar, 'POST', '/api/connections', { receiverId: a.userId, type: 'NETWORK' })
@@ -149,7 +149,7 @@ describe('blocking', () => {
     await blockOf(owner, applicant)
     const blockedApplicant = await req(applicant.jar, 'POST', `/api/teams/${teamId}/applications`, {})
     expect(blockedApplicant.status).toBe(404)
-    expect(blockedApplicant.data.error).toBe('Team not found')
+    expect(blockedApplicant.data.error.code).toBe('TEAM_NOT_FOUND')
     await req(owner.jar, 'DELETE', `/api/blocks/${applicant.userId}`)
 
     await blockOf(applicant, owner)
@@ -189,7 +189,7 @@ describe('blocking', () => {
     expect(blockerSends.status).toBe(403)
     const blockedSends = await req(b.jar, 'POST', `/api/conversations/${dm.id}`, { content: 'hello?' })
     expect(blockedSends.status).toBe(404)
-    expect(blockedSends.data.error).toBe('Conversation not found')
+    expect(blockedSends.data.error.code).toBe('CONVERSATION_NOT_FOUND')
     expect(await testPrisma.message.count({ where: { conversationId: dm.id } })).toBe(1)
 
     expect((await req(a.jar, 'POST', '/api/conversations', { type: 'DIRECT', participantIds: [b.userId] })).status).toBe(403)

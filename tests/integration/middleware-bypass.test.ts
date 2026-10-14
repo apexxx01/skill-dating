@@ -21,8 +21,9 @@ const BYPASS_HEADERS = [
 ]
 
 const PUBLIC_PAGES = new Set(['/', '/signin', '/signup', '/error'])
-// Answer anonymous callers on purpose; asserted individually below.
-const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk'])
+// Answer anonymous callers on purpose; asserted individually below. The webhook
+// and the Inngest route authenticate by request signature instead of a session.
+const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest'])
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
 function walk(dir: string): string[] {
@@ -143,7 +144,7 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
     expect(failures).toEqual([])
   }, 600_000)
 
-  it('leaves the two deliberately public routes behaving the same with the header', async () => {
+  it('leaves the deliberately public routes behaving the same with the header', async () => {
     for (const bypass of [undefined, ...BYPASS_HEADERS]) {
       const session = await call('GET', '/api/auth/session', bypass)
       expect(session.status).toBe(200)
@@ -152,6 +153,16 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
       // The webhook's only credential is its signature: unsigned is refused either way.
       const webhook = await call('POST', '/api/webhooks/clerk', bypass)
       expect([400, 503]).toContain(webhook.status)
+    }
+
+    // The Inngest route checks the request signature itself. Whatever it answers,
+    // the header must not change it.
+    for (const method of ['GET', 'POST', 'PUT']) {
+      const control = await call(method, '/api/inngest')
+      for (const bypass of BYPASS_HEADERS) {
+        const attempt = await call(method, '/api/inngest', bypass)
+        expect(attempt.status, `${method} /api/inngest`).toBe(control.status)
+      }
     }
   }, 60_000)
 })

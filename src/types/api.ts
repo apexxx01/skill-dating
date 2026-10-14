@@ -11,17 +11,24 @@
 // Common
 // ---------------------------------------------------------------------------
 
-/** Every non-2xx response has this shape. */
+/**
+ * Every non-2xx response has this shape. Branch on `code` (the full list is
+ * ERROR_CATALOG in src/lib/api/errors.ts); `message` is an English default and
+ * not stable. `params` holds the values the message interpolates, so another
+ * language can be rendered from `code` and `params`.
+ */
 export interface ApiError {
-  error: string
-  details?: unknown
+  error: {
+    code: string
+    message: string
+    params?: Record<string, string | number | boolean>
+    /** Structured extra data, e.g. `{ field: string[] }` for VALIDATION_FAILED. */
+    details?: unknown
+  }
 }
 
-/** Rate limited (429) and temporarily unavailable (503) responses. */
-export interface RateLimitedError {
-  error: string
-  retryAfter?: number
-}
+/** Rate limited (429, RATE_LIMITED, `params.retryAfter` in seconds) and unavailable (503) responses. */
+export type RateLimitedError = ApiError
 
 export interface Pagination {
   page: number

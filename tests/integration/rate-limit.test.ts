@@ -72,8 +72,8 @@ describe('rate limiting', () => {
     }
     expect(heavyStatuses.slice(0, 10).every((s) => s === 400)).toBe(true)
     expect(heavyStatuses).toContain(429)
-    expect(last429?.body.error).toBe('Too many requests')
-    expect(last429?.body.retryAfter).toBeGreaterThanOrEqual(1)
+    expect(last429?.body.error.code).toBe('RATE_LIMITED')
+    expect(last429?.body.error.params.retryAfter).toBeGreaterThanOrEqual(1)
 
     // A different user arriving from the SAME address is unaffected.
     const shared = await req(light.jar, 'POST', '/api/reports', { reportedId: light.userId, reason: 'SPAM' }, { 'x-forwarded-for': heavy.jar.ip })
