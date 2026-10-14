@@ -25,7 +25,10 @@ PostgreSQL or Redis, never in process memory.
 ## A request, start to finish
 
 1. **Middleware** (`src/middleware.ts`, Clerk) redirects signed-out visitors away from
-   app pages and signed-in ones away from sign-in. It exists for navigation. **It is not
+   app pages and signed-in ones away from sign-in, and asks `/api/users/me` whether onboarding is
+   done. That answer is `complete`, `incomplete` or `unknown` (`src/lib/onboarding-state.ts`): only
+   a definite `incomplete` sends anyone to `/onboarding`, and a `401` or any other failure is
+   `unknown`, which lets the request through to the page's own `auth()` check. It exists for navigation. **It is not
    trusted for security**: a client could once make middleware be skipped
    (CVE-2025-29927, fixed in Next 14.2.25 and later; this repo runs 14.2.35), and API routes are
    not matched by it at all.
