@@ -115,7 +115,8 @@ Sign-in providers (Google, GitHub, and so on) are configured in the Clerk dashbo
 ### Validation
 
 Every setting is checked by `src/lib/env.ts` when the server starts. A missing or malformed one
-stops it, with all the problems listed by name (never by value). Empty values count as unset.
+stops it (in production the process exits with code 1), with all the problems listed by name
+(never by value). Empty values count as unset.
 `next build` needs none of them. In development and tests the Redis, Inngest and Ably settings are
 optional: an in-memory stand-in is used, which keeps state per process and delivers nothing
 outside it. In production they are required, because those stand-ins cannot work across instances.

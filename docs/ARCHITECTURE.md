@@ -48,9 +48,12 @@ as without the header. Against Next 14.1.0 it failed (an anonymous visitor was s
 `process.env` is read in one place. A Zod schema validates every setting the app uses and
 exposes it as a typed `env` object.
 
-- **Fail fast.** `src/instrumentation.ts` validates when the server starts. A missing or
-  malformed setting stops the process with every problem listed, by name and never by value.
-  `next build` does not run it, so builds and CI need no secrets.
+- **Fail fast.** `src/instrumentation.ts` validates when the server starts and every problem is
+  listed in one pass, by name and never by value. In production the process then **exits with
+  code 1** (`src/lib/boot.ts`): `next start` on its own only logs an error from this hook and keeps
+  listening, answering every request with a 500, which a supervisor would take for a healthy
+  process. In development the error is thrown instead, so the dev server stays up for a fixed
+  `.env.local`. `next build` does not run it, so builds and CI need no secrets.
 - **Empty means unset**, so a copied `.env.example` parses.
 - **Production is stricter.** The webhook secret and the Redis, Inngest and Ably credentials
   are required, because the in-memory stand-ins would give each instance its own rate limits
