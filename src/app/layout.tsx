@@ -1,28 +1,45 @@
 import type { Metadata, Viewport } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
-import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
+import localFont from 'next/font/local'
 import { Providers } from '@/components/providers'
 import '../styles/globals.css'
 
-const inter = Inter({
-  subsets: ['latin'],
+// Self-hosted (latin subset, SIL Open Font License, texts alongside the files) so a
+// build or a deploy never needs the network to fetch fonts.
+const inter = localFont({
+  src: [
+    { path: './fonts/Inter-300.woff2', weight: '300', style: 'normal' },
+    { path: './fonts/Inter-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/Inter-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/Inter-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/Inter-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-inter',
   display: 'swap',
-  weight: ['300', '400', '500', '600', '700'],
+  adjustFontFallback: 'Arial',
 })
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
+const jetbrainsMono = localFont({
+  src: [
+    { path: './fonts/JetBrainsMono-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/JetBrainsMono-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/JetBrainsMono-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/JetBrainsMono-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-jetbrains-mono',
   display: 'swap',
-  weight: ['400', '500', '600', '700'],
 })
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
+const spaceGrotesk = localFont({
+  src: [
+    { path: './fonts/SpaceGrotesk-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/SpaceGrotesk-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/SpaceGrotesk-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/SpaceGrotesk-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-space-grotesk',
   display: 'swap',
-  weight: ['400', '500', '600', '700'],
+  adjustFontFallback: 'Arial',
 })
 
 export const metadata: Metadata = {
@@ -69,10 +86,6 @@ export default function RootLayout({
   return (
     <ClerkProvider signInUrl="/signin" signUpUrl="/signup">
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable} scroll-smooth`} suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
