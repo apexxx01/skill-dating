@@ -14,6 +14,9 @@ changed it, section 9 says so. Section 8 lists what needs you.
 
 ## 1. Clerk SDK and Next.js 14.1
 
+> *Update:* this section is the design as written for Next 14.1.0. The branch has since moved to
+> Next 14.2.35 and then to Next 15.5.27 with React 19.3 (`@clerk/nextjs` 6.39.7).
+
 We are on `next@14.1.0` (React 18.3.1, Node 20+).
 
 | `@clerk/nextjs` | Peer range for `next` | Works with 14.1.0? |

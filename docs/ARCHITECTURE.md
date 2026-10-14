@@ -7,7 +7,7 @@ setup see the [README](../README.md), for how authentication was moved to Clerk 
 ## Shape of the system
 
 ```
-Browser ──► Next.js 14 (App Router, one deployable)
+Browser ──► Next.js 15 (App Router, one deployable)
               ├─ src/middleware.ts        page redirects only (not a security boundary)
               ├─ src/app/api/**           route handlers, each wrapped in withAuth
               ├─ src/lib/                 domain logic, auth, env, errors, rate limiting
@@ -27,7 +27,7 @@ PostgreSQL or Redis, never in process memory.
 1. **Middleware** (`src/middleware.ts`, Clerk) redirects signed-out visitors away from
    app pages and signed-in ones away from sign-in. It exists for navigation. **It is not
    trusted for security**: a client could once make middleware be skipped
-   (CVE-2025-29927, fixed in Next 14.2.25 and later; this repo runs 14.2.35), and API routes are
+   (CVE-2025-29927, fixed in Next 14.2.25 and 15.2.3; this repo runs 15.5.27), and API routes are
    not matched by it at all.
 2. **`withAuth`** (`src/lib/api/handler.ts`) wraps every API handler. It calls `authenticate`
    (`src/lib/session.ts`), which takes the bearer token or the `__session` cookie, verifies
@@ -41,7 +41,7 @@ PostgreSQL or Redis, never in process memory.
 `tests/integration/middleware-bypass.test.ts` walks every page and API route and sends
 `x-middleware-subrequest` in both spellings. It requires an anonymous caller to be refused exactly
 as without the header. Against Next 14.1.0 it failed (an anonymous visitor was served
-`/onboarding`); it passes on 14.2.35.
+`/onboarding`); it passes on 14.2.35 and on 15.5.27.
 
 ## Environment (`src/lib/env.ts`)
 
@@ -184,21 +184,30 @@ and the integration suite against a Postgres service container.
 ## Known limitations and open items
 
 - Nothing publishes realtime events and the only job is `system/ping`.
-- `npm audit` still reports advisories against Next 14.2.35 and its build tooling; see
+- `npm audit --omit=dev` still reports Next's bundled PostCSS (fixable only by Next 16); see
   [Dependency advisories](#dependency-advisories).
-- `inngest` was installed with `--legacy-peer-deps` (an optional SvelteKit peer needs Vite 8, the
-  test runner uses Vite 5).
+- Dependencies are installed with `--legacy-peer-deps` when they change: `inngest` has an optional
+  SvelteKit peer that needs Vite 8 (the test runner uses Vite 5), and `@react-three/fiber` 9 lists
+  `react-native` and `expo` as optional peers, a mobile-only chain npm cannot resolve here. A plain
+  `npm ci` accepts the resulting lockfile, and `npm ls` reports no invalid peer range.
 
 ## Dependency advisories
 
-`npm audit --omit=dev` after the fixes that stay within a major version: **9 findings, none
-fixable without a major upgrade.** Fixed: `@clerk/nextjs` (critical, 6.12.8 to 6.39.7), `glob` (high,
-pinned to 10.5.0 on the one runtime path that used 10.3.10 through an `overrides` entry for
-`gaxios > rimraf`), `source-map-js` (high, lockfile update).
+`npm audit --omit=dev` on Next 15.5.27 and React 19.3: **2 findings (1 high, 1 moderate), 0 critical.**
+Moving from Next 14.2.35 to 15.5.27 cleared every advisory against Next itself (including the
+Server Components and request-handling ones the 14.x line could not fix) and the `braces` /
+`tailwindcss` chain that used to be reported through `tailwindcss-animate`. Earlier fixes stand:
+`@clerk/nextjs` 6.39.7, `glob` pinned to 10.5.0 on the Inngest tracing path through an `overrides`
+entry, `source-map-js` updated. The image optimizer is also off (`images.unoptimized`; `/_next/image`
+answers 404), since no code uses `next/image`.
 
 | Finding | Why it remains | Exposure |
 | --- | --- | --- |
-| `next` 14.2.35 (critical, many advisories) | 14.2.35 is the last 14.x release; the fix is Next 15 or 16, a major upgrade needing its own change | **Not dismissed.** Reachable in principle: this is a self-hosted App Router app, so the Server Components / request-handling advisories apply to it, and `/_next/image` exists although no code uses `next/image`. Not applicable here: Server Actions (none), `i18n` and rewrites (not configured), WebSocket upgrades. Plan the Next upgrade. Turning the image optimizer off in `next.config.js` would shrink the surface meanwhile (not tried here). |
-| `postcss` below 8.5.23 inside `next` (high) | Next bundles its own copy; moves with Next | Build time only: it processes this repository's own stylesheets, never request input, so its stringify and source-map issues have no attacker-controlled input. |
-| `tailwindcss` 3.4, `braces`, `micromatch`, `fast-glob`, `chokidar`, `postcss-selector-parser`, `postcss-nested` (high, moderate) | Reported because `tailwindcss-animate` (a runtime dependency) lists `tailwindcss` as a peer; the fix is Tailwind 4, a major upgrade | Build time only: `tailwindcss` is a dev dependency that generates CSS during the build and is not part of the running server. |
-| `glob` 10.3.10 under `eslint-config-next` | Pinned exactly by `@next/eslint-plugin-next` | Dev only (not in the `--omit=dev` report); the advisory concerns the `glob` command-line `-c` flag, which no script here calls. |
+| `postcss` 8.4.31 bundled inside `next` (high: stringify XSS and three source-map read issues) | Next ships its own copy; the audit's only fix is Next 16.4.0, a major upgrade | Build time only. It processes this repository's own stylesheets, never request input, so there is no attacker-controlled CSS or source-map comment to exploit. |
+| `next` (moderate) | Reported only because it depends on that PostCSS; none of Next's own advisories apply to 15.5.27 | Same as above. |
+
+Across the whole tree, including dev dependencies, `npm audit` reports 17 findings (2 critical:
+`vitest` and its `tinypool`; the rest `vite`, `esbuild`, `tailwindcss` and its `braces` /
+`micromatch` / `fast-glob` / `chokidar` chain, `eslint-config-next`). All are development tools that
+never run in the deployed server: the test runner, the dev server's bundler and the CSS generator.
+They are upgraded with their own major versions (Vitest 3 or later, Tailwind 4), not here.

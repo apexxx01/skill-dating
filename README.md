@@ -62,7 +62,7 @@ endpoints it should call, including the mock fields that have no API behind them
 
 ## Stack
 
-Next.js 14 (App Router) · TypeScript · PostgreSQL · Prisma · Clerk · Zod ·
+Next.js 15 (App Router) · React 19 · TypeScript · PostgreSQL · Prisma · Clerk · Zod ·
 Tailwind CSS · Radix UI · React Query · react-three-fiber · Vitest
 
 ## Getting started
