@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { ClerkProvider } from '@clerk/nextjs'
 import { Inter, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import { Providers } from '@/components/providers'
 import '../styles/globals.css'
@@ -66,6 +67,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
+    <ClerkProvider signInUrl="/signin" signUpUrl="/signup">
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable} scroll-smooth`} suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -75,5 +77,6 @@ export default function RootLayout({
         <Providers>{children}</Providers>
       </body>
     </html>
+    </ClerkProvider>
   )
 }

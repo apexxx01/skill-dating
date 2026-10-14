@@ -38,6 +38,7 @@ function toUrlPath(file: string): string {
     .relative(APP_DIR, path.dirname(file))
     .split(path.sep)
     .filter((segment) => segment && !/^\(.*\)$/.test(segment))
+    .filter((segment) => !/^\[\[\.\.\..*\]\]$/.test(segment)) // optional catch-all: the route also answers at its base path
     .map((segment) => (/^\[.*\]$/.test(segment) ? 'x' : segment))
   return '/' + segments.join('/')
 }
@@ -104,6 +105,22 @@ describe('route discovery', () => {
     expect(apiRoutes.length).toBeGreaterThan(50)
     expect(apiRoutes).toContainEqual({ method: 'GET', path: '/api/users/me' })
   })
+
+  it('reads the optional catch-all Clerk pages as /signin and /signup', () => {
+    expect(pages).toContain('/signin')
+    expect(pages).toContain('/signup')
+    expect(pages.filter((p) => p.endsWith('/x'))).not.toContain('/signin/x')
+  })
+})
+
+describe('sign-in and sign-up pages', () => {
+  it('are served to an anonymous visitor, including the nested steps Clerk routes to', async () => {
+    for (const urlPath of ['/signin', '/signup', '/signin/factor-one', '/signup/verify-email-address']) {
+      const res = await call('GET', urlPath)
+      expect(res.status, urlPath).toBe(200)
+      expect(res.body, urlPath).toContain('clerk')
+    }
+  }, 120_000)
 })
 
 describe('x-middleware-subrequest (CVE-2025-29927)', () => {
