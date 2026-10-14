@@ -52,8 +52,14 @@ jobs:
     timeout-minutes: 15
     # The production build lints and type-checks the whole project, so a
     # rule that only reports elsewhere can still stop a deploy. Building here
-    # keeps that from being discovered at release time. It needs no auth
-    # configuration: the Clerk keys are only read when a request arrives.
+    # keeps that from being discovered at release time. The only setting it
+    # needs is the Clerk publishable key, because Clerk's provider in the root
+    # layout is rendered while pages are prerendered. The key is public and the
+    # value below is a placeholder of the right shape (it decodes to a
+    # hostname), not a real instance; a deployment build uses the real one.
+    # No secret, database or provider setting is read at build time.
+    env:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
