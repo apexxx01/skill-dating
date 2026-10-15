@@ -1,29 +1,32 @@
-import type { PrismaClient, Prisma } from '@prisma/client'
+import type { RewardsEnvelope } from '@/types/api'
 import { ACHIEVEMENT_DEFINITIONS, type AchievementSlug } from './achievement-definitions'
-import { awardXp } from './xp'
+import { afterCommit, recordReward, type Db } from './events'
+import { track } from './infra/analytics'
 import { recordActivity } from './activity'
-
-type PrismaOrTx = PrismaClient | Prisma.TransactionClient
+import { grant } from './rewards'
+import { emptyEnvelope } from './rewards-envelope'
 
 /**
  * Grants an achievement to a user, idempotently. Always call this from
- * inside the same transaction as the action that earned it. The
- * Achievement row is upserted by slug from the shared definitions file, so
- * granting an achievement that's never been granted before still works
- * without a separate seed step - but `update: {}` on the upsert means an
- * admin-edited name/description/xpReward isn't silently overwritten on
- * every subsequent grant.
+ * inside the same transaction as the action that earned it (normally through
+ * the rewards subscriber, see subscribers.ts). The Achievement row is upserted
+ * by slug from the shared definitions file, so granting an achievement that's
+ * never been granted before still works without a separate seed step - but
+ * `update: {}` on the upsert means an admin-edited name/description/xpReward
+ * isn't silently overwritten on every subsequent grant.
  *
  * Safe to call more than once for the same user+slug: the second call is a
  * no-op (no duplicate UserAchievement row, no double XP, no duplicate
- * activity entry), enforced by the UserAchievement unique constraint, which
- * is what decides whether this call created the row (safe under concurrency).
+ * activity entry or notification), enforced by the UserAchievement unique
+ * constraint, which is what decides whether this call created the row (safe
+ * under concurrency). The achievement's XP goes through the rewards engine
+ * like any other award.
  */
 export async function grantAchievement(
-  tx: PrismaOrTx,
+  tx: Db,
   userId: string,
   slug: AchievementSlug
-): Promise<{ granted: boolean }> {
+): Promise<{ granted: boolean; envelope?: RewardsEnvelope }> {
   const def = ACHIEVEMENT_DEFINITIONS[slug]
 
   const achievement = await tx.achievement.upsert({
@@ -45,8 +48,17 @@ export async function grantAchievement(
     return { granted: false }
   }
 
+  let totalXp: number
   if (achievement.xpReward > 0) {
-    await awardXp(tx, userId, 'ACHIEVEMENT_EARNED', `Earned achievement "${achievement.name}"`, achievement.xpReward)
+    const result = await grant(tx, userId, 'ACHIEVEMENT_EARNED', {
+      sourceType: 'ACHIEVEMENT',
+      sourceId: slug,
+      amount: achievement.xpReward,
+      description: `Earned achievement "${achievement.name}"`,
+    })
+    totalXp = result.envelope.totalXp
+  } else {
+    totalXp = (await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { xp: true } })).xp
   }
 
   await recordActivity(tx, userId, 'ACHIEVEMENT_EARNED', `Earned "${achievement.name}"`, {
@@ -54,5 +66,20 @@ export async function grantAchievement(
     metadata: { achievementId: achievement.id, slug }
   })
 
-  return { granted: true }
+  await tx.notification.create({
+    data: {
+      userId,
+      type: 'ACHIEVEMENT',
+      title: 'Achievement unlocked',
+      message: achievement.name,
+      metadata: { kind: 'ACHIEVEMENT_UNLOCKED', slug },
+    },
+  })
+
+  // The XP part was recorded by grant(); this adds the unlock itself to what the request reports.
+  const envelope: RewardsEnvelope = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
+  recordReward(tx, userId, envelope)
+  afterCommit(tx, () => track(userId, 'achievement_earned', { slug, xpReward: achievement.xpReward }))
+
+  return { granted: true, envelope }
 }

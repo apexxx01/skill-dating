@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 import { ACHIEVEMENT_DEFINITIONS } from '@/lib/achievement-definitions'
 import { blockRelation } from '@/lib/blocks'
 
@@ -88,7 +88,11 @@ export const MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY = 10
 export const ENDORSEMENT_XP_DAILY_CAP = 50
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
-async function grantEndorsementReward(tx: Prisma.TransactionClient, ownerId: string, endorserId: string): Promise<boolean> {
+/**
+ * Whether being endorsed by `endorserId` may pay `ownerId` the `endorsed`
+ * achievement. The rewards subscriber asks this before granting it.
+ */
+export async function endorsementRewardAllowed(tx: Prisma.TransactionClient, ownerId: string, endorserId: string): Promise<boolean> {
   const endorser = await tx.user.findUnique({ where: { id: endorserId }, select: { verificationLevel: true } })
   if (!endorser || endorser.verificationLevel === 'NONE') return false
 
@@ -120,7 +124,7 @@ async function grantEndorsementReward(tx: Prisma.TransactionClient, ownerId: str
     if ((xpToday._sum.amount ?? 0) + ACHIEVEMENT_DEFINITIONS.endorsed.xpReward > ENDORSEMENT_XP_DAILY_CAP) return false
   }
 
-  return (await grantAchievement(tx, ownerId, 'endorsed')).granted
+  return true
 }
 
 export type EndorseOutcome =
@@ -148,7 +152,7 @@ export async function endorseEvidence(
 ): Promise<EndorseOutcome> {
   const { endorserId, endorserName, evidenceId } = params
 
-  return prisma.$transaction(async (tx) => {
+  const { value } = await transactWithEvents(prisma, async (tx) => {
     const evidence = await tx.skillEvidence.findUnique({
       where: { id: evidenceId },
       select: { id: true, userId: true, skillId: true, type: true, title: true },
@@ -195,7 +199,7 @@ export async function endorseEvidence(
     // The endorsement itself always counts toward the evidence; only the
     // reward (the `endorsed` achievement and its XP) is restricted. The grant
     // is idempotent per owner, so this is safe to attempt on every endorsement.
-    const rewarded = await grantEndorsementReward(tx, evidence.userId, endorserId)
+    const { rewarded } = await emit(tx, 'EVIDENCE_ENDORSED', { userId: evidence.userId, endorserId, evidenceId })
 
     if (!alreadyRecorded) {
       await recordActivity(tx, evidence.userId, 'SKILL_EVIDENCE_ENDORSED', `Your evidence "${evidence.title}" was endorsed`, {
@@ -214,6 +218,7 @@ export async function endorseEvidence(
 
     return { outcome: 'created' as const, endorsementCount: await countEndorsements(tx, evidenceId) }
   })
+  return value
 }
 
 export type UnendorseOutcome = { outcome: 'not_found' } | { outcome: 'ok'; endorsementCount: number }
