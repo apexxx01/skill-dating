@@ -5,6 +5,7 @@ import { processClerkEvent } from '@/lib/clerk-webhook'
 import { env } from '@/lib/env'
 import { errorResponse } from '@/lib/api/errors'
 import { syncClerkUser, tombstoneClerkUser } from '@/lib/user-sync'
+import { log } from '@/lib/log'
 
 // Unauthenticated by design: the only credential is the Svix signature over the
 // raw body, made with CLERK_WEBHOOK_SECRET. Without the secret (optional outside
@@ -16,7 +17,7 @@ const MAX_BODY_BYTES = 1_000_000
 export async function POST(request: NextRequest) {
   const secret = env.CLERK_WEBHOOK_SECRET
   if (!secret) {
-    console.error('CLERK_WEBHOOK_SECRET is not set: refusing webhook deliveries')
+    log.error('CLERK_WEBHOOK_SECRET is not set: refusing webhook deliveries')
     return errorResponse('WEBHOOK_NOT_CONFIGURED')
   }
 
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result)
   } catch (error) {
     // A non-2xx makes Clerk retry, which is what we want for transient failures.
-    console.error('clerk webhook failed:', error instanceof Error ? error.message : error)
+    log.error('clerk webhook failed', { error })
     return errorResponse('WEBHOOK_PROCESSING_FAILED')
   }
 }

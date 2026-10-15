@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { isCurrentUsernameFor, resolveUsername } from '@/lib/username'
 import { applyVerification } from '@/lib/verification'
 import { track } from '@/lib/infra/analytics'
+import { log } from '@/lib/log'
 
 // Keeps the local User row in step with the Clerk account. Two entry points use
 // this: the first authenticated request (lazy upsert) and the Clerk webhook.
@@ -197,7 +198,7 @@ async function recordConflict(db: PrismaClient, clerkId: string): Promise<void> 
       data: { action: 'ACCOUNT_LINK_CONFLICT', targetType: 'USER', targetId: clerkId, newValue: { clerkId } },
     })
   } catch (error) {
-    console.error('could not record account conflict:', error instanceof Error ? error.message : error)
+    log.error('could not record account conflict', { error })
   }
 }
 

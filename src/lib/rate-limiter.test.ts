@@ -187,7 +187,7 @@ describe('limiter failure handling', () => {
   })
 
   it('lets ordinary requests through when the limiter fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     setRateLimiter(failing)
     const decision = await consumeSafely('k', opts)
     expect(decision.allowed).toBe(true)
@@ -195,7 +195,7 @@ describe('limiter failure handling', () => {
   })
 
   it('refuses protected requests (login) with a 503 rather than waving them through', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     setRateLimiter(failing)
     const decision = await consumeSafely('k', opts, { failClosed: true })
     expect(decision.allowed).toBe(false)

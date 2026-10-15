@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { env } from '@/lib/env'
 import { getCache, type Cache } from '@/lib/infra/cache'
 import { errorResponse } from '@/lib/api/errors'
+import { log } from '@/lib/log'
 
 // Rate limiting behind a small interface so no route depends on where the
 // counters live: implement RateLimiter and call setRateLimiter() to replace it.
@@ -86,7 +87,8 @@ export async function consumeSafely(
   try {
     return await getRateLimiter().consume(key, options)
   } catch (error) {
-    console.error('rate limiter unavailable:', error instanceof Error ? error.message : error)
+    // Warn, not error: the limiter fails open, and an outage would otherwise report once per request.
+    log.warn('rate limiter unavailable', { error })
     return failClosed
       ? { allowed: false, remaining: 0, retryAfterSeconds: 5, unavailable: true }
       : { allowed: true, remaining: options.maxRequests, retryAfterSeconds: 0, unavailable: true }

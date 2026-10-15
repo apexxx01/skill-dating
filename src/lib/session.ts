@@ -4,6 +4,7 @@ import { env } from '@/lib/env'
 import { createKidGuard, tokenKid } from '@/lib/jwks-guard'
 import { consumeSafely, type RateLimitDecision } from '@/lib/rate-limiter'
 import { AccountConflictError, SELECTED_USER_FIELDS, syncClerkUser, type LocalUser } from '@/lib/user-sync'
+import { log } from '@/lib/log'
 
 // Request authentication. The session token is verified here, directly, against
 // Clerk's signing keys. Nothing that middleware may have added to the request is
@@ -113,7 +114,7 @@ export async function resolveLocalUser(clerkId: string): Promise<Exclude<AuthOut
     if (error instanceof AccountConflictError) return { kind: 'conflict' }
     // The token verified but Clerk no longer knows the account.
     if (isNotFound(error)) return { kind: 'deleted' }
-    console.error('user sync failed:', error instanceof Error ? error.message : error)
+    log.error('user sync failed', { error })
     return { kind: 'unavailable' }
   }
 }
