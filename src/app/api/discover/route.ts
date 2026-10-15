@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
+import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
+import { cursorParam, decodeOffsetCursor, offsetPage } from '@/lib/api/pagination'
 import { calculateSkillCompatibility, type SkillRef } from '@/lib/scoring'
 import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
@@ -10,6 +11,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   skills: z.string().optional(),
   location: z.string().optional(),
+  cursor: cursorParam,
 })
 
 // Compatibility is computed per-request against a candidate pool, not
@@ -19,6 +21,8 @@ const querySchema = z.object({
 // ranked result. `pagination.total` reflects the true filtered count (for
 // "N people match"), while `pagination.totalPages` reflects the ranked,
 // paginatable pool — the two intentionally diverge once total exceeds the pool.
+// The order is computed, so `cursor` is a position in the ranked pool (an offset
+// cursor), and is only meaningful for as long as the ranking is the same.
 const CANDIDATE_POOL_SIZE = 100
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -87,16 +91,23 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   scored.sort((a, b) => b.compatibility - a.compatibility)
 
-  const skip = (page - 1) * limit
-  const people = scored.slice(skip, skip + limit)
+  const cursor = queryResult.data.cursor
+  const offset = cursor === undefined ? (page - 1) * limit : decodeOffsetCursor(cursor)
+  if (offset === null) return createApiError('INVALID_CURSOR')
+  const { items: people, nextCursor } = offsetPage(scored, offset, limit)
 
   return createApiResponse({
     people,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(Math.min(total, CANDIDATE_POOL_SIZE) / limit),
-    },
+    nextCursor,
+    ...(cursor === undefined
+      ? {
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(Math.min(total, CANDIDATE_POOL_SIZE) / limit),
+          },
+        }
+      : {}),
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'discover:list' } })

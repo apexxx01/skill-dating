@@ -1,8 +1,14 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
+import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
+import { cursorParam, paginateOffset, withNextCursor } from '@/lib/api/pagination'
 import { z } from 'zod'
 import { blockRelation } from '@/lib/blocks'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
+
+const listQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  cursor: cursorParam,
+})
 
 const addUserSkillSchema = z.object({
   skillId: z.string(),
@@ -27,15 +33,29 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('USER_NOT_FOUND')
   }
 
-  const userSkills = await prisma.userSkill.findMany({
-    where: { userId: id },
-    include: {
-      skill: { select: { id: true, name: true, slug: true, category: true, subcategory: true, icon: true, color: true } }
-    },
-    orderBy: [{ level: 'desc' }, { skill: { name: 'asc' } }]
-  })
+  const query = validateQuery(listQuerySchema)(request)
+  if (query instanceof Response) return query
 
-  return createApiResponse(userSkills)
+  // The answer is a bare array, so the cursor for the next page is in the X-Next-Cursor header.
+  // Ordered by level and then name, so the cursor is a position in that order.
+  const result = await paginateOffset({
+    cursor: query.data.cursor,
+    page: 1,
+    limit: query.data.limit ?? 100,
+    where: { userId: id },
+    find: (args) =>
+      prisma.userSkill.findMany({
+        ...args,
+        include: {
+          skill: { select: { id: true, name: true, slug: true, category: true, subcategory: true, icon: true, color: true } }
+        },
+        orderBy: [{ level: 'desc' }, { skill: { name: 'asc' } }, { id: 'asc' }]
+      }),
+    count: async () => 0,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return withNextCursor(createApiResponse(result.items), result.nextCursor)
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'user-skills:get' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

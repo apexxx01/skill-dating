@@ -4,6 +4,7 @@ import { unreadCountsByConversation, totalUnread } from '@/lib/messaging'
 import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 // Only person-to-person and ad-hoc group conversations are created here.
 // Team, project and hackathon conversations are created atomically with the
@@ -21,6 +22,7 @@ const querySchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
   type: z.enum(['DIRECT', 'GROUP', 'PROJECT', 'TEAM', 'HACKATHON']).optional(),
   search: z.string().trim().min(1).max(100).optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -29,7 +31,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 20
-  const skip = (page - 1) * limit
   const { type, search } = queryResult.data
 
   // The conversations the caller belongs to, optionally narrowed by type and
@@ -58,26 +59,36 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       : {}),
   }
 
-  const conversations = await prisma.conversation.findMany({
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'updatedAt',
+    direction: 'desc',
     where,
-    skip,
-    take: limit,
-    orderBy: { updatedAt: 'desc' },
-    include: {
-      members: {
-        include: { user: { select: { id: true, name: true, username: true, image: true, headline: true } } }
-      },
-      messages: {
-        take: 1,
-        orderBy: { createdAt: 'desc' },
-        include: { sender: { select: { id: true, name: true, username: true } } }
-      },
-      project: { select: { id: true, name: true, slug: true } },
-      team: { select: { id: true, name: true, slug: true } },
-      hackathon: { select: { id: true, name: true, slug: true } },
-      _count: { select: { messages: true } }
-    }
+    find: (args) =>
+      prisma.conversation.findMany({
+        ...args,
+        include: {
+          members: {
+            include: { user: { select: { id: true, name: true, username: true, image: true, headline: true } } }
+          },
+          messages: {
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+            include: { sender: { select: { id: true, name: true, username: true } } }
+          },
+          project: { select: { id: true, name: true, slug: true } },
+          team: { select: { id: true, name: true, slug: true } },
+          hackathon: { select: { id: true, name: true, slug: true } },
+          _count: { select: { messages: true } }
+        }
+      }),
+    count: (w) => prisma.conversation.count({ where: w }),
+    sortOf: (row) => row.updatedAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const conversations = result.items
 
   // One grouped query for the whole page, not one per conversation.
   const unreadByConversation = await unreadCountsByConversation(
@@ -97,12 +108,11 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return { ...conv, messages, unreadCount: unreadByConversation.get(conv.id) ?? 0 }
   })
 
-  const total = await prisma.conversation.count({ where })
-
   return createApiResponse({
     conversations: conversationsWithUnread,
     totalUnread: await totalUnread(prisma, user.id),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:list' } })
 

@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const REPORT_REASONS = [
   'SPAM',
@@ -22,6 +24,7 @@ const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
   status: z.enum(['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED']).optional(),
+  cursor: cursorParam,
 })
 
 const userSummarySelect = { id: true, name: true, username: true, image: true } as const
@@ -93,27 +96,29 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 20
   const status = queryResult.data.status
-  const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = {}
+  const where: Prisma.ReportWhereInput = {}
   if (status) where.status = status
 
-  const [reports, total] = await Promise.all([
-    prisma.report.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        reporter: { select: userSummarySelect },
-        reported: { select: userSummarySelect },
-      },
-    }),
-    prisma.report.count({ where }),
-  ])
-
-  return createApiResponse({
-    reports,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.report.findMany({
+        ...args,
+        include: {
+          reporter: { select: userSummarySelect },
+          reported: { select: userSummarySelect },
+        },
+      }),
+    count: (w) => prisma.report.count({ where: w }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ reports: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'reports:list' } })

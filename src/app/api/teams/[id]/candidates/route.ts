@@ -31,7 +31,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   if (team.lookingFor.length === 0) {
-    return createApiResponse({ candidates: [], reason: 'Team has no lookingFor skills set' })
+    return createApiResponse({ candidates: [], nextCursor: null, reason: 'Team has no lookingFor skills set' })
   }
 
   const wantedSkills = await prisma.skill.findMany({
@@ -40,7 +40,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   if (wantedSkills.length === 0) {
-    return createApiResponse({ candidates: [], reason: 'No matching skills found for this team\'s lookingFor list' })
+    return createApiResponse({ candidates: [], nextCursor: null, reason: 'No matching skills found for this team\'s lookingFor list' })
   }
 
   // The team's "profile" for scoring purposes: wanting a skill is treated
@@ -101,5 +101,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     .sort((a, b) => b.compatibility - a.compatibility)
     .slice(0, 10)
 
-  return createApiResponse({ candidates })
+  // A short ranked recommendation list (top 10), never paged: nextCursor is always null.
+  return createApiResponse({ candidates, nextCursor: null })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'teams:candidates' } })

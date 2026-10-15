@@ -128,3 +128,109 @@ export function offsetPage<T>(all: T[], offset: number, limit: number): Page<T> 
 export function offsetCursorAfterPage(page: number, limit: number, total: number): string | null {
   return page * limit < total ? encodeOffsetCursor(page * limit) : null
 }
+
+// --- Listing -----------------------------------------------------------------
+
+export interface PageNumbers {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
+export type OrderBy = Record<string, Direction>[]
+
+export interface PaginateArgs<T, W, O = OrderBy> {
+  /** The `cursor` query parameter, if the client sent one. */
+  cursor: string | undefined
+  /** The `page` query parameter (used only when there is no cursor). */
+  page: number
+  limit: number
+  /** The stored column the list is ordered by, and the direction. Ties are broken by id. */
+  field: string
+  direction: Direction
+  /** The route's own filter, unchanged. */
+  where: W
+  find: (args: { where: W; orderBy: O; skip?: number; take: number }) => Promise<T[]>
+  count: (where: W) => Promise<number>
+  /** The value of `field` on a row. */
+  sortOf: (row: T) => SortValue
+  idOf?: (row: T) => string
+}
+
+export type Paginated<T> = { invalidCursor: true } | { items: T[]; nextCursor: string | null; pagination?: PageNumbers }
+
+/**
+ * One implementation of "a page of a list" for routes ordered by a stored column.
+ *
+ *  - with a cursor: seeks past the last row of the previous page, runs no count,
+ *    and answers without `pagination`;
+ *  - without one: `page` / `limit` as before, with `pagination`, and also the
+ *    `nextCursor` to continue from.
+ *
+ * `invalidCursor` is returned for a cursor that is not a keyset cursor, so the route
+ * can answer INVALID_CURSOR.
+ */
+export async function paginate<T, W, O = OrderBy>(args: PaginateArgs<T, W, O>): Promise<Paginated<T>> {
+  const { cursor, page, limit, field, direction, where, find, count, sortOf } = args
+  const idOf = args.idOf ?? ((row: T) => (row as unknown as { id: string }).id)
+  const orderBy = keysetOrderBy(field, direction) as O
+  const position = (row: T): KeysetPosition => ({ sort: sortOf(row), id: idOf(row) })
+
+  if (cursor !== undefined) {
+    const after = decodeKeysetCursor(cursor)
+    if (!after) return { invalidCursor: true }
+    const rows = await find({ where: { AND: [where, keysetWhere(field, direction, after)] } as W, orderBy, take: limit + 1 })
+    return keysetPage(rows, limit, position)
+  }
+
+  const [rows, total] = await Promise.all([find({ where, orderBy, skip: (page - 1) * limit, take: limit + 1 }), count(where)])
+  const { items, nextCursor } = keysetPage(rows, limit, position)
+  return { items, nextCursor, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } }
+}
+
+export interface PaginateOffsetArgs<T, W> {
+  cursor: string | undefined
+  page: number
+  limit: number
+  where: W
+  /** Must apply the route's own `orderBy`. */
+  find: (args: { where: W; skip: number; take: number }) => Promise<T[]>
+  count: (where: W) => Promise<number>
+}
+
+/**
+ * The same contract as paginate() for lists ordered by more than one column or by
+ * something no column holds (the cursor stands for a position in the ordered list,
+ * not for a row). Used where a keyset cannot express the order; the list is small or
+ * bounded enough that seeking by position is fine.
+ */
+export async function paginateOffset<T, W>(args: PaginateOffsetArgs<T, W>): Promise<Paginated<T>> {
+  const { cursor, page, limit, where, find, count } = args
+
+  if (cursor !== undefined) {
+    const offset = decodeOffsetCursor(cursor)
+    if (offset === null) return { invalidCursor: true }
+    const rows = await find({ where, skip: offset, take: limit + 1 })
+    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? encodeOffsetCursor(offset + limit) : null }
+  }
+
+  const offset = (page - 1) * limit
+  const [rows, total] = await Promise.all([find({ where, skip: offset, take: limit + 1 }), count(where)])
+  return {
+    items: rows.slice(0, limit),
+    nextCursor: rows.length > limit ? encodeOffsetCursor(offset + limit) : null,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  }
+}
+
+/**
+ * A few list endpoints answer with a bare JSON array, which has nowhere to carry
+ * `nextCursor`. They send it in this response header instead (absent on the last page).
+ */
+export const NEXT_CURSOR_HEADER = 'X-Next-Cursor'
+
+export function withNextCursor<R extends Response>(response: R, nextCursor: string | null): R {
+  if (nextCursor) response.headers.set(NEXT_CURSOR_HEADER, nextCursor)
+  return response
+}

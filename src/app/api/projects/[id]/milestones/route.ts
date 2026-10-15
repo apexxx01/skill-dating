@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { advisoryLock, isValidId, loadProjectAccess, projectIdFromPath } from '@/lib/progress'
+import { cursorParam, paginateOffset } from '@/lib/api/pagination'
 import { MAX_MILESTONES_PER_PROJECT, dueDateSchema, milestoneResponse, milestoneSelect } from '@/lib/milestones'
 
 const createMilestoneSchema = z.object({
@@ -13,6 +14,7 @@ const createMilestoneSchema = z.object({
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -27,22 +29,27 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (query instanceof Response) return query
   const page = query.data.page ?? 1
   const limit = query.data.limit ?? 20
-  const skip = (page - 1) * limit
 
-  const [milestones, total] = await Promise.all([
-    prisma.milestone.findMany({
-      where: { projectId },
-      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      skip,
-      take: limit,
-      select: milestoneSelect,
-    }),
-    prisma.milestone.count({ where: { projectId } }),
-  ])
+  // Ordered by position, then creation: a cursor is a position in that order.
+  const result = await paginateOffset({
+    cursor: query.data.cursor,
+    page,
+    limit,
+    where: { projectId },
+    find: (args) =>
+      prisma.milestone.findMany({
+        ...args,
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        select: milestoneSelect,
+      }),
+    count: (where) => prisma.milestone.count({ where }),
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
   return createApiResponse({
-    milestones: milestones.map(milestoneResponse),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    milestones: result.items.map(milestoneResponse),
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'progress:milestones-list' } })
 

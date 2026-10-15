@@ -3,6 +3,8 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
 import { isValidTimeZone } from '@/lib/time'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
 
 const updateProfileSchema = z.object({
@@ -26,6 +28,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   skills: z.string().optional(),
   location: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -37,7 +40,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const search = queryResult.data.search
   const skills = queryResult.data.skills
   const location = queryResult.data.location
-  const skip = (page - 1) * limit
 
   const hidden = await blockedUserIds(prisma, user.id)
   const where: Record<string, unknown> = {
@@ -66,44 +68,48 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     where.location = { contains: location, mode: 'insensitive' }
   }
 
-  const [users, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { xp: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        username: true,
-        image: true,
-        headline: true,
-        location: true,
-        builderRole: true,
-        xp: true,
-        rank: true,
-        reputationScore: true,
-        githubUsername: true,
-        createdAt: true,
-        skills: {
-          take: 10,
-          include: {
-            skill: { select: { id: true, name: true, slug: true, category: true, color: true } }
-          }
-        },
-      }
-    }),
-    prisma.user.count({ where })
-  ])
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'xp',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.user.findMany({
+        ...args,
+        where: args.where as Prisma.UserWhereInput,
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          image: true,
+          headline: true,
+          location: true,
+          builderRole: true,
+          xp: true,
+          rank: true,
+          reputationScore: true,
+          githubUsername: true,
+          createdAt: true,
+          skills: {
+            take: 10,
+            include: {
+              skill: { select: { id: true, name: true, slug: true, category: true, color: true } }
+            }
+          },
+        }
+      }),
+    count: (w) => prisma.user.count({ where: w as Prisma.UserWhereInput }),
+    sortOf: (row) => row.xp,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const users = result.items
 
   return createApiResponse({
     users,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit)
-    }
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:list' } })
 

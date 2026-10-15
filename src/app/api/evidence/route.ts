@@ -4,6 +4,7 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockRelation } from '@/lib/blocks'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import {
   ENDORSEMENT_TYPE,
   MAX_EVIDENCE_PER_SKILL,
@@ -37,6 +38,7 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   userId: z.string().min(1).max(64).optional(),
   skillId: z.string().min(1).max(64).optional(),
+  cursor: cursorParam,
 })
 
 const skillSelect = { id: true, name: true, slug: true, category: true } as const
@@ -55,8 +57,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (ownerId !== user.id && (await blockRelation(prisma, user.id, ownerId)) === 'BLOCKED_BY_THEM') {
     return createApiError('USER_NOT_FOUND')
   }
-  const skip = (page - 1) * limit
-
   if (ownerId !== user.id) {
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true } })
     if (!owner) return createApiError('USER_NOT_FOUND')
@@ -68,27 +68,34 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ...(skillId ? { skillId } : {}),
   }
 
-  const [rows, total] = await Promise.all([
-    prisma.skillEvidence.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        userId: true,
-        skillId: true,
-        type: true,
-        title: true,
-        description: true,
-        url: true,
-        verifiedAt: true,
-        createdAt: true,
-        skill: { select: skillSelect },
-      },
-    }),
-    prisma.skillEvidence.count({ where }),
-  ])
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.skillEvidence.findMany({
+        ...args,
+        select: {
+          id: true,
+          userId: true,
+          skillId: true,
+          type: true,
+          title: true,
+          description: true,
+          url: true,
+          verifiedAt: true,
+          createdAt: true,
+          skill: { select: skillSelect },
+        },
+      }),
+    count: (w) => prisma.skillEvidence.count({ where: w }),
+    sortOf: (row) => row.createdAt,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const rows = result.items
 
   const summaries = await endorsementSummaries(prisma, rows.map((r) => r.id), user.id)
 
@@ -98,7 +105,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       endorsementCount: summaries.get(row.id)?.count ?? 0,
       endorsedByMe: summaries.get(row.id)?.byViewer ?? false,
     })),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'evidence:list' } })
 

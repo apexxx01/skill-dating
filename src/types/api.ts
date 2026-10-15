@@ -37,6 +37,19 @@ export interface Pagination {
   totalPages: number
 }
 
+/**
+ * Every list endpoint takes `limit` and either `page` or `cursor`, and answers
+ * with `nextCursor`. A cursor is opaque: pass it back unchanged. A request with a
+ * `cursor` runs no count, so its answer has no `pagination`. Lists that are a bare
+ * JSON array (`GET /api/users/{id}/skills`, `GET /api/teams/{id}/applications`)
+ * send the next cursor in the `X-Next-Cursor` response header instead.
+ */
+export interface CursorPage<T> {
+  items: T[]
+  nextCursor: string | null
+  pagination?: Pagination
+}
+
 export type IsoDate = string
 
 export interface UserSummary {
@@ -100,14 +113,20 @@ export interface DiscoverPerson extends UserWithHeadline {
 
 export interface DiscoverResponse {
   people: DiscoverPerson[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export type UserListItem = Omit<DiscoverPerson, 'compatibility'>
 
 export interface UsersResponse {
   users: UserListItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface AchievementDefinition {
@@ -238,7 +257,10 @@ export interface ProjectListItem {
 
 export interface ProjectsResponse {
   projects: ProjectListItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface TeamListItem {
@@ -263,7 +285,10 @@ export interface TeamListItem {
 
 export interface TeamsResponse {
   teams: TeamListItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface HackathonListItem {
@@ -299,7 +324,10 @@ export interface HackathonListItem {
 
 export interface HackathonsResponse {
   hackathons: HackathonListItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +372,10 @@ export interface ConversationListItem {
 export interface ConversationsResponse {
   conversations: ConversationListItem[]
   totalUnread: number
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface ReactionSummary {
@@ -382,7 +413,10 @@ export interface LeaderboardResponse {
     user: UserWithHeadline & { builderRole: string | null }
   }[]
   me: { xp: number; rank: number | null }
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface ActivityItem {
@@ -399,7 +433,10 @@ export interface ActivityItem {
 
 export interface ActivityResponse {
   activity: ActivityItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface EvidenceRow {
@@ -422,7 +459,10 @@ export interface EvidenceItem extends EvidenceRow {
 
 export interface EvidenceResponse {
   evidence: EvidenceItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface EndorseResponse {
@@ -446,7 +486,10 @@ export interface ProjectUpdateItem {
 
 export interface ProjectUpdatesResponse {
   updates: ProjectUpdateItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface MilestoneItem {
@@ -464,7 +507,10 @@ export interface MilestoneItem {
 
 export interface MilestonesResponse {
   milestones: MilestoneItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +532,10 @@ export interface ConnectionItem {
 
 export interface ConnectionsResponse {
   connections: ConnectionItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface BlockItem {
@@ -505,7 +554,10 @@ export interface BlockResponse {
 
 export interface BlocksResponse {
   blocks: BlockItem[]
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 export interface NotificationItem {
@@ -523,7 +575,10 @@ export interface NotificationItem {
 export interface NotificationsResponse {
   notifications: NotificationItem[]
   unreadCount: number
-  pagination: Pagination
+  /** Present for page-numbered requests; absent when the request carried a `cursor`. */
+  pagination?: Pagination
+  /** Send as `cursor` to get the next page; null on the last page. */
+  nextCursor: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -578,3 +633,39 @@ export interface RewardsEnvelope {
 
 /** A mutation response that also reports what it earned. */
 export type WithRewards<T> = T & { rewards: RewardsEnvelope }
+
+// ---------------------------------------------------------------------------
+// Platform
+// ---------------------------------------------------------------------------
+
+/** GET /api/health: public, for uptime monitors. 503 only when `status` is "down". */
+export interface HealthResponse {
+  status: 'ok' | 'degraded' | 'down'
+  time: IsoDate
+  checks: Record<'database' | 'cache' | 'jobs' | 'realtime', { status: 'ok' | 'down'; provider: string; latencyMs?: number }>
+}
+
+/** GET /api/flags: every flag with its answer for the signed-in user. */
+export interface FlagsResponse {
+  flags: Record<string, boolean>
+}
+
+/** A feature flag as the admin API returns it. */
+export interface AdminFlag {
+  key: string
+  description: string | null
+  enabled: boolean
+  /** 0 to 100: the share of users the flag is on for while it is enabled. */
+  rolloutPercent: number
+  /** On for these users whatever the switch and the percentage say. */
+  allowUserIds: string[]
+  updatedById: string | null
+  createdAt: IsoDate
+  updatedAt: IsoDate
+}
+
+/** GET /api/admin/flags (admin only). */
+export interface AdminFlagsResponse {
+  flags: AdminFlag[]
+  nextCursor: string | null
+}

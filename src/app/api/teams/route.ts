@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { blockedUserIds } from '@/lib/blocks'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(100),
@@ -20,6 +22,7 @@ const querySchema = z.object({
   isRecruiting: z.coerce.boolean().optional(),
   hackathonId: z.string().optional(),
   skills: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -32,7 +35,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const isRecruiting = queryResult.data.isRecruiting
   const hackathonId = queryResult.data.hackathonId
   const skills = queryResult.data.skills
-  const skip = (page - 1) * limit
 
   // Teams owned by a user blocked in either direction are not shown.
   const hidden = await blockedUserIds(prisma, user.id)
@@ -56,29 +58,33 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ]
   }
 
-  const [teams, total] = await Promise.all([
-    prisma.team.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        owner: { select: { id: true, name: true, username: true, image: true } },
-        members: {
-          include: { user: { select: { id: true, name: true, username: true, image: true, builderRole: true } } }
-        },
-        project: { select: { id: true, name: true, slug: true, status: true } },
-        hackathon: { select: { id: true, name: true, slug: true } },
-        _count: { select: { members: true, applications: true } }
-      }
-    }),
-    prisma.team.count({ where })
-  ])
-
-  return createApiResponse({
-    teams,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.team.findMany({
+        ...args,
+        where: args.where as Prisma.TeamWhereInput,
+        include: {
+          owner: { select: { id: true, name: true, username: true, image: true } },
+          members: {
+            include: { user: { select: { id: true, name: true, username: true, image: true, builderRole: true } } }
+          },
+          project: { select: { id: true, name: true, slug: true, status: true } },
+          hackathon: { select: { id: true, name: true, slug: true } },
+          _count: { select: { members: true, applications: true } }
+        }
+      }),
+    count: (w) => prisma.team.count({ where: w as Prisma.TeamWhereInput }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ teams: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

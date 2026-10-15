@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, authorize } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import { blockedUserIds } from '@/lib/blocks'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
@@ -28,6 +30,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   techStack: z.string().optional(),
   ownerId: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -40,7 +43,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const search = queryResult.data.search
   const techStack = queryResult.data.techStack
   const ownerId = queryResult.data.ownerId
-  const skip = (page - 1) * limit
 
   // Each filter is its own AND-ed clause (rather than assigning `where.OR`
   // more than once) so the visibility rule below and the search/techStack
@@ -82,28 +84,32 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const where: Record<string, unknown> = { AND: andConditions }
 
-  const [projects, total] = await Promise.all([
-    prisma.project.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        owner: { select: { id: true, name: true, username: true, image: true } },
-        members: {
-          select: { userId: true, role: true, user: { select: { id: true, name: true, username: true, image: true } } }
-        },
-        hackathon: { select: { id: true, name: true, slug: true } },
-        _count: { select: { members: true, updates: true, milestones: true } }
-      }
-    }),
-    prisma.project.count({ where })
-  ])
-
-  return createApiResponse({
-    projects,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'updatedAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.project.findMany({
+        ...args,
+        where: args.where as Prisma.ProjectWhereInput,
+        include: {
+          owner: { select: { id: true, name: true, username: true, image: true } },
+          members: {
+            select: { userId: true, role: true, user: { select: { id: true, name: true, username: true, image: true } } }
+          },
+          hackathon: { select: { id: true, name: true, slug: true } },
+          _count: { select: { members: true, updates: true, milestones: true } }
+        }
+      }),
+    count: (w) => prisma.project.count({ where: w as Prisma.ProjectWhereInput }),
+    sortOf: (row) => row.updatedAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ projects: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'projects:list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
+import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
+import { cursorParam, decodeOffsetCursor, encodeOffsetCursor } from '@/lib/api/pagination'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { blockedUserIds } from '@/lib/blocks'
@@ -8,6 +9,7 @@ import { liveRank } from '@/lib/leaderboard'
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: cursorParam,
 })
 
 // Computed live from XPEvent (SUM per user), not read from the denormalized
@@ -29,7 +31,10 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 50
-  const skip = (page - 1) * limit
+  // Ranks are positions, so the cursor is a position too (an offset cursor).
+  const cursor = queryResult.data.cursor
+  const skip = cursor === undefined ? (page - 1) * limit : decodeOffsetCursor(cursor)
+  if (skip === null) return createApiError('INVALID_CURSOR')
 
   // Users blocked in either direction are left out, and ranks are counted
   // among the users this viewer can actually see.
@@ -42,13 +47,16 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       by: ['userId'],
       where: hidden.length ? { userId: { notIn: hidden } } : undefined,
       _sum: { amount: true },
-      orderBy: { _sum: { amount: 'desc' } },
+      // userId breaks ties, so people with equal XP keep one order from page to page.
+      orderBy: [{ _sum: { amount: 'desc' } }, { userId: 'asc' }],
       skip,
-      take: limit,
+      take: limit + 1,
     }),
   ])
 
   const total = Number(totalRow[0]?.count ?? 0)
+  const hasMore = grouped.length > limit
+  if (hasMore) grouped.pop()
   const userIds = grouped.map(g => g.userId)
 
   const users = await prisma.user.findMany({
@@ -71,6 +79,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   return createApiResponse({
     entries,
     me: { xp: myXp, rank: myRank },
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    nextCursor: hasMore ? encodeOffsetCursor(skip + limit) : null,
+    ...(cursor === undefined ? { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } } : {}),
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'leaderboard:get' } })

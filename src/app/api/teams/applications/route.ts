@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
+import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 // Self-scoped view of the caller's own outstanding/resolved team
 // applications. Every other query against TeamApplication is scoped by
@@ -12,6 +13,7 @@ const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
   status: z.enum(['PENDING', 'ACCEPTED', 'REJECTED', 'WITHDRAWN']).optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -21,28 +23,30 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 20
   const status = queryResult.data.status
-  const skip = (page - 1) * limit
 
   const where = {
     userId: user.id,
     ...(status ? { status } : {}),
   }
 
-  const [applications, total] = await Promise.all([
-    prisma.teamApplication.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        team: { select: { id: true, name: true, slug: true } }
-      }
-    }),
-    prisma.teamApplication.count({ where })
-  ])
-
-  return createApiResponse({
-    applications,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.teamApplication.findMany({
+        ...args,
+        include: {
+          team: { select: { id: true, name: true, slug: true } }
+        }
+      }),
+    count: (w) => prisma.teamApplication.count({ where: w }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ applications: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:my-applications' } })

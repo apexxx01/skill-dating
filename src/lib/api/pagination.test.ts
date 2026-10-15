@@ -10,6 +10,10 @@ import {
   keysetWhere,
   offsetCursorAfterPage,
   offsetPage,
+  paginate,
+  paginateOffset,
+  withNextCursor,
+  NEXT_CURSOR_HEADER,
 } from './pagination'
 
 describe('keyset cursors', () => {
@@ -183,5 +187,165 @@ describe('cursorParam', () => {
     expect(cursorParam.safeParse('abc').success).toBe(true)
     expect(cursorParam.safeParse('').success).toBe(false)
     expect(cursorParam.safeParse('x'.repeat(401)).success).toBe(false)
+  })
+})
+
+describe('paginate', () => {
+  type Row = { id: string; at: Date }
+  const table: Row[] = Array.from({ length: 23 }, (_, index) => ({ id: `r${String(index).padStart(2, '0')}`, at: new Date(Date.UTC(2026, 0, 1 + Math.floor(index / 3))) }))
+
+  // Answers the query the helper builds, the way the database would.
+  function database() {
+    const calls: { where: unknown; skip?: number; take: number }[] = []
+    const matches = (where: any, row: Row): boolean => {
+      if (!where || Object.keys(where).length === 0) return true
+      if (where.AND) return where.AND.every((part: unknown) => matches(part, row))
+      if (where.OR) return where.OR.some((part: unknown) => matches(part, row))
+      if (where.onlyBefore) return row.at < where.onlyBefore
+      return Object.entries(where).every(([key, condition]: [string, any]) => {
+        const value = (row as any)[key]
+        if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
+          if ('lt' in condition) return value < condition.lt
+          if ('gt' in condition) return value > condition.gt
+        }
+        return condition instanceof Date ? value.getTime() === condition.getTime() : value === condition
+      })
+    }
+    return {
+      calls,
+      find: async ({ where, orderBy, skip = 0, take }: { where: any; orderBy: any; skip?: number; take: number }) => {
+        calls.push({ where, skip, take })
+        const [primary] = orderBy as [Record<string, string>, Record<string, string>]
+        const sign = primary.at === 'desc' ? -1 : 1
+        const sorted = table
+          .filter((row) => matches(where, row))
+          .sort((a, b) => sign * (a.at.getTime() - b.at.getTime() || a.id.localeCompare(b.id)))
+        return sorted.slice(skip, skip + take)
+      },
+      count: async (where: any) => table.filter((row) => matches(where, row)).length,
+    }
+  }
+
+  const run = (db: ReturnType<typeof database>, extra: Partial<Parameters<typeof paginate<Row, any, any>>[0]> = {}) =>
+    paginate<Row, any, any>({ cursor: undefined, page: 1, limit: 5, field: 'at', direction: 'desc', where: {}, find: db.find, count: db.count, sortOf: (row) => row.at, ...extra })
+
+  it('answers a page request as before, and adds the cursor to continue with', async () => {
+    const db = database()
+    const result = await run(db)
+    if ('invalidCursor' in result) throw new Error('unexpected')
+    expect(result.items).toHaveLength(5)
+    expect(result.pagination).toEqual({ page: 1, limit: 5, total: 23, totalPages: 5 })
+    expect(result.nextCursor).not.toBeNull()
+    expect(db.calls[0]).toMatchObject({ skip: 0, take: 6 })
+  })
+
+  it('pages by number to the end, where there is no cursor', async () => {
+    const db = database()
+    const last = await run(db, { page: 5 })
+    if ('invalidCursor' in last) throw new Error('unexpected')
+    expect(last.items).toHaveLength(3)
+    expect(last.nextCursor).toBeNull()
+    expect(last.pagination?.page).toBe(5)
+  })
+
+  it('continues from the cursor of a page request with the same rows a page request would give', async () => {
+    const db = database()
+    const first = await run(db)
+    const byPage = await run(db, { page: 2 })
+    const byCursor = await run(db, { cursor: (first as { nextCursor: string }).nextCursor })
+    if ('invalidCursor' in byPage || 'invalidCursor' in byCursor) throw new Error('unexpected')
+    expect(byCursor.items.map((row) => row.id)).toEqual(byPage.items.map((row) => row.id))
+  })
+
+  it('visits every row once by cursor, runs no count and gives no page numbers', async () => {
+    const db = database()
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const result = await run(db, { cursor })
+      if ('invalidCursor' in result) throw new Error('unexpected')
+      // The first request has no cursor yet, so it is a page request; every later one is a cursor request.
+      if (cursor) expect(result.pagination).toBeUndefined()
+      seen.push(...result.items.map((row) => row.id))
+      if (!result.nextCursor) break
+      cursor = result.nextCursor
+    }
+    expect(seen).toHaveLength(23)
+    expect(new Set(seen).size).toBe(23)
+    expect(seen).toEqual([...table].sort((a, b) => b.at.getTime() - a.at.getTime() || b.id.localeCompare(a.id)).map((row) => row.id))
+  })
+
+  it('keeps the route filter when it seeks', async () => {
+    const db = database()
+    const cutoff = new Date(Date.UTC(2026, 0, 5))
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const result = await run(db, { cursor, where: { onlyBefore: cutoff } })
+      if ('invalidCursor' in result) throw new Error('unexpected')
+      seen.push(...result.items.map((row) => row.id))
+      if (!result.nextCursor) break
+      cursor = result.nextCursor
+    }
+    expect(seen).toHaveLength(table.filter((row) => row.at < cutoff).length)
+  })
+
+  it('reports a cursor that is not a keyset cursor', async () => {
+    const db = database()
+    expect(await run(db, { cursor: 'garbage' })).toEqual({ invalidCursor: true })
+    expect(await run(db, { cursor: encodeOffsetCursor(5) })).toEqual({ invalidCursor: true })
+    expect(db.calls).toHaveLength(0)
+  })
+
+  it('has no cursor on an empty list', async () => {
+    const db = database()
+    const result = await run(db, { where: { onlyBefore: new Date(0) } })
+    expect(result).toEqual({ items: [], nextCursor: null, pagination: { page: 1, limit: 5, total: 0, totalPages: 0 } })
+  })
+})
+
+describe('paginateOffset', () => {
+  const all = Array.from({ length: 23 }, (_, index) => `row${index}`)
+  const find = async ({ skip, take }: { where: unknown; skip: number; take: number }) => all.slice(skip, skip + take)
+  const count = async () => all.length
+  const run = (extra: Partial<Parameters<typeof paginateOffset<string, unknown>>[0]> = {}) =>
+    paginateOffset<string, unknown>({ cursor: undefined, page: 1, limit: 5, where: {}, find, count, ...extra })
+
+  it('answers a page request with the page numbers and a cursor to continue', async () => {
+    const result = await run()
+    expect(result).toMatchObject({ items: all.slice(0, 5), pagination: { page: 1, limit: 5, total: 23, totalPages: 5 } })
+    expect(decodeOffsetCursor((result as { nextCursor: string }).nextCursor)).toBe(5)
+  })
+
+  it('gives no cursor on the last page', async () => {
+    expect(await run({ page: 5 })).toMatchObject({ items: all.slice(20), nextCursor: null })
+    expect(await run({ limit: 23 })).toMatchObject({ nextCursor: null })
+  })
+
+  it('visits every row once by cursor, without page numbers', async () => {
+    const seen: string[] = []
+    let cursor: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const result = await run({ cursor })
+      if ('invalidCursor' in result) throw new Error('unexpected')
+      if (cursor) expect(result.pagination).toBeUndefined()
+      seen.push(...result.items)
+      if (!result.nextCursor) break
+      cursor = result.nextCursor
+    }
+    expect(seen).toEqual(all)
+  })
+
+  it('reports a cursor that is not an offset cursor', async () => {
+    expect(await run({ cursor: 'garbage' })).toEqual({ invalidCursor: true })
+    expect(await run({ cursor: encodeKeysetCursor('a', 'b') })).toEqual({ invalidCursor: true })
+  })
+})
+
+describe('withNextCursor', () => {
+  it('puts the cursor in a header, and leaves the header off the last page', () => {
+    expect(withNextCursor(new Response('[]'), 'abc').headers.get(NEXT_CURSOR_HEADER)).toBe('abc')
+    expect(withNextCursor(new Response('[]'), null).headers.get(NEXT_CURSOR_HEADER)).toBeNull()
+    expect(NEXT_CURSOR_HEADER).toBe('X-Next-Cursor')
   })
 })

@@ -6,6 +6,7 @@ import { blockGuardAny } from '@/lib/blocks'
 import { markMessagesRead } from '@/lib/messaging'
 import { emit, transactWithEvents } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -18,6 +19,8 @@ const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(50),
   before: z.string().datetime().optional(),
+  // Older messages: the nextCursor of the previous (newer) page.
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -39,7 +42,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 50
   const before = queryResult.data.before
-  const skip = (page - 1) * limit
 
   const conversation = await prisma.conversation.findUnique({
     where: { id },
@@ -60,25 +62,33 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const where: Record<string, unknown> = { conversationId: id }
   if (before) where.createdAt = { lt: new Date(before) }
 
-  const [messages, total] = await Promise.all([
-    prisma.message.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        sender: { select: { id: true, name: true, username: true, image: true } },
-        replyTo: {
-          include: { sender: { select: { id: true, name: true, username: true } } }
-        },
-        reactions: {
-          include: { user: { select: { id: true, name: true, username: true } } }
-        },
-        _count: { select: { reactions: true, reads: true } }
-      }
-    }),
-    prisma.message.count({ where })
-  ])
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.message.findMany({
+        ...args,
+        where: args.where as Prisma.MessageWhereInput,
+        include: {
+          sender: { select: { id: true, name: true, username: true, image: true } },
+          replyTo: {
+            include: { sender: { select: { id: true, name: true, username: true } } }
+          },
+          reactions: {
+            include: { user: { select: { id: true, name: true, username: true } } }
+          },
+          _count: { select: { reactions: true, reads: true } }
+        }
+      }),
+    count: (w) => prisma.message.count({ where: w as Prisma.MessageWhereInput }),
+    sortOf: (row) => row.createdAt,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const messages = result.items
 
   await prisma.conversationMember.update({
     where: { userId_conversationId: { userId: user.id, conversationId: id } },
@@ -110,7 +120,9 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   return createApiResponse({
     conversation,
     messages: maskedMessages,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    // Continue with this to get the next older page.
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'conversations:get' } })
 

@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginateOffset } from '@/lib/api/pagination'
 
 const createSkillSchema = z.object({
   name: z.string().min(1).max(100),
@@ -23,6 +25,7 @@ const querySchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
   category: z.string().optional(),
   search: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -33,7 +36,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 50
   const category = queryResult.data.category
   const search = queryResult.data.search
-  const skip = (page - 1) * limit
 
   const where: Record<string, unknown> = { isActive: true }
   if (category) where.category = category
@@ -44,18 +46,25 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ]
   }
 
-  const [skills, total] = await Promise.all([
-    prisma.skill.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: [{ order: 'asc' }, { name: 'asc' }],
-      include: {
-        _count: { select: { userSkills: true } }
-      }
-    }),
-    prisma.skill.count({ where })
-  ])
+  // Ordered by two columns, so the cursor is a position in that order rather than a keyset.
+  const result = await paginateOffset({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    where,
+    find: (args) =>
+      prisma.skill.findMany({
+        ...args,
+        where: args.where as Prisma.SkillWhereInput,
+        orderBy: [{ order: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        include: {
+          _count: { select: { userSkills: true } }
+        }
+      }),
+    count: (w) => prisma.skill.count({ where: w as Prisma.SkillWhereInput }),
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const skills = result.items
 
   const userSkills = await prisma.userSkill.findMany({
     where: { userId: user.id },
@@ -74,7 +83,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   return createApiResponse({
     skills: skillsWithUserData,
     categories: [...new Set(skills.map((s: { category: string }) => s.category))],
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'skills:list' } })
 

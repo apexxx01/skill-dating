@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import { blockGuard } from '@/lib/blocks'
 
 const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK', 'DATING'] as const
@@ -16,6 +18,7 @@ const querySchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'BLOCKED']).optional(),
   direction: z.enum(['sent', 'received']).optional(),
+  cursor: cursorParam,
 })
 
 const userSummarySelect = { id: true, name: true, username: true, image: true, headline: true } as const
@@ -97,28 +100,30 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const status = queryResult.data.status
   const direction = queryResult.data.direction
-  const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = {}
+  const where: Prisma.ConnectionWhereInput = {}
   if (direction === 'sent') where.senderId = user.id
   else if (direction === 'received') where.receiverId = user.id
   else where.OR = [{ senderId: user.id }, { receiverId: user.id }]
 
   if (status) where.status = status
 
-  const [connections, total] = await Promise.all([
-    prisma.connection.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: { sender: { select: userSummarySelect }, receiver: { select: userSummarySelect } },
-    }),
-    prisma.connection.count({ where }),
-  ])
-
-  return createApiResponse({
-    connections,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) =>
+      prisma.connection.findMany({
+        ...args,
+        include: { sender: { select: userSummarySelect }, receiver: { select: userSummarySelect } },
+      }),
+    count: (w) => prisma.connection.count({ where: w }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ connections: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'connections:list' } })

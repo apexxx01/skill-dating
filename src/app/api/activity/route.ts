@@ -3,12 +3,14 @@ import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { blockRelation } from '@/lib/blocks'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   userId: z.string().min(1).max(64).optional(),
   type: z.string().min(1).max(64).optional(),
+  cursor: cursorParam,
 })
 
 const activitySelect = {
@@ -35,8 +37,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const { userId, type } = queryResult.data
   const ownerId = userId ?? user.id
-  const skip = (page - 1) * limit
-
   const where: Prisma.ActivityWhereInput = { userId: ownerId, ...(type ? { type } : {}) }
 
   if (ownerId !== user.id) {
@@ -51,13 +51,18 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ]
   }
 
-  const [activity, total] = await Promise.all([
-    prisma.activity.findMany({ where, skip, take: limit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: activitySelect }),
-    prisma.activity.count({ where }),
-  ])
-
-  return createApiResponse({
-    activity,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) => prisma.activity.findMany({ ...args, select: activitySelect }),
+    count: (w) => prisma.activity.count({ where: w }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ activity: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'activity:list' } })

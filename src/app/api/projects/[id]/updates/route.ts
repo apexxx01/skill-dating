@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import {
   authorSelect,
   isValidId,
@@ -21,6 +22,7 @@ const createUpdateSchema = z.object({
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: cursorParam,
 })
 
 const updateSelect = {
@@ -47,23 +49,21 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (query instanceof Response) return query
   const page = query.data.page ?? 1
   const limit = query.data.limit ?? 20
-  const skip = (page - 1) * limit
 
-  const [updates, total] = await Promise.all([
-    prisma.projectUpdate.findMany({
-      where: { projectId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip,
-      take: limit,
-      select: updateSelect,
-    }),
-    prisma.projectUpdate.count({ where: { projectId } }),
-  ])
-
-  return createApiResponse({
-    updates,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  const result = await paginate({
+    cursor: query.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where: { projectId },
+    find: (args) => prisma.projectUpdate.findMany({ ...args, select: updateSelect }),
+    count: (where) => prisma.projectUpdate.count({ where }),
+    sortOf: (row) => row.createdAt,
   })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return createApiResponse({ updates: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'progress:updates-list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

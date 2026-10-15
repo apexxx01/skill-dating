@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const createHackathonSchema = z.object({
   name: z.string().min(1).max(200),
@@ -27,6 +29,7 @@ const querySchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
   status: z.enum(['UPCOMING', 'ACTIVE', 'ENDED', 'CANCELLED']).optional(),
   search: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -37,7 +40,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const status = queryResult.data.status
   const search = queryResult.data.search
-  const skip = (page - 1) * limit
 
   const where: Record<string, unknown> = { isPublic: true }
   if (status) where.status = status
@@ -48,18 +50,26 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     ]
   }
 
-  const [hackathons, total] = await Promise.all([
-    prisma.hackathon.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { startDate: 'asc' },
-      include: {
-        _count: { select: { participants: true, teams: true } }
-      }
-    }),
-    prisma.hackathon.count({ where })
-  ])
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'startDate',
+    direction: 'asc',
+    where,
+    find: (args) =>
+      prisma.hackathon.findMany({
+        ...args,
+        where: args.where as Prisma.HackathonWhereInput,
+        include: {
+          _count: { select: { participants: true, teams: true } }
+        }
+      }),
+    count: (w) => prisma.hackathon.count({ where: w as Prisma.HackathonWhereInput }),
+    sortOf: (row) => row.startDate,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+  const hackathons = result.items
 
   // Whether the viewer is registered, and which team they entered with, in
   // one query for the whole page - the list needs this to choose between a
@@ -75,7 +85,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       const mine = participationByHackathon.get(h.id)
       return { ...h, registered: Boolean(mine), myTeamId: mine?.teamId ?? null, myStatus: mine?.status ?? null }
     }),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:list' } })
 

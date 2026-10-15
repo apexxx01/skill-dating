@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 
 const createBlockSchema = z.object({
   userId: z.string().min(1).max(64),
@@ -10,6 +11,7 @@ const createBlockSchema = z.object({
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
+  cursor: cursorParam,
 })
 
 const userSummarySelect = { id: true, name: true, username: true, image: true, headline: true } as const
@@ -93,24 +95,26 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const page = queryResult.data.page ?? 1
   const limit = queryResult.data.limit ?? 20
-  const skip = (page - 1) * limit
 
   // Only the blocks the caller placed. Whether someone else has blocked the
   // caller is deliberately never exposed.
   const where = { blockerId: user.id }
-  const [rows, total] = await Promise.all([
-    prisma.block.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: { blocked: { select: userSummarySelect } },
-    }),
-    prisma.block.count({ where }),
-  ])
+  const result = await paginate({
+    cursor: queryResult.data.cursor,
+    page,
+    limit,
+    field: 'createdAt',
+    direction: 'desc',
+    where,
+    find: (args) => prisma.block.findMany({ ...args, include: { blocked: { select: userSummarySelect } } }),
+    count: (w) => prisma.block.count({ where: w }),
+    sortOf: (row) => row.createdAt,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
   return createApiResponse({
-    blocks: rows.map((b) => ({ id: b.id, createdAt: b.createdAt, reason: b.reason, user: b.blocked })),
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    blocks: result.items.map((b) => ({ id: b.id, createdAt: b.createdAt, reason: b.reason, user: b.blocked })),
+    nextCursor: result.nextCursor,
+    pagination: result.pagination,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'blocks:list' } })

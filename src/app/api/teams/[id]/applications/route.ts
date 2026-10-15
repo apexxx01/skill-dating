@@ -1,7 +1,13 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, checkMembership, checkOwnership } from '@/lib/api/handler'
+import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership, checkOwnership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { blockGuardAny } from '@/lib/blocks'
+import { cursorParam, paginate, withNextCursor } from '@/lib/api/pagination'
+
+const listQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  cursor: cursorParam,
+})
 
 const applySchema = z.object({
   message: z.string().max(1000).optional(),
@@ -95,20 +101,35 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('FORBIDDEN')
   }
 
-  const applications = await prisma.teamApplication.findMany({
-    where: { teamId: id },
-    include: {
-      user: {
-        select: {
-          id: true, name: true, username: true, image: true, headline: true,
-          builderRole: true, skills: { include: { skill: true } }
-        }
-      }
-    },
-    orderBy: { createdAt: 'desc' }
-  })
+  const query = validateQuery(listQuerySchema)(request)
+  if (query instanceof Response) return query
 
-  return createApiResponse(applications)
+  // The answer is a bare array, so the cursor for the next page is in the X-Next-Cursor header.
+  const result = await paginate({
+    cursor: query.data.cursor,
+    page: 1,
+    limit: query.data.limit ?? 100,
+    field: 'createdAt',
+    direction: 'desc',
+    where: { teamId: id },
+    find: (args) =>
+      prisma.teamApplication.findMany({
+        ...args,
+        include: {
+          user: {
+            select: {
+              id: true, name: true, username: true, image: true, headline: true,
+              builderRole: true, skills: { include: { skill: true } }
+            }
+          }
+        },
+      }),
+    count: async () => 0,
+    sortOf: (row) => row.createdAt,
+  })
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
+
+  return withNextCursor(createApiResponse(result.items), result.nextCursor)
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:applications' } })
 
 // Accept/reject lives at PATCH /api/teams/:id/applications/:applicationId

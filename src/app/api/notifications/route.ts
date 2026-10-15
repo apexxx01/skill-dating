@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateQuery, validateBody, createApiResponse } from '@/lib/api/handler'
+import { withAuth, validateQuery, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
+import type { Prisma } from '@prisma/client'
+import { cursorParam, paginate } from '@/lib/api/pagination'
 import { z } from 'zod'
 
 const querySchema = z.object({
@@ -7,6 +9,7 @@ const querySchema = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
   unreadOnly: z.coerce.boolean().default(false),
   type: z.string().optional(),
+  cursor: cursorParam,
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -17,28 +20,28 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const limit = queryResult.data.limit ?? 20
   const unreadOnly = queryResult.data.unreadOnly ?? false
   const type = queryResult.data.type
-  const skip = (page - 1) * limit
 
-  const where: Record<string, unknown> = { userId: user.id }
+  const where: Prisma.NotificationWhereInput = { userId: user.id }
   if (unreadOnly) where.isRead = false
-  if (type) where.type = type
+  if (type) where.type = type as Prisma.NotificationWhereInput['type']
 
-  const [notifications, total, unreadCount] = await Promise.all([
-    prisma.notification.findMany({
+  const [result, unreadCount] = await Promise.all([
+    paginate({
+      cursor: queryResult.data.cursor,
+      page,
+      limit,
+      field: 'createdAt',
+      direction: 'desc',
       where,
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' }
+      find: (args) => prisma.notification.findMany(args),
+      count: (w) => prisma.notification.count({ where: w }),
+      sortOf: (row) => row.createdAt,
     }),
-    prisma.notification.count({ where }),
-    prisma.notification.count({ where: { userId: user.id, isRead: false } })
+    prisma.notification.count({ where: { userId: user.id, isRead: false } }),
   ])
+  if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
-  return createApiResponse({
-    notifications,
-    unreadCount,
-    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
-  })
+  return createApiResponse({ notifications: result.items, unreadCount, nextCursor: result.nextCursor, pagination: result.pagination })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'notifications:list' } })
 
 // Bulk mark-as-read on the collection route. Path-segment tricks like
