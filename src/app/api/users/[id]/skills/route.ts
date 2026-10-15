@@ -75,4 +75,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(userSkill, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'user-skills:add' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'user-skills:add' } })

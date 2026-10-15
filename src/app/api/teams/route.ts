@@ -150,4 +150,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(team, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'teams:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'teams:create' } })

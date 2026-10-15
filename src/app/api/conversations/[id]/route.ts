@@ -218,4 +218,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(message, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:send' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:send' } })

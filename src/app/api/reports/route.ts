@@ -80,7 +80,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(report, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'reports:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'reports:create' } })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {

@@ -85,7 +85,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     },
     result.created ? 201 : 200
   )
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'blocks:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'blocks:create' } })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

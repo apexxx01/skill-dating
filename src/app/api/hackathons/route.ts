@@ -125,4 +125,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(hackathon, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'hackathons:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'hackathons:create' } })

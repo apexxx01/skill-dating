@@ -149,4 +149,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse({ success: true, teamId: team.id, hackathonTeamId: hackathonTeam.id, rewards: await scope.rewardsFor(prisma, user.id) })
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:team-register' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:team-register' } })

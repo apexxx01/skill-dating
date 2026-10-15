@@ -142,7 +142,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse({ ...participant, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:register' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:register' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {

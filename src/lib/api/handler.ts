@@ -4,6 +4,9 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { clientIp, consumeSafely, enforceRateLimit, tooManyRequests, type RateLimitConfig } from '@/lib/rate-limiter'
 import { errorResponse, type ErrorCode, type ErrorOptions } from '@/lib/api/errors'
+import { withIdempotency } from '@/lib/api/idempotency'
+import { getCache } from '@/lib/infra/cache'
+import { log, requestIdFrom, runWithRequestId } from '@/lib/log'
 
 export interface AuthenticatedUser {
   id: string
@@ -39,61 +42,104 @@ export function rateLimit(config: RateLimitConfig) {
 // context), and builds the ApiContext that `handler` receives itself.
 export type RouteHandler = (request: NextRequest) => Promise<NextResponse>
 
-export function withAuth(
-  handler: ApiHandler,
-  options: { requiredRole?: string[]; rateLimit?: RateLimitConfig } = {}
-): RouteHandler {
+export interface WithAuthOptions {
+  requiredRole?: string[]
+  rateLimit?: RateLimitConfig
+  /**
+   * For POST routes that create something: honour an `Idempotency-Key` header, so
+   * a repeated request returns the first response instead of creating twice
+   * (src/lib/api/idempotency.ts). Ignored for other methods and when no key is sent.
+   */
+  idempotent?: boolean
+}
+
+export function withAuth(handler: ApiHandler, options: WithAuthOptions = {}): RouteHandler {
   return async (request: NextRequest) => {
-    // The session token is verified here, per request; see session.ts.
-    const outcome = await authenticate(request.headers)
-
-    switch (outcome.kind) {
-      case 'anonymous': {
-        // Bound unauthenticated traffic too, so a flood of anonymous calls
-        // cannot be used to hammer the auth layer for free.
-        const anonymous = await consumeSafely(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
-          windowMs: 60_000,
-          maxRequests: 120,
-        })
-        if (!anonymous.allowed) return tooManyRequests(anonymous)
-        return errorResponse('UNAUTHORIZED')
+    // One id per request: on every log line written while it runs, and on the
+    // response, so a report from a user can be matched to the logs.
+    const requestId = requestIdFrom(request.headers)
+    return runWithRequestId(requestId, async () => {
+      const started = Date.now()
+      let userId: string | undefined
+      let response: NextResponse
+      try {
+        response = await handleAuthenticated(request, handler, options, (id) => (userId = id))
+      } catch (error) {
+        log.error('unhandled error in route', { error, method: request.method, path: new URL(request.url).pathname, userId })
+        response = errorResponse('INTERNAL_ERROR')
       }
-      case 'deleted':
-        return errorResponse('UNAUTHORIZED')
-      case 'conflict':
-        return errorResponse('ACCOUNT_CONFLICT')
-      case 'limited':
-        return tooManyRequests(outcome.decision)
-      case 'unavailable':
-        return errorResponse('AUTH_UNAVAILABLE')
-    }
-
-    const { user } = outcome
-
-    // Keyed on the LOCAL user id: it cannot be forged or shared, unlike an IP.
-    if (options.rateLimit) {
-      const rateLimitResponse = await rateLimit(options.rateLimit)(request, user.id)
-      if (rateLimitResponse) return rateLimitResponse
-    }
-
-    if (options.requiredRole && !options.requiredRole.includes(user.role)) {
-      return errorResponse('FORBIDDEN')
-    }
-
-    const context: ApiContext = {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        username: user.username,
-        image: user.image,
-        role: user.role
-      },
-      prisma
-    }
-
-    return handler(request, context)
+      response.headers.set('X-Request-Id', requestId)
+      log.info('request', {
+        method: request.method,
+        path: new URL(request.url).pathname,
+        status: response.status,
+        durationMs: Date.now() - started,
+        userId,
+      })
+      return response
+    })
   }
+}
+
+async function handleAuthenticated(
+  request: NextRequest,
+  handler: ApiHandler,
+  options: WithAuthOptions,
+  onUser: (userId: string) => void
+): Promise<NextResponse> {
+  // The session token is verified here, per request; see session.ts.
+  const outcome = await authenticate(request.headers)
+
+  switch (outcome.kind) {
+    case 'anonymous': {
+      // Bound unauthenticated traffic too, so a flood of anonymous calls
+      // cannot be used to hammer the auth layer for free.
+      const anonymous = await consumeSafely(`anon:ip:${clientIp(request) ?? 'untrusted'}`, {
+        windowMs: 60_000,
+        maxRequests: 120,
+      })
+      if (!anonymous.allowed) return tooManyRequests(anonymous)
+      return errorResponse('UNAUTHORIZED')
+    }
+    case 'deleted':
+      return errorResponse('UNAUTHORIZED')
+    case 'conflict':
+      return errorResponse('ACCOUNT_CONFLICT')
+    case 'limited':
+      return tooManyRequests(outcome.decision)
+    case 'unavailable':
+      return errorResponse('AUTH_UNAVAILABLE')
+  }
+
+  const { user } = outcome
+  onUser(user.id)
+
+  // Keyed on the LOCAL user id: it cannot be forged or shared, unlike an IP.
+  if (options.rateLimit) {
+    const rateLimitResponse = await rateLimit(options.rateLimit)(request, user.id)
+    if (rateLimitResponse) return rateLimitResponse
+  }
+
+  if (options.requiredRole && !options.requiredRole.includes(user.role)) {
+    return errorResponse('FORBIDDEN')
+  }
+
+  const context: ApiContext = {
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      username: user.username,
+      image: user.image,
+      role: user.role
+    },
+    prisma
+  }
+
+  if (options.idempotent && request.method === 'POST') {
+    return withIdempotency(request, user.id, getCache(), () => handler(request, context))
+  }
+  return handler(request, context)
 }
 
 export function validateBody<T>(schema: z.ZodSchema<T>) {

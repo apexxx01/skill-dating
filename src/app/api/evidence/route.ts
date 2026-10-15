@@ -154,4 +154,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   return createApiResponse({ ...result.created, endorsementCount: 0, endorsedByMe: false, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'evidence:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'evidence:create' } })

@@ -80,7 +80,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse(application, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'teams:apply' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'teams:apply' } })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

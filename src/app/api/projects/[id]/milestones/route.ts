@@ -86,4 +86,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   return createApiResponse(milestoneResponse(result), 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:milestone-create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:milestone-create' } })

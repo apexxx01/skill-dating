@@ -163,4 +163,4 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse({ ...project, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
-}, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'projects:create' } })
+}, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'projects:create' } })
