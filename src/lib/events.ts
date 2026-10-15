@@ -186,6 +186,7 @@ export class EventBus {
    */
   async emit<N extends DomainEventName>(tx: Db, name: N, payload: DomainEvents[N]): Promise<EmitResult> {
     await this.loaded()
+    log.debug('domain event', { event: name })
 
     let rewarded = false
     for (const handler of this.transactional.get(name) ?? []) {
