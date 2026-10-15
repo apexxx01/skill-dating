@@ -57,9 +57,5 @@ export function registerSubscribers(target: EventBus = bus) {
   target.onCommitted('PROJECT_SHIPPED', ({ payload }) => track(payload.userId, 'project_shipped', { projectId: payload.projectId }))
 }
 
-// Registered once, whatever number of times the module is evaluated by a bundler.
-const registered = globalThis as unknown as { __subscribersRegistered?: boolean }
-if (!registered.__subscribersRegistered) {
-  registered.__subscribersRegistered = true
-  registerSubscribers()
-}
+// Registered once per bus, however many times a bundler evaluates this module.
+bus.registerOnce('subscribers', () => registerSubscribers(bus))

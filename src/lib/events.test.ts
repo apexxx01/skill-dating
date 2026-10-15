@@ -246,3 +246,14 @@ describe('subscriber loading', () => {
     expect(loadSubscribers).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('registerOnce', () => {
+  it('runs a registration once per name, however often it is asked', () => {
+    const bus = new EventBus()
+    const register = vi.fn()
+    bus.registerOnce('x', register)
+    bus.registerOnce('x', register)
+    bus.registerOnce('y', register)
+    expect(register).toHaveBeenCalledTimes(2)
+  })
+})

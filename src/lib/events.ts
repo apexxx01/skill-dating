@@ -143,6 +143,7 @@ export class EventBus {
   private readonly committed = new Map<DomainEventName, AnyCommitted[]>()
   private readonly scopes = new WeakMap<object, EventScope>()
   private ready: Promise<unknown> | undefined
+  private readonly registrations = new Set<string>()
 
   constructor(private readonly options: EventBusOptions = {}) {}
 
@@ -157,6 +158,13 @@ export class EventBus {
   private register<H>(map: Map<DomainEventName, H[]>, name: DomainEventName, handler: H): () => void {
     map.set(name, [...(map.get(name) ?? []), handler])
     return () => map.set(name, (map.get(name) ?? []).filter((candidate) => candidate !== handler))
+  }
+
+  /** Runs `register` the first time it is called with this name on this bus, and never again. */
+  registerOnce(name: string, register: () => void): void {
+    if (this.registrations.has(name)) return
+    this.registrations.add(name)
+    register()
   }
 
   private async loaded() {
@@ -232,7 +240,12 @@ export class EventBus {
   }
 }
 
-export const bus = new EventBus({ loadSubscribers: () => import('@/lib/subscribers') })
+// One bus per process. Next can evaluate this module once per route bundle, and
+// every copy would otherwise have its own subscribers and its own record of which
+// transactions are open: a transaction opened through one copy would be invisible
+// to code that reaches the bus through another.
+const shared = globalThis as unknown as { __domainEventBus?: EventBus }
+export const bus: EventBus = (shared.__domainEventBus ??= new EventBus({ loadSubscribers: () => import('@/lib/subscribers') }))
 
 export const emit = bus.emit.bind(bus)
 export const afterCommit = bus.afterCommit.bind(bus)
