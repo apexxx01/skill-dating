@@ -119,80 +119,82 @@ enum ReportStatus {
 }
 
 model User {
-  id              String             @id @default(cuid())
+  id                   String            @id @default(cuid())
   // Clerk user id. Null for legacy rows (seeded demo users, accounts created
   // before the move to Clerk) until they are linked on a verified email.
-  clerkId         String?            @unique
-  email           String             @unique
-  emailVerified   DateTime?
-  passwordHash    String?
-  name            String?
-  username        String             @unique
-  image           String?
-  bio             String?
-  headline        String?
-  location        String?
-  timezone        String?
-  availability    String?
-  builderRole     String?
-  website         String?
-  githubUsername  String?            @unique
-  twitterUsername String?            @unique
-  linkedinUrl     String?
-  role            UserRole           @default(USER)
-  verificationLevel VerificationLevel @default(NONE)
-  isEmailVerified Boolean            @default(false)
-  isPhoneVerified Boolean            @default(false)
-  githubConnected Boolean            @default(false)
-  portfolioVerified Boolean          @default(false)
-  organizationVerified Boolean       @default(false)
-  identityVerified Boolean           @default(false)
-  xp              Int                @default(0)
-  rank            Int                @default(0)
-  reputationScore Int                @default(0)
-  lastActiveAt    DateTime           @default(now())
+  clerkId              String?           @unique
+  email                String            @unique
+  emailVerified        DateTime?
+  passwordHash         String?
+  name                 String?
+  username             String            @unique
+  image                String?
+  bio                  String?
+  headline             String?
+  location             String?
+  timezone             String?
+  availability         String?
+  builderRole          String?
+  website              String?
+  githubUsername       String?           @unique
+  twitterUsername      String?           @unique
+  linkedinUrl          String?
+  role                 UserRole          @default(USER)
+  verificationLevel    VerificationLevel @default(NONE)
+  isEmailVerified      Boolean           @default(false)
+  isPhoneVerified      Boolean           @default(false)
+  githubConnected      Boolean           @default(false)
+  portfolioVerified    Boolean           @default(false)
+  organizationVerified Boolean           @default(false)
+  identityVerified     Boolean           @default(false)
+  xp                   Int               @default(0)
+  rank                 Int               @default(0)
+  reputationScore      Int               @default(0)
+  lastActiveAt         DateTime          @default(now())
   // Set when the Clerk account is deleted. The row is kept and anonymised so
   // the content other people depend on survives (see docs/AUTH_MIGRATION.md).
-  deletedAt       DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  deletedAt            DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
-  accounts        Account[]
-  sessions        Session[]
-  profile         Profile?
-  skills          UserSkill[]
-  skillEvidences  SkillEvidence[]
-  projects        ProjectMember[]
-  ownedProjects   Project[]          @relation("ProjectOwner")
-  teams           TeamMember[]
-  ownedTeams      Team[]             @relation("TeamOwner")
-  teamApplications TeamApplication[]
-  teamInvitationsSent TeamApplication[] @relation("TeamInvitationsSent")
-  blocksMade      Block[]            @relation("BlocksMade")
-  blocksReceived  Block[]            @relation("BlocksReceived")
-  hackathons      HackathonParticipant[]
-  hackathonTeams  HackathonTeamMember[]
-  challenges      ChallengeAttempt[]
-  achievements    UserAchievement[]
-  xpEvents        XPEvent[]
-  reputationEvents ReputationEvent[]
-  sentConnections Connection[]       @relation("SentConnections")
-  receivedConnections Connection[]  @relation("ReceivedConnections")
-  conversations   ConversationMember[]
-  messages        Message[]
-  messageReactions MessageReaction[]
-  messageReads    MessageRead[]
-  notifications   Notification[]
-  reports         Report[]           @relation("ReportsSubmitted")
-  reportedReports Report[]           @relation("ReportsAgainst")
-  moderationActions ModerationAction[]
-  auditEvents     AuditEvent[]
-  verifications   Verification[]
-  currentBuild    CurrentBuild?
-  projectUpdates  ProjectUpdate[]
-  userQuests      UserQuest[]
-  activities      Activity[]
-  leaderboardEntries LeaderboardEntry[]
+  accounts            Account[]
+  sessions            Session[]
+  profile             Profile?
+  skills              UserSkill[]
+  skillEvidences      SkillEvidence[]
+  projects            ProjectMember[]
+  ownedProjects       Project[]              @relation("ProjectOwner")
+  teams               TeamMember[]
+  ownedTeams          Team[]                 @relation("TeamOwner")
+  teamApplications    TeamApplication[]
+  teamInvitationsSent TeamApplication[]      @relation("TeamInvitationsSent")
+  blocksMade          Block[]                @relation("BlocksMade")
+  blocksReceived      Block[]                @relation("BlocksReceived")
+  hackathons          HackathonParticipant[]
+  hackathonTeams      HackathonTeamMember[]
+  challenges          ChallengeAttempt[]
+  achievements        UserAchievement[]
+  xpEvents            XPEvent[]
+  reputationEvents    ReputationEvent[]
+  sentConnections     Connection[]           @relation("SentConnections")
+  receivedConnections Connection[]           @relation("ReceivedConnections")
+  conversations       ConversationMember[]
+  messages            Message[]
+  messageReactions    MessageReaction[]
+  messageReads        MessageRead[]
+  notifications       Notification[]
+  reports             Report[]               @relation("ReportsSubmitted")
+  reportedReports     Report[]               @relation("ReportsAgainst")
+  moderationActions   ModerationAction[]
+  auditEvents         AuditEvent[]
+  verifications       Verification[]
+  currentBuild        CurrentBuild?
+  projectUpdates      ProjectUpdate[]
+  userQuests          UserQuest[]
+  activities          Activity[]
+  leaderboardEntries  LeaderboardEntry[]
+  subscription        Subscription?
+  productEvents       ProductEvent[]
 }
 
 model Account {
@@ -231,25 +233,25 @@ model VerificationToken {
 }
 
 model Profile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  headline    String?
-  bio         String?  @db.Text
-  location    String?
-  timezone    String?
-  availability String?
-  builderRole String?
-  website     String?
-  githubUrl   String?
-  portfolioUrl String?
-  linkedinUrl String?
-  twitterUrl  String?
-  showEmail   Boolean  @default(false)
-  showLocation Boolean @default(true)
-  showAvailability Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline         String?
+  bio              String?  @db.Text
+  location         String?
+  timezone         String?
+  availability     String?
+  builderRole      String?
+  website          String?
+  githubUrl        String?
+  portfolioUrl     String?
+  linkedinUrl      String?
+  twitterUrl       String?
+  showEmail        Boolean  @default(false)
+  showLocation     Boolean  @default(true)
+  showAvailability Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model Skill {
@@ -266,19 +268,19 @@ model Skill {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  userSkills    UserSkill[]
+  userSkills     UserSkill[]
   skillEvidences SkillEvidence[]
 }
 
 model UserSkill {
-  id          String   @id @default(cuid())
-  userId      String
-  skillId     String
-  level       Int      @default(1) // 1-5
-  isVerified  Boolean  @default(false)
-  yearsExperience Float? @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String
+  skillId         String
+  level           Int      @default(1) // 1-5
+  isVerified      Boolean  @default(false)
+  yearsExperience Float?   @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
@@ -287,17 +289,17 @@ model UserSkill {
 }
 
 model SkillEvidence {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   skillId     String
-  type        String   // CHALLENGE, GITHUB_PROJECT, HACKATHON_PROJECT, CONTRIBUTION, PEER_ENDORSEMENT, PORTFOLIO, CERTIFICATION, CONNECTED_PROFILE
+  type        String // CHALLENGE, GITHUB_PROJECT, HACKATHON_PROJECT, CONTRIBUTION, PEER_ENDORSEMENT, PORTFOLIO, CERTIFICATION, CONNECTED_PROFILE
   title       String
-  description String?  @db.Text
+  description String?   @db.Text
   url         String?
   metadata    Json?
   verifiedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
@@ -326,15 +328,15 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  owner       User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members     ProjectMember[]
-  hackathon   Hackathon?      @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
-  team        Team?
-  updates     ProjectUpdate[]
-  milestones  Milestone[]
-  chat        Chat?
+  owner        User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members      ProjectMember[]
+  hackathon    Hackathon?      @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
+  team         Team?
+  updates      ProjectUpdate[]
+  milestones   Milestone[]
+  chat         Chat?
   conversation Conversation?
-  activities  Activity[]
+  activities   Activity[]
 }
 
 model ProjectMember {
@@ -365,15 +367,15 @@ model ProjectUpdate {
 }
 
 model Milestone {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   projectId   String
   title       String
-  description String?  @db.Text
+  description String?   @db.Text
   dueDate     DateTime?
   completedAt DateTime?
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
@@ -392,22 +394,22 @@ model Team {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  owner           User                  @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members         TeamMember[]
-  applications    TeamApplication[]
-  project         Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  hackathon       Hackathon?            @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
-  hackathonTeams  HackathonTeam[]
-  chat            Chat?
-  conversation    Conversation?
+  owner          User              @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members        TeamMember[]
+  applications   TeamApplication[]
+  project        Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  hackathon      Hackathon?        @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
+  hackathonTeams HackathonTeam[]
+  chat           Chat?
+  conversation   Conversation?
 }
 
 model TeamMember {
-  id        String   @id @default(cuid())
-  userId    String
-  teamId    String
-  role      TeamRole @default(MEMBER)
-  joinedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  userId   String
+  teamId   String
+  role     TeamRole @default(MEMBER)
+  joinedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -417,11 +419,11 @@ model TeamMember {
 }
 
 model TeamApplication {
-  id          String                 @id @default(cuid())
+  id          String                @id @default(cuid())
   userId      String
   teamId      String
-  message     String?                @db.Text
-  status      TeamApplicationStatus  @default(PENDING)
+  message     String?               @db.Text
+  status      TeamApplicationStatus @default(PENDING)
   // Null (the default) means this is a self-initiated application, reviewed
   // by the team owner/admin as before. Set means the OWNER invited this
   // user directly - the accept/decline authorization flips to the invitee
@@ -429,8 +431,8 @@ model TeamApplication {
   // else about the row (the unique[userId,teamId] constraint, the accept
   // transaction, the maxSize guard) is shared and unchanged either way.
   invitedById String?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -441,47 +443,47 @@ model TeamApplication {
 }
 
 model Hackathon {
-  id          String            @id @default(cuid())
-  name        String
-  slug        String            @unique
-  description String            @db.Text
-  shortDesc   String?
-  startDate   DateTime
-  endDate     DateTime
+  id                   String          @id @default(cuid())
+  name                 String
+  slug                 String          @unique
+  description          String          @db.Text
+  shortDesc            String?
+  startDate            DateTime
+  endDate              DateTime
   registrationDeadline DateTime?
-  status      HackathonStatus   @default(UPCOMING)
-  organizer   String?
-  websiteUrl  String?
-  prizePool   String?
-  rules       String?           @db.Text
-  technologies String[]         @default([])
-  maxTeamSize Int               @default(5)
-  minTeamSize Int               @default(1)
-  location    String?           // ONLINE, HYBRID, or physical location
-  isPublic    Boolean           @default(true)
-  thumbnail   String?
-  banner      String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  status               HackathonStatus @default(UPCOMING)
+  organizer            String?
+  websiteUrl           String?
+  prizePool            String?
+  rules                String?         @db.Text
+  technologies         String[]        @default([])
+  maxTeamSize          Int             @default(5)
+  minTeamSize          Int             @default(1)
+  location             String? // ONLINE, HYBRID, or physical location
+  isPublic             Boolean         @default(true)
+  thumbnail            String?
+  banner               String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  participants    HackathonParticipant[]
-  hackathonTeams  HackathonTeam[]
-  projects        Project[]
-  teams           Team[]
-  currentBuilds   CurrentBuild[]
-  chat            Chat?
-  conversation    Conversation?
+  participants   HackathonParticipant[]
+  hackathonTeams HackathonTeam[]
+  projects       Project[]
+  teams          Team[]
+  currentBuilds  CurrentBuild[]
+  chat           Chat?
+  conversation   Conversation?
 }
 
 model HackathonParticipant {
-  id            String                    @id @default(cuid())
-  userId        String
-  hackathonId   String
-  status        HackathonParticipantStatus @default(REGISTERED)
-  teamId        String?
-  registeredAt  DateTime                  @default(now())
-  skills        String[]                  @default([])
-  lookingFor    String[]                  @default([])
+  id           String                     @id @default(cuid())
+  userId       String
+  hackathonId  String
+  status       HackathonParticipantStatus @default(REGISTERED)
+  teamId       String?
+  registeredAt DateTime                   @default(now())
+  skills       String[]                   @default([])
+  lookingFor   String[]                   @default([])
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
@@ -501,17 +503,17 @@ model HackathonTeam {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  hackathon Hackathon       @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
-  team      Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  hackathon Hackathon             @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  team      Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
   members   HackathonTeamMember[]
 }
 
 model HackathonTeamMember {
-  id            String   @id @default(cuid())
+  id              String   @id @default(cuid())
   hackathonTeamId String
-  userId        String
-  role          String   @default("MEMBER")
-  joinedAt      DateTime @default(now())
+  userId          String
+  role            String   @default("MEMBER")
+  joinedAt        DateTime @default(now())
 
   hackathonTeam HackathonTeam @relation(fields: [hackathonTeamId], references: [id], onDelete: Cascade)
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -520,40 +522,40 @@ model HackathonTeamMember {
 }
 
 model Challenge {
-  id          String             @id @default(cuid())
+  id          String              @id @default(cuid())
   title       String
-  slug        String             @unique
-  description String             @db.Text
+  slug        String              @unique
+  description String              @db.Text
   category    ChallengeCategory
   difficulty  ChallengeDifficulty
-  xpReward    Int                @default(100)
+  xpReward    Int                 @default(100)
   repoUrl     String?
-  starterCode String?            @db.Text
+  starterCode String?             @db.Text
   tests       Json?
-  tags        String[]           @default([])
-  isActive    Boolean            @default(true)
+  tags        String[]            @default([])
+  isActive    Boolean             @default(true)
   startsAt    DateTime?
   endsAt      DateTime?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   attempts ChallengeAttempt[]
 }
 
 model ChallengeAttempt {
-  id           String   @id @default(cuid())
-  userId       String
-  challengeId  String
-  code         String?  @db.Text
-  language     String?
-  status       String   @default("PENDING") // PENDING, PASSED, FAILED, RUNNING
-  score        Int?
-  output       String?  @db.Text
-  passedTests  Int      @default(0)
-  totalTests   Int      @default(0)
-  timeSpent    Int      @default(0) // seconds
-  submittedAt  DateTime @default(now())
-  completedAt  DateTime?
+  id          String    @id @default(cuid())
+  userId      String
+  challengeId String
+  code        String?   @db.Text
+  language    String?
+  status      String    @default("PENDING") // PENDING, PASSED, FAILED, RUNNING
+  score       Int?
+  output      String?   @db.Text
+  passedTests Int       @default(0)
+  totalTests  Int       @default(0)
+  timeSpent   Int       @default(0) // seconds
+  submittedAt DateTime  @default(now())
+  completedAt DateTime?
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
@@ -567,7 +569,7 @@ model Achievement {
   icon        String?
   category    String
   xpReward    Int      @default(0)
-  criteria    Json     // { type, conditions }
+  criteria    Json // { type, conditions }
   isSecret    Boolean  @default(false)
   order       Int      @default(0)
   createdAt   DateTime @default(now())
@@ -581,7 +583,7 @@ model UserAchievement {
   userId        String
   achievementId String
   earnedAt      DateTime @default(now())
-  progress      Json?    // For tracking progress towards achievement
+  progress      Json? // For tracking progress towards achievement
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
@@ -617,10 +619,10 @@ model XPEvent {
 model ReputationEvent {
   id          String   @id @default(cuid())
   userId      String
-  type        String   // PROJECT_SHIPPED, HACKATHON_PLACEMENT, CHALLENGE_COMPLETE, OSS_CONTRIBUTION, TEAM_ENDORSEMENT, PEER_ENDORSEMENT, SKILL_VERIFIED
+  type        String // PROJECT_SHIPPED, HACKATHON_PLACEMENT, CHALLENGE_COMPLETE, OSS_CONTRIBUTION, TEAM_ENDORSEMENT, PEER_ENDORSEMENT, SKILL_VERIFIED
   amount      Int
-  sourceId    String?  // Reference to project, hackathon, challenge, etc.
-  sourceType  String?  // PROJECT, HACKATHON, CHALLENGE, USER
+  sourceId    String? // Reference to project, hackathon, challenge, etc.
+  sourceType  String? // PROJECT, HACKATHON, CHALLENGE, USER
   description String
   metadata    Json?
   createdAt   DateTime @default(now())
@@ -629,14 +631,14 @@ model ReputationEvent {
 }
 
 model Connection {
-  id          String         @id @default(cuid())
-  senderId    String
-  receiverId  String
-  type        ConnectionType @default(NETWORK)
-  status      String         @default("PENDING") // PENDING, ACCEPTED, DECLINED, BLOCKED
-  message     String?        @db.Text
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id         String         @id @default(cuid())
+  senderId   String
+  receiverId String
+  type       ConnectionType @default(NETWORK)
+  status     String         @default("PENDING") // PENDING, ACCEPTED, DECLINED, BLOCKED
+  message    String?        @db.Text
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   sender   User @relation("SentConnections", fields: [senderId], references: [id], onDelete: Cascade)
   receiver User @relation("ReceivedConnections", fields: [receiverId], references: [id], onDelete: Cascade)
@@ -655,23 +657,23 @@ model Conversation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  members     ConversationMember[]
-  messages    Message[]
-  chats       Chat[]
-  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  team        Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  hackathon   Hackathon?   @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
+  members   ConversationMember[]
+  messages  Message[]
+  chats     Chat[]
+  project   Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  team      Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  hackathon Hackathon?           @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
 }
 
 model ConversationMember {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   conversationId String
-  role           String   @default("MEMBER") // MEMBER, ADMIN, OWNER
-  joinedAt       DateTime @default(now())
+  role           String    @default("MEMBER") // MEMBER, ADMIN, OWNER
+  joinedAt       DateTime  @default(now())
   lastReadAt     DateTime?
-  isMuted        Boolean  @default(false)
-  isPinned       Boolean  @default(false)
+  isMuted        Boolean   @default(false)
+  isPinned       Boolean   @default(false)
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -681,21 +683,21 @@ model ConversationMember {
 }
 
 model Message {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   conversationId String
   senderId       String
-  content        String   @db.Text
-  type           String   @default("TEXT") // TEXT, IMAGE, FILE, SYSTEM, CODE, LINK_PREVIEW
+  content        String    @db.Text
+  type           String    @default("TEXT") // TEXT, IMAGE, FILE, SYSTEM, CODE, LINK_PREVIEW
   replyToId      String?
   editedAt       DateTime?
   deletedAt      DateTime?
   metadata       Json?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
-  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       User           @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  replyTo      Message?       @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies      Message[]      @relation("MessageReplies")
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User              @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo      Message?          @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      Message[]         @relation("MessageReplies")
   reactions    MessageReaction[]
   reads        MessageRead[]
 
@@ -728,18 +730,18 @@ model MessageRead {
 }
 
 model Chat {
-  id          String   @id @default(cuid())
-  type        String   // PROJECT, TEAM, HACKATHON
-  projectId   String?  @unique
-  teamId      String?  @unique
-  hackathonId String?  @unique
-  conversationId String @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  type           String // PROJECT, TEAM, HACKATHON
+  projectId      String?  @unique
+  teamId         String?  @unique
+  hackathonId    String?  @unique
+  conversationId String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  team        Team?        @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  hackathon   Hackathon?   @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  hackathon    Hackathon?   @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
@@ -780,10 +782,10 @@ model ModerationAction {
   id          String   @id @default(cuid())
   moderatorId String
   targetId    String
-  targetType  String   // USER, MESSAGE, PROJECT, TEAM, REPORT
-  action      String   // WARN, SUSPEND, BAN, DELETE, LOCK, UNLOCK
+  targetType  String // USER, MESSAGE, PROJECT, TEAM, REPORT
+  action      String // WARN, SUSPEND, BAN, DELETE, LOCK, UNLOCK
   reason      String   @db.Text
-  duration    Int?     // For temporary actions (in days)
+  duration    Int? // For temporary actions (in days)
   metadata    Json?
   createdAt   DateTime @default(now())
 
@@ -791,53 +793,53 @@ model ModerationAction {
 }
 
 model AuditEvent {
-  id          String   @id @default(cuid())
-  userId      String?
-  action      String
-  targetType  String
-  targetId    String?
-  oldValue    Json?
-  newValue    Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  targetType String
+  targetId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model Verification {
-  id          String   @id @default(cuid())
-  userId      String
-  type        String   // EMAIL, PHONE, GITHUB, PORTFOLIO, ORGANIZATION, IDENTITY
-  status      String   @default("PENDING") // PENDING, VERIFIED, REJECTED, EXPIRED
-  provider    String?
-  providerId  String?
-  metadata    Json?
-  verifiedAt  DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  type       String // EMAIL, PHONE, GITHUB, PORTFOLIO, ORGANIZATION, IDENTITY
+  status     String    @default("PENDING") // PENDING, VERIFIED, REJECTED, EXPIRED
+  provider   String?
+  providerId String?
+  metadata   Json?
+  verifiedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CurrentBuild {
-  id          String   @id @default(cuid())
-  userId      String   @unique
+  id          String        @id @default(cuid())
+  userId      String        @unique
   title       String
-  description String?  @db.Text
+  description String?       @db.Text
   status      ProjectStatus @default(BUILDING)
-  progress    Int      @default(0) // 0-100
-  techStack   String[] @default([])
-  teamSize    Int      @default(1)
-  maxTeamSize Int      @default(5)
-  rolesNeeded String[] @default([])
+  progress    Int           @default(0) // 0-100
+  techStack   String[]      @default([])
+  teamSize    Int           @default(1)
+  maxTeamSize Int           @default(5)
+  rolesNeeded String[]      @default([])
   hackathonId String?
   githubUrl   String?
   demoUrl     String?
-  isPublic    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isPublic    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   hackathon Hackathon? @relation(fields: [hackathonId], references: [id])
@@ -846,50 +848,50 @@ model CurrentBuild {
 }
 
 model Quest {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String   @db.Text
-  type        String   // WEEKLY, DAILY, SPECIAL
-  criteria    Json     // { type, conditions }
-  xpReward    Int      @default(0)
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  description   String   @db.Text
+  type          String // WEEKLY, DAILY, SPECIAL
+  criteria      Json // { type, conditions }
+  xpReward      Int      @default(0)
   achievementId String?
-  startsAt    DateTime
-  endsAt      DateTime
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  startsAt      DateTime
+  endsAt        DateTime
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   userQuests UserQuest[]
 }
 
 model UserQuest {
-  id        String   @id @default(cuid())
-  userId    String
-  questId   String
-  progress  Json     // { completed: boolean, progress: number }
+  id          String    @id @default(cuid())
+  userId      String
+  questId     String
+  progress    Json // { completed: boolean, progress: number }
   completedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   quest Quest @relation(fields: [questId], references: [id], onDelete: Cascade)
 
   @@unique([userId, questId])
 }
 
 model Activity {
-  id        String   @id @default(cuid())
-  userId    String
-  type      String   // PROJECT_SHIPPED, HACKATHON_JOINED, HACKATHON_WON, CHALLENGE_COMPLETED, TEAM_JOINED, ACHIEVEMENT_EARNED, OSS_RELEASED, MILESTONE_REACHED
-  title     String
-  description String? @db.Text
-  link      String?
-  metadata  Json?
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  userId      String
+  type        String // PROJECT_SHIPPED, HACKATHON_JOINED, HACKATHON_WON, CHALLENGE_COMPLETED, TEAM_JOINED, ACHIEVEMENT_EARNED, OSS_RELEASED, MILESTONE_REACHED
+  title       String
+  description String?  @db.Text
+  link        String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectId String?
 
   @@index([userId, createdAt])
@@ -916,8 +918,8 @@ model Leaderboard {
   id          String   @id @default(cuid())
   name        String
   slug        String   @unique
-  type        String   // GLOBAL, HACKATHON, TECHNICAL, SHIPPING, RISING, CHALLENGE
-  period      String   // ALL_TIME, MONTHLY, WEEKLY, DAILY
+  type        String // GLOBAL, HACKATHON, TECHNICAL, SHIPPING, RISING, CHALLENGE
+  period      String // ALL_TIME, MONTHLY, WEEKLY, DAILY
   hackathonId String?
   criteria    Json
   isActive    Boolean  @default(true)
@@ -928,16 +930,79 @@ model Leaderboard {
 }
 
 model LeaderboardEntry {
-  id           String   @id @default(cuid())
+  id            String   @id @default(cuid())
   leaderboardId String
-  userId       String
-  rank         Int
-  score        Int
-  metadata     Json?
-  calculatedAt DateTime @default(now())
+  userId        String
+  rank          Int
+  score         Int
+  metadata      Json?
+  calculatedAt  DateTime @default(now())
 
   leaderboard Leaderboard @relation(fields: [leaderboardId], references: [id], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([leaderboardId, userId])
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  CREW_PRO
+  ORG
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+// What a user is entitled to (see src/lib/entitlements.ts). A user without a row
+// is on FREE. provider and providerRef are reserved for the billing integration
+// and are not written by anything yet.
+model Subscription {
+  id               String             @id @default(cuid())
+  userId           String             @unique
+  plan             SubscriptionPlan   @default(FREE)
+  status           SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd DateTime?
+  provider         String?
+  providerRef      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([provider, providerRef])
+}
+
+// Runtime switches (see src/lib/flags.ts). A user is in when they are on the
+// allowlist, or the flag is enabled and their stable hash falls under rolloutPercent.
+model FeatureFlag {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  description    String?
+  enabled        Boolean  @default(false)
+  rolloutPercent Int      @default(100)
+  allowUserIds   String[] @default([])
+  updatedById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Product analytics (see src/lib/infra/analytics.ts). props never holds personal data.
+// userId is set to null when the user is deleted, so the counts survive but the link does not.
+model ProductEvent {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String?
+  props     Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([name, createdAt])
+  @@index([userId, name])
 }
