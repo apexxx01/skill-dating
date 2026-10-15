@@ -2,13 +2,16 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
+import { isValidTimeZone } from '@/lib/time'
+import { trackOnboardingIfComplete } from '@/lib/onboarding'
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   bio: z.string().max(500).optional(),
   headline: z.string().max(200).optional(),
   location: z.string().max(100).optional(),
-  timezone: z.string().max(50).optional(),
+  // An IANA name such as "Asia/Kolkata": it decides where this person's day starts (caps, streaks).
+  timezone: z.string().max(50).refine(isValidTimeZone, 'must be an IANA time zone such as "Europe/Paris"').optional(),
   availability: z.string().max(200).optional(),
   builderRole: z.string().max(100).optional(),
   website: z.string().url().optional().or(z.literal('')),
@@ -146,6 +149,8 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       newValue: bodyResult.data,
     }
   })
+
+  if (bodyResult.data.headline) await trackOnboardingIfComplete(prisma, user.id)
 
   return createApiResponse(updatedUser)
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'users:update' } })

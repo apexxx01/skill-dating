@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { blockRelation } from '@/lib/blocks'
+import { trackOnboardingIfComplete } from '@/lib/onboarding'
 
 const addUserSkillSchema = z.object({
   skillId: z.string(),
@@ -73,6 +74,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     },
     include: { skill: true }
   })
+
+  if (id === user.id) await trackOnboardingIfComplete(prisma, id)
 
   return createApiResponse(userSkill, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'user-skills:add' } })

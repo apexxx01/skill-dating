@@ -3,6 +3,7 @@ import type { User as ClerkUser } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { isCurrentUsernameFor, resolveUsername } from '@/lib/username'
 import { applyVerification } from '@/lib/verification'
+import { track } from '@/lib/infra/analytics'
 
 // Keeps the local User row in step with the Clerk account. Two entry points use
 // this: the first authenticated request (lazy upsert) and the Clerk webhook.
@@ -97,13 +98,14 @@ async function findLegacyRowByEmail(tx: Tx, email: string) {
   })
 }
 
-async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<LocalUser> {
+async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: LocalUser; signedUp: boolean }> {
   // One writer per Clerk account at a time: a second concurrent first request
   // waits here, then finds the row the first one created.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'clerk-sync:' + facts.clerkId}, 0))`
 
   const existing = await tx.user.findUnique({ where: { clerkId: facts.clerkId }, select: { id: true, username: true } })
   let userId: string
+  let signedUp = false
 
   if (existing) {
     userId = existing.id
@@ -131,11 +133,12 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<LocalUser> 
     } else {
       const created = await createRow(tx, facts)
       userId = created.id
+      signedUp = true
     }
   }
 
   await applyVerification(tx, userId, { emailVerified: facts.emailVerified, githubConnected: facts.githubConnected })
-  return tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS })
+  return { user: await tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS }), signedUp }
 }
 
 async function createRow(tx: Tx, facts: ClerkFacts) {
@@ -208,7 +211,10 @@ export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma): P
   const attempts = 5
   for (let attempt = 1; ; attempt++) {
     try {
-      return await db.$transaction((tx) => syncInTransaction(tx, facts), { timeout: 15_000 })
+      const { user, signedUp } = await db.$transaction((tx) => syncInTransaction(tx, facts), { timeout: 15_000 })
+      // Counted after the commit, and only for a brand new account (linking an old row is not a signup).
+      if (signedUp) await track(user.id, 'signup')
+      return user
     } catch (error) {
       if (attempt < attempts && isUniqueViolation(error)) continue
       if (error instanceof AccountConflictError) await recordConflict(db, facts.clerkId)
