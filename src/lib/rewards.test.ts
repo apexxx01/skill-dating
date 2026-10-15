@@ -191,9 +191,9 @@ describe('grant', () => {
     })
 
     it('does not level up one XP short', async () => {
-      const db = fakeDatabase({ u1: { xp: 49, timezone: null } })
+      const db = fakeDatabase({ u1: { xp: 9, timezone: null } })
       const result = await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
-      expect(result.envelope).toMatchObject({ totalXp: 99, leveledUp: false })
+      expect(result.envelope).toMatchObject({ totalXp: 59, leveledUp: false })
       expect(db.notifications).toEqual([])
     })
 

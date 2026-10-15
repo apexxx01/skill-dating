@@ -27,7 +27,7 @@ describe('rewards engine', () => {
   const xpOf = async (u: TestUser) => (await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).xp
   const xpEventTotal = async (u: TestUser) => (await testPrisma.xPEvent.aggregate({ where: { userId: u.userId }, _sum: { amount: true } }))._sum.amount ?? 0
 
-  it('returns the envelope for the first project: XP, the achievement, no level change', async () => {
+  it('returns the envelope for the first project: XP, the achievement, and level 2', async () => {
     const u = await user('first')
     const res = await createProject(u, 'First')
     expect(res.status).toBe(201)
@@ -36,8 +36,8 @@ describe('rewards engine', () => {
       xpGained: 75, // 50 for the project, 25 for First Project
       totalXp: 75,
       oldLevel: 1,
-      newLevel: 1,
-      leveledUp: false,
+      newLevel: 2, // level 2 starts at 60 XP, so the first project is enough
+      leveledUp: true,
       oldTier: 'BRONZE',
       newTier: 'BRONZE',
       tierChanged: false,
@@ -101,8 +101,8 @@ describe('rewards engine', () => {
     expect(shipped.data.rewards).toMatchObject({
       xpGained: 300, // 200 for shipping, 100 for Shipped It
       totalXp: 375,
-      oldLevel: 1,
-      newLevel: 2,
+      oldLevel: 2,
+      newLevel: 3,
       leveledUp: true,
       tierChanged: false,
     })
@@ -119,13 +119,15 @@ describe('rewards engine', () => {
   it('reports each level-up and notifies the user once per level reached', async () => {
     const u = await user('level')
     const first = (await createProject(u, 'Level1')).data
-    await req(u.jar, 'PATCH', `/api/projects/${first.id}`, { status: 'SHIPPED' }) // 375 XP: level 2
-    const second = await createProject(u, 'Level2') // +50 = 425: level 3 starts at 383
-    expect(second.data.rewards).toMatchObject({ xpGained: 50, totalXp: 425, oldLevel: 2, newLevel: 3, leveledUp: true })
-    expect(levelFor(425).level).toBe(3)
+    await req(u.jar, 'PATCH', `/api/projects/${first.id}`, { status: 'SHIPPED' }) // 375 XP: level 3 (starts at 203)
+    const second = await createProject(u, 'Level2') // +50 = 425: still level 3, level 4 starts at 440
+    expect(second.data.rewards).toMatchObject({ xpGained: 50, totalXp: 425, oldLevel: 3, newLevel: 3, leveledUp: false })
+    const third = await createProject(u, 'Level3') // +50 = 475: level 4
+    expect(third.data.rewards).toMatchObject({ xpGained: 50, totalXp: 475, oldLevel: 3, newLevel: 4, leveledUp: true })
+    expect(levelFor(475).level).toBe(4)
 
     const notes = await testPrisma.notification.findMany({ where: { userId: u.userId, title: 'Level up!' }, orderBy: { createdAt: 'asc' } })
-    expect(notes.map((note) => (note.metadata as { level: number }).level)).toEqual([2, 3])
+    expect(notes.map((note) => (note.metadata as { level: number }).level)).toEqual([2, 3, 4])
   })
 
   it('reports a tier change when a level crosses into the next tier, and notifies for the level and the tier', async () => {
@@ -142,9 +144,9 @@ describe('rewards engine', () => {
   it('does not report a level-up one XP short of the threshold', async () => {
     const u = await user('short')
     // 50 for the project and 25 for the achievement take the user to start - 1.
-    await testPrisma.user.update({ where: { id: u.userId }, data: { xp: xpAtLevelStart(2) - 1 - 75 } })
+    await testPrisma.user.update({ where: { id: u.userId }, data: { xp: xpAtLevelStart(3) - 1 - 75 } })
     const res = await createProject(u, 'Short')
-    expect(res.data.rewards).toMatchObject({ totalXp: xpAtLevelStart(2) - 1, oldLevel: 1, newLevel: 1, leveledUp: false })
+    expect(res.data.rewards).toMatchObject({ totalXp: xpAtLevelStart(3) - 1, oldLevel: 2, newLevel: 2, leveledUp: false })
     expect(await testPrisma.notification.count({ where: { userId: u.userId, title: 'Level up!' } })).toBe(0)
   })
 
