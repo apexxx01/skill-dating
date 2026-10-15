@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { PrismaClient } from '@prisma/client'
-import { EventBus, DOMAIN_EVENT_NAMES, type Db } from './events'
+import fs from 'fs'
+import path from 'path'
+import { EventBus, DOMAIN_EVENT_NAMES, EVENT_TRANSACTION_TIMEOUT_MS, type Db } from './events'
 import { envelopeForGain } from './rewards-envelope'
 import { setErrorReporter } from './log'
 
@@ -255,5 +257,36 @@ describe('registerOnce', () => {
     bus.registerOnce('x', register)
     bus.registerOnce('y', register)
     expect(register).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('the transaction of an event', () => {
+  it('has an explicit 15 second timeout', async () => {
+    expect(EVENT_TRANSACTION_TIMEOUT_MS).toBe(15_000)
+    const { client } = fakeClient()
+    await new EventBus().transact(client, async () => undefined)
+    expect(client.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 15_000 })
+  })
+
+  it('lets a caller choose another limit, and passes the rest of the options through', async () => {
+    const { client } = fakeClient()
+    await new EventBus().transact(client, async () => undefined, { timeout: 30_000, maxWait: 1000 })
+    expect(client.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 30_000, maxWait: 1000 })
+  })
+
+  it('is opened with transactWithEvents by every file that emits an event', () => {
+    // An event emitted inside a bare prisma.$transaction() would run on Prisma's 5 second
+    // default and its committed handlers would be dropped.
+    const SRC = path.resolve(__dirname, '..')
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) return walk(full)
+        return /\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name) ? [full] : []
+      })
+    const emitters = walk(SRC).filter((file) => /\bemit\(\s*tx\b/.test(fs.readFileSync(file, 'utf-8')))
+    expect(emitters.length).toBeGreaterThanOrEqual(10)
+    const without = emitters.filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8'))).map((file) => path.relative(SRC, file))
+    expect(without).toEqual([])
   })
 })

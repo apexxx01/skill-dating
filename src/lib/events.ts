@@ -59,6 +59,16 @@ export const DOMAIN_EVENT_NAMES = [
 
 export type Db = PrismaClient | Prisma.TransactionClient
 
+/**
+ * How long a transaction opened with transact() may run. Prisma's own default is 5
+ * seconds; the transaction of a request that emits an event also pays out XP, a
+ * level-up and an achievement or two, so it is given a limit of its own instead of
+ * inheriting one nobody chose. It is still a ceiling for a handler that is waiting
+ * on the database, not room for work: anything slow (email, webhooks, recounts)
+ * belongs in a Job (src/lib/infra/jobs.ts), started after the commit.
+ */
+export const EVENT_TRANSACTION_TIMEOUT_MS = 15_000
+
 export interface EmitResult {
   /** True when a subscriber paid out something (XP or an achievement) because of this event. */
   rewarded: boolean
@@ -223,7 +233,8 @@ export class EventBus {
   /**
    * prisma.$transaction() that also tracks events: subscribers see the same
    * transaction, committed subscribers run after it commits (and not at all if it
-   * throws), and `scope` says what each user earned.
+   * throws), and `scope` says what each user earned. The transaction times out
+   * after EVENT_TRANSACTION_TIMEOUT_MS unless `options` say otherwise.
    */
   async transact<T>(
     client: PrismaClient,
@@ -232,10 +243,13 @@ export class EventBus {
   ): Promise<{ value: T; scope: EventScope }> {
     await this.loaded()
     const scope = new EventScope()
-    const value = await client.$transaction(async (tx) => {
-      this.scopes.set(tx, scope)
-      return fn(tx, scope)
-    }, options)
+    const value = await client.$transaction(
+      async (tx) => {
+        this.scopes.set(tx, scope)
+        return fn(tx, scope)
+      },
+      { timeout: EVENT_TRANSACTION_TIMEOUT_MS, ...options }
+    )
     await scope.flush((name) => this.committed.get(name) ?? [])
     return { value, scope }
   }
