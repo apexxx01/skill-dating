@@ -13,7 +13,7 @@ The code that applies them is `src/lib/rewards.ts` (`grant()`). **It is the only
 `XPEvent` or changes `User.xp`.** Routes never award anything themselves: they emit a
 domain event inside their transaction, and the rewards engine, which subscribes to it,
 pays out on the same transaction (see [ARCHITECTURE.md](ARCHITECTURE.md#domain-events-and-rewards)).
-An action that rolls back pays nothing, and a reward that fails rolls the action back.
+An action that rolls back pays nothing, and a reward that fails rolls the action back. A unit test (`src/lib/xp-writers.test.ts`) fails if any other file under `src/` writes an `XPEvent` or changes `User.xp`; only the demo seed (`prisma/seed.ts`) writes sample XP directly.
 
 ## XP table
 
