@@ -22,8 +22,9 @@ const BYPASS_HEADERS = [
 
 const PUBLIC_PAGES = new Set(['/', '/signin', '/signup', '/error'])
 // Answer anonymous callers on purpose; asserted individually below. The webhook
-// and the Inngest route authenticate by request signature instead of a session.
-const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest'])
+// and the Inngest route authenticate by request signature instead of a session;
+// the health check answers anyone, and only says which services are up.
+const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest', '/api/health'])
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
 function walk(dir: string): string[] {
@@ -181,6 +182,11 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
       // The webhook's only credential is its signature: unsigned is refused either way.
       const webhook = await call('POST', '/api/webhooks/clerk', bypass)
       expect([400, 503]).toContain(webhook.status)
+
+      // The health check is for monitors: public, and the same with or without the header.
+      const health = await call('GET', '/api/health', bypass)
+      expect(health.status).toBe(200)
+      expect(JSON.parse(health.body).checks.database.status).toBe('ok')
     }
 
     // The Inngest route checks the request signature itself. Whatever it answers,
