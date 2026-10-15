@@ -47,7 +47,7 @@ Discover → Connect → Team up → Chat → Build → Ship → Compete → Win
 | Moderation | Report a user (deduped, no self-reporting), moderator/admin review queue with forward-only status transitions, each resolution logged as a moderation action and an audit event. |
 | Reputation | Shared XP award logic, a real activity feed, achievements (granted idempotently, defined in one place), and a live leaderboard computed from the XP event log. |
 | Profiles | Skills, XP, a live rank, achievements, owned and joined projects, owned and joined teams, an activity feed (`GET /api/activity`), and your own email on your own profile only. |
-| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. The achievement and XP for being endorsed only count endorsements from verified accounts, with daily caps per endorser and per recipient. |
+| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. The XP and achievement for being endorsed only count endorsements from verified accounts, never your own or across a block, with daily caps per endorser and per recipient. |
 | Project progress | Project updates and milestones, with a members-only write path, per-user posting limits, notifications to teammates, and achievements for a first update and first completed milestone. |
 | Dashboard | `GET /api/dashboard` returns everything the dashboard shows through the same rules as the rest of the API, including block filtering. |
 | My applications | `GET /api/teams/applications` — a user's own applications and their status, including invitations sent to them. |
@@ -184,6 +184,7 @@ to an empty database it produces exactly the schema `db push` produced.
 | `npm run db:migrate:status` | Show which migrations the database has applied |
 | `npm run db:baseline` | One-off for a database that already has the current schema (created with the old `prisma db push`): mark the baseline migration as applied without running it |
 | `npm run db:studio` | Browse the database in Prisma Studio |
+| `npm run sim:progression` | Simulate casual, active, power and cap-maximising users against the real XP rules and level curve, and print how many days each takes to reach each level. Its output is in [docs/GAMIFICATION.md](docs/GAMIFICATION.md#how-long-it-takes-the-progression-simulation) |
 
 ## Project layout
 
@@ -191,6 +192,7 @@ to an empty database it produces exactly the schema `db push` produced.
 prisma/schema.prisma   data model
 prisma/migrations/     SQL migrations; the only way the schema changes
 prisma/seed.ts         idempotent demo data
+scripts/               developer scripts (the progression simulator)
 src/app/api/           route handlers
 src/app/(dashboard)/   authenticated app pages
 src/lib/               scoring, XP, activity/achievements, auth, shared API helpers

@@ -153,6 +153,17 @@ in-process bus. A route that changes something calls `emit(tx, 'PROJECT_CREATED'
 - **committed** subscribers run after the commit, and never for a rollback. A throwing committed
   subscriber is logged and swallowed, since the request already succeeded. Analytics lives here.
 
+**Handlers stay light; heavy work goes to Jobs.** A transactional subscriber holds the request's
+database transaction open, so it may only do database work that has to commit with the action
+(write a row, pay XP, create a notification). Anything slow or that talks to another service
+(email, webhooks, recounts, fan-out to many users) is enqueued as a [Job](#jobs) instead, and a
+committed subscriber is the place to enqueue it, since a job must not start for an action that
+rolled back. To make a runaway handler fail rather than hold a connection, every transaction
+opened with `transactWithEvents()` has an explicit **15 second timeout**
+(`EVENT_TRANSACTION_TIMEOUT_MS` in `src/lib/events.ts`; Prisma's default would be 5). A caller
+can pass its own `timeout`, but a longer one is a sign the work belongs in a Job. A unit test
+fails if a file that emits an event does not open its transaction with `transactWithEvents()`.
+
 `src/lib/subscribers.ts` registers both and is loaded by the bus before the first event. The
 bus is one per process (kept on `globalThis`): Next can evaluate a module once per route bundle,
 and separate copies would each have their own subscribers and their own record of open
@@ -191,7 +202,7 @@ What an event pays is data, in `src/lib/rewards-config.ts`: amount, daily cap an
 per action. The rules, the level curve, the tiers and the response envelope are in
 [GAMIFICATION.md](GAMIFICATION.md). Three properties come from the design:
 
-- **Exactly once.** Each award has a `dedupeKey` (`project:<id>`, `achievement:<slug>`) and a
+- **Exactly once.** Each award has a `dedupeKey` (`project:<id>`, `achievement:<slug>`, `milestone:<id>`, ...) and a
   unique index on `XPEvent (userId, type, dedupeKey)`. Two racing requests cannot both insert; the
   loser sees nothing was written and pays nothing. No lock is needed for this.
 - **Capped per local day.** Capped actions take a transaction advisory lock per user and action,
@@ -256,7 +267,14 @@ route:
   paging is not shifted by new rows), `paginateOffset()` and offset cursors where the order is computed
   or spans columns. Page-numbered requests still work and now also return `nextCursor`.
 - **Idempotency** (`src/lib/api/idempotency.ts`): `withAuth(handler, { idempotent: true })` on
-  creating POST routes. The stored response lives 24 hours in the Cache adapter; an atomic counter
+  creating POST routes. **Every new creating `POST` must opt in** (one that creates a row, a
+  message, a request or an award), because a client that retries after a timeout must not create it
+  twice. Today that is 18 routes: the 17 user-facing creating routes listed in [API.md](API.md#platform)
+  and `POST /api/admin/flags`. The POSTs that do not opt in change existing state or are unique by
+  construction rather than create something: marking a conversation read, submitting for a
+  hackathon, transferring a team, endorsing (one per endorser and evidence), the reaction toggle
+  (a retried toggle undoes itself, so a client must not retry it blindly), the realtime token and the
+  Inngest endpoint. The stored response lives 24 hours in the Cache adapter; an atomic counter
   decides which of several simultaneous requests runs. See [API.md](API.md#platform).
 - **Health.** `GET /api/health` is public and reports database, cache, jobs and realtime. Only a
   database failure answers 503.

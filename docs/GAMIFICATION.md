@@ -25,11 +25,19 @@ An action that rolls back pays nothing, and a reward that fails rolls the action
 | `TEAM_FORMED` | the user registers a team for a hackathon | 50 | hackathon | none |
 | `HACKATHON_WIN` | the user's team is recorded as rank 1 | 500 | hackathon | none |
 | `ACHIEVEMENT_EARNED` | an achievement unlocks | the achievement's own XP | achievement | none |
+| `MILESTONE_COMPLETED` | a project milestone is completed | 30 | milestone | 5 a day |
+| `PROJECT_UPDATE_POSTED` | the user posts a project update | 15 | update | 3 a day |
+| `EVIDENCE_ADDED` | the user attaches evidence to a skill | 20 | evidence | 3 a day |
+| `EVIDENCE_ENDORSED` | someone else endorses the user's evidence (paid to the **owner**) | 10 | evidence and endorser | 10 a day |
+| `CONNECTION_ACCEPTED` | a connection request is accepted (paid to **both** people) | 10 | connection | 5 a day, each |
+| `MESSAGE_SENT_FIRST_IN_CONNECTION` | the user sends the first message of a direct conversation with a connection (paid to the **sender**) | 5 | conversation | 5 a day |
+| `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | none |
 
-Events that are announced but pay nothing yet: `PROJECT_UPDATE_POSTED` and
-`MILESTONE_COMPLETED` (achievements only), `CONNECTION_ACCEPTED` and
-`MESSAGE_SENT_FIRST_IN_CONNECTION` (nothing yet; they exist so later stages can
-subscribe).
+Who is **not** paid: the milestone update post that completing a milestone creates is not an
+update the user posted, so it pays nothing as one; nobody is paid for endorsing their own
+evidence or across a block (the route refuses both, and the reward check refuses them
+again); declined connections and rejected applications pay nothing; a second message in a
+conversation is not a first message.
 
 ### Achievements
 
@@ -51,16 +59,21 @@ award, so it counts toward levels like any other XP, and a level-up it causes is
 reported too.
 
 **Endorsements** are the one reward other people can trigger, so they are gated
-before they pay (`endorsementRewardAllowed` in `src/lib/skill-evidence.ts`): the
-endorser must have a verified account, one endorser can trigger at most 10
-rewards per rolling day, and one owner can earn at most 50 XP a day from them. The
-endorsement itself always counts toward the evidence.
+before they pay, XP and achievement alike (`endorsementRewardAllowed` in
+`src/lib/skill-evidence.ts`): not for yourself or across a block, the endorser must
+have a verified account, and one endorser can trigger at most 10 rewards per rolling
+day. How much one owner can earn per day is the rule's own cap (10 payments, so 100
+XP), enforced by the engine like every other cap. The endorsement itself always
+counts toward the evidence.
 
 ## How "the same award" is decided
 
 Every award stores `sourceType` and `sourceId` (what it was for) and a `dedupeKey`
 built from them: `project:<projectId>`, `hackathon:<hackathonId>`,
-`achievement:<slug>`. A unique index on `XPEvent (userId, type, dedupeKey)`
+`achievement:<slug>`, `milestone:<id>`, `connection:<id>`, `conversation:<id>`,
+`team_application:<id>`, and `endorsement:<evidenceId>:<endorserId>` (so each endorser pays
+an owner once per piece of evidence, however often they withdraw and endorse again).
+A unique index on `XPEvent (userId, type, dedupeKey)`
 makes a second award for the same thing impossible, whatever retries, double clicks or
 parallel requests happen. When two requests race, the database lets one insert win
 and the other sees nothing was written and pays nothing.
@@ -88,22 +101,24 @@ parallel requests cannot all slip under the cap.
 
 ## Level curve
 
-`xpForLevel(n) = round(100 × n^1.5)` is the XP needed to get from level `n` to level
+`xpForLevel(n) = round(60 × n^1.25)` is the XP needed to get from level `n` to level
 `n + 1`. Level 1 starts at 0 XP. The maximum level is 100, which has no next level.
+Level 2 starts at 60 XP, so a first project (50 XP) with its *First Project* achievement
+(25 XP) takes a new user to level 2, and no further: level 3 starts at 203.
 
 | Level | Size of the level | Total XP where it starts |
 | ---: | ---: | ---: |
-| 1 | 100 | 0 |
-| 2 | 283 | 100 |
-| 3 | 520 | 383 |
-| 4 | 800 | 903 |
-| 5 | 1,118 | 1,703 |
-| 10 | 3,162 | 11,106 |
-| 20 | 8,944 | 67,135 |
-| 35 | 20,706 | 279,605 |
-| 55 | 40,789 | 877,054 |
-| 80 | 71,554 | 2,254,066 |
-| 100 | 100,000 | 3,950,120 |
+| 1 | 60 | 0 |
+| 2 | 143 | 60 |
+| 3 | 237 | 203 |
+| 4 | 339 | 440 |
+| 5 | 449 | 779 |
+| 10 | 1,067 | 4,216 |
+| 20 | 2,538 | 21,298 |
+| 35 | 5,108 | 76,915 |
+| 55 | 8,987 | 215,200 |
+| 80 | 14,355 | 503,253 |
+| 100 | 18,974 | 833,806 |
 
 `levelFor(xp)` returns `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`, where
 `progress` is `xpIntoLevel / xpForNextLevel` (0 to 1; always 1 at level 100, where
@@ -121,6 +136,60 @@ parallel requests cannot all slip under the cap.
 | `MYTHIC` | 80 and up |
 
 The constants are `TIERS` and `TIER_START_LEVEL` in `src/lib/levels.ts`.
+
+## How long it takes: the progression simulation
+
+`npm run sim:progression` (`scripts/simulate-progression.ts`) plays four kinds of user, day by day
+for six years, against the real rules. The XP table, daily caps, once-per-source rule, achievements
+and level curve are imported from the files above, not copied, so the numbers follow any change to
+them. Nothing is random and nothing touches the database. Paste the output back here after changing
+a rule; a unit test (`src/lib/progression-sim.test.ts`) keeps the script honest about caps and levels.
+
+- **Casual**: 3 actions a week: a project every two weeks, shipped, with a milestone and an update along the way. Earns about 24 XP a day over its first year.
+- **Active**: Something every day, about 3 a day: a project every 10 days, milestones, updates, and the social side. Earns about 69 XP a day over its first year.
+- **Power**: About 6 a day, ships a project every week, joins a hackathon every month. Earns about 142 XP a day over its first year.
+- **Ceiling**: Hits every daily cap every day. The fastest the rules allow, not a person. Earns about 1181 XP a day over its first year.
+
+Days until the user first reaches each level (a tier starts at levels 10, 20, 35, 55 and 80):
+
+| User | Level 2 | Level 5 | Level 10 | Level 20 | Level 35 | Level 55 | Level 80 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Casual | 10 d | 28 d (4.0 wk) | 182 d (6.0 mo) | 910 d (2.5 yr) | never (6 yr+) | never (6 yr+) | never (6 yr+) |
+| Active | 2 d | 10 d | 60 d (8.6 wk) | 310 d (10.2 mo) | 1120 d (3.1 yr) | never (6 yr+) | never (6 yr+) |
+| Power | 1 d | 7 d | 29 d (4.1 wk) | 153 d (5.0 mo) | 546 d (1.5 yr) | 1525 d (4.2 yr) | never (6 yr+) |
+| Ceiling | 1 d | 1 d | 4 d | 18 d (2.6 wk) | 65 d (9.3 wk) | 183 d (6.0 mo) | 427 d (14.0 mo) |
+
+What the curve is tuned against, and how far off it is:
+
+| Target | Wanted | Simulated | XP a day: needed / earned | |
+| --- | --- | --- | --- | --- |
+| First project and its achievement | level 2 | level 2 | | met |
+| Casual: Silver in 6-8 weeks | 42-56 d | 182 d (6.0 mo) | 86 / 24 | MISSED (too slow) |
+| Active: Gold in 3-4 months | 91-122 d | 310 d (10.2 mo) | 200 / 69 | MISSED (too slow) |
+| Power: Platinum in 9-12 months | 274-365 d | 546 d (1.5 yr) | 241 / 142 | MISSED (too slow) |
+| Mythic is top-0.1% territory | not within 3 years of steady play | Power: never (6 yr+) | | met |
+
+How to read it. The first-project target is met: 75 XP is level 2, not level 3. The three
+speed targets are not: with the amounts in the XP table, this curve is 2 to 4 times too slow for
+them. The "needed" column is the XP a day a user would have to earn, on average, to land in the
+middle of the target window; none of the three users earns anything like it. Three actions a
+week cannot: most actions pay 5 to 50 XP and only shipping pays 200, so a casual user earns about
+24 XP a day, not 86.
+
+What would meet them, found by searching `round(a × n^p)` against these same users:
+
+- Keeping the XP table, a steeper and much cheaper-to-start curve fits all three speed targets,
+  for example `round(5 × n^1.85)` (casual 42 days to Silver, active 120 to Gold, power 303 to
+  Platinum; the ceiling reaches Mythic in about a year). The price is the first target: level 2
+  would start at 5 XP, so a first project and its achievement would land on level 4.
+- Keeping "a first project reaches level 2" (`a` of at least about 22), no `(a, p)` fits all three:
+  the best compromise (`round(24 × n^1.2)`) puts casual and active inside their windows and power at about 6
+  months instead of 9 to 12.
+- Or change the economy rather than the curve: the XP amounts in `REWARD_RULES` and the
+  achievements are the other lever.
+
+Mythic stays out of reach for ordinary play with the current curve: the power user does not get
+there in six years, and only a user who hits every daily cap, every day (the ceiling) takes about 14 months.
 
 ## What the interface receives: `RewardsEnvelope`
 
@@ -153,6 +222,10 @@ the **signed-in caller**. A route that rewards someone else (the winners of a
 hackathon, an applicant who was accepted, the owner of endorsed evidence) tells them with
 a notification instead.
 
+Two routes pay the caller XP without returning an envelope yet:
+`PATCH /api/connections/{id}` (accepting) and `POST /api/conversations/{id}` (the first
+message of a direct conversation). The gain shows in the next read of the user's XP.
+
 ### Examples
 
 First project (50 XP for the project, 25 for the *First Project* achievement):
@@ -162,7 +235,7 @@ First project (50 XP for the project, 25 for the *First Project* achievement):
   "id": "clx…", "name": "Habit tracker",
   "rewards": {
     "xpGained": 75, "totalXp": 75,
-    "oldLevel": 1, "newLevel": 1, "leveledUp": false,
+    "oldLevel": 1, "newLevel": 2, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "BRONZE", "tierChanged": false,
     "achievements": [{ "slug": "first-project", "name": "First Project" }],
     "questsCompleted": [], "streak": null
@@ -171,13 +244,13 @@ First project (50 XP for the project, 25 for the *First Project* achievement):
 ```
 
 Shipping that project (200 XP, plus 100 for *Shipped It*) takes the user from 75 to
-375 XP, across the level 2 boundary at 100:
+375 XP, across the level 3 boundary at 203:
 
 ```json
 {
   "rewards": {
     "xpGained": 300, "totalXp": 375,
-    "oldLevel": 1, "newLevel": 2, "leveledUp": true,
+    "oldLevel": 2, "newLevel": 3, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "BRONZE", "tierChanged": false,
     "achievements": [{ "slug": "first-ship", "name": "Shipped It" }],
     "questsCompleted": [], "streak": null
@@ -190,7 +263,7 @@ A user 10 XP short of level 10 creates a project (tier boundary: `BRONZE` → `S
 ```json
 {
   "rewards": {
-    "xpGained": 50, "totalXp": 11146,
+    "xpGained": 50, "totalXp": 4256,
     "oldLevel": 9, "newLevel": 10, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "SILVER", "tierChanged": true,
     "achievements": [], "questsCompleted": [], "streak": null

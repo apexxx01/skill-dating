@@ -425,8 +425,12 @@ Level progress for a progress bar is not in the envelope; compute it from the us
 curve in [GAMIFICATION.md](GAMIFICATION.md#level-curve) (`levelFor()` in `src/lib/levels.ts` is pure
 and safe to import in the browser: `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`).
 
-Do not promise XP the UI cannot be sure of: project creation pays at most three times a day, and
-shipping, joining, forming a team and winning pay once per project or hackathon.
+Do not promise XP the UI cannot be sure of. Every award is paid once per thing, and most have a
+daily cap: project creation and shipping 3 a day; milestones 5; project updates, evidence 3;
+endorsements received 10; connections 5; first messages 5. Joining, forming a team, winning and
+an accepted team application pay once per hackathon or application. Accepting a connection and
+sending a first message pay the caller, but those two responses carry no `rewards` yet: read the
+new total from the user's `xp`.
 
 ---
 

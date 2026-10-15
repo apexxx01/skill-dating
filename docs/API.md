@@ -24,7 +24,7 @@ Response types for the frontend are exported from `src/types/api.ts`; the page-b
 
 **Pagination.** Every list endpoint takes `limit` and either `page` or `cursor`, and answers with `nextCursor` (`null` on the last page). Send `nextCursor` back as `cursor` to get the next page. Cursors are opaque, so do not build or read them; they are cheap at any depth and are not thrown off by rows added while someone pages. A request with `cursor` runs no count, so its answer has no `pagination` object; a `page` request keeps its `pagination` and also carries `nextCursor`, so a client can start with pages and continue with cursors. A cursor that is not valid is `400 INVALID_CURSOR`. Lists whose order is computed or spans several columns (`/api/discover`, `/api/leaderboard`, `/api/skills`, milestones) use position cursors, which stay valid only while the ordering is unchanged. Two lists answer with a bare array, `GET /api/users/{id}/skills` and `GET /api/teams/{id}/applications`; they take `limit` (default and maximum 100) and `cursor`, and send the next cursor in the `X-Next-Cursor` header. `GET /api/teams/{id}/candidates` is a short ranked recommendation list (top 10) and is never paged.
 
-**Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags.
+**Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags (the admin-only create). A new creating `POST` must opt in with `idempotent: true`; see [ARCHITECTURE.md](ARCHITECTURE.md#api-conventions).
 
 **Rewards.** Routes that can award XP return a `rewards` object next to their normal body (see [GAMIFICATION.md](GAMIFICATION.md)); it is present even when nothing was earned. The type is `RewardsEnvelope` in `src/types/api.ts`.
 
@@ -171,7 +171,7 @@ Three distinct authorization paths depending on the request:
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on an owner-sent invitation** (`invitedById` set) — the invitee only.
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on a self-initiated application** — team `OWNER`/`ADMIN` or platform `ADMIN`.
 
-`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity and emits `TEAM_APPLICATION_ACCEPTED` (`team-player` for the applicant). The response carries the caller's own `rewards`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
+`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity and emits `TEAM_APPLICATION_ACCEPTED` (50 XP to the applicant, once per application, no daily cap, and `team-player`). The response carries the caller's own `rewards`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
 
 ### `POST /api/teams/[id]/invitations`
 **Auth:** team `OWNER`/`ADMIN` or platform `ADMIN`.
@@ -258,7 +258,7 @@ The caller's own connections (sent + received, or filtered). Query: `page, curso
 ### `PATCH /api/connections/[id]`
 **Auth:** the connection's `receiverId` only — not the sender.
 **Body:** `{ status: 'ACCEPTED' | 'DECLINED' }`
-On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (no reward yet). `400` if not currently `PENDING`.
+On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (10 XP to both people, once per connection, at most 5 a day each; the response has no `rewards`). `400` if not currently `PENDING`.
 
 ---
 
@@ -278,7 +278,7 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 **Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, cursor, limit(≤100), before (ISO datetime)`. The response's `nextCursor` leads to the next **older** page. Marks exactly the messages returned as read for the caller.
 
 ### `POST /api/conversations/[id]`
-**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (no reward yet). Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
+**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (5 XP to the sender, once per conversation, at most 5 a day; the response has no `rewards`). Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
 **Body:** `{ content, type?, replyToId?, metadata? }`
 
 ### `POST /api/conversations/[id]/read`
@@ -370,7 +370,7 @@ Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endo
 **Errors:** `404` user not found or has blocked the caller.
 
 ### `POST /api/evidence`
-Creates evidence for the caller. Records activity and emits `EVIDENCE_ADDED` (`first-evidence`). **Response:** the evidence plus `rewards`.
+Creates evidence for the caller. Records activity and emits `EVIDENCE_ADDED` (20 XP once per piece of evidence, at most 3 a day, and `first-evidence`). **Response:** the evidence plus `rewards`.
 **Body:** `{ skillId, type: 'GITHUB_PROJECT' | 'PORTFOLIO' | 'CERTIFICATION' | 'CONTRIBUTION', title(≤200), url? (http/https, ≤2048), description?(≤2000) }` (unknown keys are rejected)
 **Errors:** `400` the caller has not added that skill, or already has 20 pieces of evidence on it.
 
@@ -378,7 +378,7 @@ Creates evidence for the caller. Records activity and emits `EVIDENCE_ADDED` (`f
 **Auth:** the evidence owner (`403` otherwise). Deleting evidence also removes the endorsements on it. **Response:** `{ success: true }`
 
 ### `POST /api/evidence/[id]/endorse`
-Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement. Every endorsement counts toward `endorsementCount`, but the reward (the `endorsed` achievement and its XP, paid through the `EVIDENCE_ENDORSED` event) is only granted when the endorser is verified (`verificationLevel` above `NONE`: a password sign-up stays `NONE` until the account signs in through an OAuth provider), at most 10 rewards per endorser per rolling day, and at most 50 XP per recipient per rolling day from endorsements.
+Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement. Every endorsement counts toward `endorsementCount`, but the reward (10 XP to the owner, once per endorser and evidence, and the `endorsed` achievement, paid through the `EVIDENCE_ENDORSED` event) is only granted when the endorser is verified (`verificationLevel` above `NONE`: a password sign-up stays `NONE` until the account signs in through an OAuth provider), at most 10 rewards per endorser per rolling day, and at most 10 endorsement payments per recipient per local day. Nothing is paid for endorsing yourself or across a block (both are refused).
 **Response:** `{ endorsed: true, endorsementCount }` — `201` when created, `200` if already endorsed.
 **Errors:** `403` your own evidence; `403` you have blocked the owner; `404` missing, an endorsement row, or the owner has blocked you.
 
@@ -394,7 +394,7 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 **Response:** `{ updates: [{ id, projectId, title, content, type, createdAt, author }], nextCursor, pagination? }`
 
 ### `POST /api/projects/[id]/updates`
-**Auth:** project owner or member. Limited to 10 per minute per user. Notifies the other members, records activity and emits `PROJECT_UPDATE_POSTED` (`first-update` on the caller's first). **Response:** the update plus `rewards`.
+**Auth:** project owner or member. Limited to 10 per minute per user. Notifies the other members, records activity and emits `PROJECT_UPDATE_POSTED` (15 XP per update, at most 3 a day, and `first-update` on the caller's first). **Response:** the update plus `rewards`.
 **Body:** `{ title(≤200), content(≤10000), type?: 'UPDATE' | 'ANNOUNCEMENT' }` (`MILESTONE` and `SHIPPED` updates are written by the system).
 
 ### `PATCH /api/projects/[id]/updates/[updateId]`
@@ -414,7 +414,7 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 
 ### `PATCH /api/projects/[id]/milestones/[milestoneId]`
 **Auth:** owner or member.
-**Body (at least one):** `{ title?, description?(nullable), dueDate?(nullable), order?, completed?: boolean }`. Send `completed`, never `completedAt`. Completing a milestone for the first time records activity and emits `MILESTONE_COMPLETED` (`first-milestone`); repeating it does not. **Response:** the milestone plus `rewards`.
+**Body (at least one):** `{ title?, description?(nullable), dueDate?(nullable), order?, completed?: boolean }`. Send `completed`, never `completedAt`. Completing a milestone for the first time records activity and emits `MILESTONE_COMPLETED` (30 XP once per milestone, at most 5 a day, and `first-milestone`); repeating it does not. **Response:** the milestone plus `rewards`.
 
 ### `DELETE /api/projects/[id]/milestones/[milestoneId]`
 **Auth:** owner or member.
