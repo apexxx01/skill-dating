@@ -11,7 +11,7 @@ const querySchema = z.object({
 })
 
 // Computed live from XPEvent (SUM per user), not read from the denormalized
-// User.xp cache. User.xp is kept in sync by lib/xp.ts's awardXp() for cheap
+// User.xp cache. User.xp is kept in sync by the rewards engine (lib/rewards.ts) for cheap
 // display/sort elsewhere, but the leaderboard is the one place score
 // actually matters, so it earns the real aggregate query instead of trusting
 // a field that (before this change) silently sat at 0 for every user.

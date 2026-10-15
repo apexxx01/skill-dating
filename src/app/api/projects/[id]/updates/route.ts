@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 import {
   authorSelect,
   isValidId,
@@ -79,7 +79,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { title, content, type } = body.data
   const { project } = access
 
-  const created = await prisma.$transaction(async (tx) => {
+  const { value: created, scope } = await transactWithEvents(prisma, async (tx) => {
     const update = await tx.projectUpdate.create({
       data: { projectId, authorId: user.id, title, content, type },
       select: updateSelect,
@@ -91,7 +91,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       projectId,
       metadata: { updateId: update.id },
     })
-    await grantAchievement(tx, user.id, 'first-update')
+    await emit(tx, 'PROJECT_UPDATE_POSTED', { userId: user.id, projectId, updateId: update.id })
 
     const others = await tx.projectMember.findMany({
       where: { projectId, userId: { not: user.id } },
@@ -114,5 +114,5 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return update
   })
 
-  return createApiResponse(created, 201)
+  return createApiResponse({ ...created, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'progress:update-create' } })

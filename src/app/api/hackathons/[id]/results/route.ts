@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
-import { awardXp } from '@/lib/xp'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 
 const resultsSchema = z.object({
   results: z.array(z.object({
@@ -55,7 +54,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   // Each team's rank/score write, and - for the winner - every member's XP,
   // activity, and achievement grant, commit together in one transaction so
   // a partial failure can't leave some winners rewarded and others not.
-  const updated = await prisma.$transaction(async (tx) => {
+  const { value: updated, scope } = await transactWithEvents(prisma, async (tx) => {
     const rows = []
     for (const entry of bodyResult.data.results) {
       const hackathonTeam = teamById.get(entry.hackathonTeamId)!
@@ -68,20 +67,18 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       })
       rows.push(row)
 
-      // Win XP/activity must fire exactly once per team, ever - not once
-      // per PATCH call that happens to set rank 1. grantAchievement's own
-      // idempotency already covers the achievement grant, but XPEvent and
-      // Activity have no such guard by default (they're append-only logs,
-      // not a users-earned-this-once table), so re-recording results for a
-      // team that was already rank 1 must not re-run the reward block.
+      // The win must fire exactly once per team, ever - not once per PATCH
+      // call that happens to set rank 1. The rewards engine already pays each
+      // member once per hackathon, but the activity entry and notification
+      // have no such guard (they're append-only), so re-recording results for
+      // a team that was already rank 1 must not re-run this block.
       if (entry.rank === 1 && !wasAlreadyWinner) {
         for (const member of hackathonTeam.members) {
-          await awardXp(tx, member.userId, 'HACKATHON_WIN', `Won "${hackathon.name}" with ${hackathonTeam.team.name}`)
           await recordActivity(tx, member.userId, 'HACKATHON_WON', `Won "${hackathon.name}"`, {
             link: `/hackathons/${hackathon.slug}`,
             metadata: { hackathonTeamId: hackathonTeam.id, teamName: hackathonTeam.team.name }
           })
-          await grantAchievement(tx, member.userId, 'hackathon-winner')
+          await emit(tx, 'HACKATHON_WON', { userId: member.userId, hackathonId: id, hackathonName: hackathon.name, hackathonTeamId: hackathonTeam.id })
 
           await tx.notification.create({
             data: {
@@ -99,5 +96,5 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     return rows
   })
 
-  return createApiResponse({ success: true, results: updated })
+  return createApiResponse({ success: true, results: updated, rewards: await scope.rewardsFor(prisma, user.id) })
 }, { rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'hackathons:results' } })

@@ -33,6 +33,12 @@ export type GrantResult =
   | { granted: true; xp: number; envelope: RewardsEnvelope }
   | { granted: false; reason: 'DUPLICATE' | 'DAILY_CAP' | 'NO_REWARD'; envelope: RewardsEnvelope }
 
+/** The "nothing earned" envelope for a user, for responses of requests that may award but did not. */
+export async function currentRewards(db: Db, userId: string): Promise<RewardsEnvelope> {
+  const row = await db.user.findUnique({ where: { id: userId }, select: { xp: true } })
+  return emptyEnvelope(row?.xp ?? 0)
+}
+
 export async function grant(tx: Db, userId: string, action: RewardAction, options: GrantOptions): Promise<GrantResult> {
   const rule = REWARD_RULES[action]
   if (options.sourceType !== rule.sourceType) {

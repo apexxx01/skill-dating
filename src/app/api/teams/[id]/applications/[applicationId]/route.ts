@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
 
 const reviewSchema = z.object({
@@ -80,7 +80,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     }
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  const { value: result, scope } = await transactWithEvents(prisma, async (tx) => {
     const application = await tx.teamApplication.findUnique({
       where: { id: applicationId },
       include: { team: true }
@@ -182,7 +182,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       await recordActivity(tx, application.userId, 'TEAM_JOINED', `Joined team "${application.team.name}"`, {
         link: `/teams/${application.team.slug}`
       })
-      await grantAchievement(tx, application.userId, 'team-player')
+      await emit(tx, 'TEAM_APPLICATION_ACCEPTED', { userId: application.userId, teamId, applicationId })
     }
 
     return { outcome: 'reviewed' as const, application }
@@ -222,5 +222,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
         }
   })
 
-  return createApiResponse({ status: bodyResult.data.status, applicationId: application.id })
+  // The caller's own rewards: non-empty when they accepted an invitation to themselves. The applicant
+  // whose application was accepted is told by a notification.
+  return createApiResponse({ status: bodyResult.data.status, applicationId: application.id, rewards: await scope.rewardsFor(prisma, user.id) })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'teams:review' } })

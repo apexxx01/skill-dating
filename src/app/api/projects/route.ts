@@ -2,9 +2,8 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, authorize } from '@/lib/api/handler'
 import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
-import { awardXp } from '@/lib/xp'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -124,7 +123,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // Membership and the project's own coordination channel form together,
   // in one transaction, at creation time — same reasoning as team
   // creation: don't leave a second step for someone to forget to wire up.
-  const project = await prisma.$transaction(async (tx) => {
+  const { value: project, scope } = await transactWithEvents(prisma, async (tx) => {
     const created = await tx.project.create({
       data: {
         ...bodyResult.data,
@@ -150,12 +149,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       }
     })
 
-    await awardXp(tx, user.id, 'PROJECT_CREATED', `Created project "${created.name}"`)
     await recordActivity(tx, user.id, 'PROJECT_CREATED', `Created project "${created.name}"`, {
       projectId: created.id,
       link: `/projects/${created.slug}`
     })
-    await grantAchievement(tx, user.id, 'first-project')
+    await emit(tx, 'PROJECT_CREATED', { userId: user.id, projectId: created.id, projectName: created.name })
 
     return created
   })
@@ -164,5 +162,5 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     data: { userId: user.id, action: 'PROJECT_CREATED', targetType: 'PROJECT', targetId: project.id, newValue: { name: project.name } }
   })
 
-  return createApiResponse(project, 201)
+  return createApiResponse({ ...project, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'projects:create' } })

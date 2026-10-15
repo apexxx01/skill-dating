@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
+import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
 
 const reviewSchema = z.object({
@@ -48,7 +49,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   // Status flip, the DM conversation it unlocks, and the acceptance
   // notification all commit atomically - a failure partway through must
   // never leave an ACCEPTED connection with no shared conversation.
-  const updated = await prisma.$transaction(async (tx) => {
+  const { value: updated } = await transactWithEvents(prisma, async (tx) => {
     const result = await tx.connection.update({
       where: { id },
       data: { status: nextStatus },
@@ -97,6 +98,8 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
           metadata: { connectionId: id, conversationId: conversation.id },
         },
       })
+
+      await emit(tx, 'CONNECTION_ACCEPTED', { userId: connection.receiverId, otherUserId: connection.senderId, connectionId: id })
     }
 
     return result

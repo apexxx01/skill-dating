@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
 import { markMessagesRead } from '@/lib/messaging'
+import { emit, transactWithEvents } from '@/lib/events'
+import { advisoryLock } from '@/lib/progress'
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(10000),
@@ -145,40 +147,74 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     if (blocked) return blocked
   }
 
-  const message = await prisma.message.create({
-    data: {
-      conversationId: id,
-      senderId: user.id,
-      content: bodyResult.data.content,
-      type: bodyResult.data.type,
-      replyToId: bodyResult.data.replyToId,
-      metadata: bodyResult.data.metadata as Prisma.InputJsonValue | undefined,
-    },
-    include: {
-      sender: { select: { id: true, name: true, username: true, image: true } },
-      replyTo: { include: { sender: { select: { id: true, name: true, username: true } } } }
+  const direct = conversationInfo?.type === 'DIRECT' ? conversationInfo : null
+
+  // The message, the conversation's activity stamp, the notifications and the
+  // first-message check commit together. For a direct conversation the first
+  // message is decided under a lock on the conversation, so two messages sent
+  // at the same moment cannot both count as the first.
+  const { value: message } = await transactWithEvents(prisma, async (tx) => {
+    if (direct) await advisoryLock(tx, `first-message:${id}`)
+
+    const created = await tx.message.create({
+      data: {
+        conversationId: id,
+        senderId: user.id,
+        content: bodyResult.data.content,
+        type: bodyResult.data.type,
+        replyToId: bodyResult.data.replyToId,
+        metadata: bodyResult.data.metadata as Prisma.InputJsonValue | undefined,
+      },
+      include: {
+        sender: { select: { id: true, name: true, username: true, image: true } },
+        replyTo: { include: { sender: { select: { id: true, name: true, username: true } } } }
+      }
+    })
+
+    await tx.conversation.update({
+      where: { id },
+      data: { updatedAt: new Date() }
+    })
+
+    const otherMembers = await tx.conversationMember.findMany({
+      where: { conversationId: id, userId: { not: user.id } },
+      select: { userId: true }
+    })
+
+    await tx.notification.createMany({
+      data: otherMembers.map((m: { userId: string }) => ({
+        userId: m.userId,
+        type: 'NEW_MESSAGE' as const,
+        title: 'New message',
+        message: `${user.name || user.username}: ${bodyResult.data.content.slice(0, 100)}`,
+        link: `/messages/${id}`,
+        metadata: { conversationId: id, messageId: created.id }
+      }))
+    })
+
+    const recipient = direct?.members.find((member) => member.userId !== user.id)
+    if (recipient && (await tx.message.count({ where: { conversationId: id } })) === 1) {
+      const connected = await tx.connection.findFirst({
+        where: {
+          status: 'ACCEPTED',
+          OR: [
+            { senderId: user.id, receiverId: recipient.userId },
+            { senderId: recipient.userId, receiverId: user.id },
+          ],
+        },
+        select: { id: true },
+      })
+      if (connected) {
+        await emit(tx, 'MESSAGE_SENT_FIRST_IN_CONNECTION', {
+          userId: user.id,
+          recipientId: recipient.userId,
+          conversationId: id,
+          messageId: created.id,
+        })
+      }
     }
-  })
 
-  await prisma.conversation.update({
-    where: { id },
-    data: { updatedAt: new Date() }
-  })
-
-  const otherMembers = await prisma.conversationMember.findMany({
-    where: { conversationId: id, userId: { not: user.id } },
-    select: { userId: true }
-  })
-
-  await prisma.notification.createMany({
-    data: otherMembers.map((m: { userId: string }) => ({
-      userId: m.userId,
-      type: 'NEW_MESSAGE',
-      title: 'New message',
-      message: `${user.name || user.username}: ${bodyResult.data.content.slice(0, 100)}`,
-      link: `/messages/${id}`,
-      metadata: { conversationId: id, messageId: message.id }
-    }))
+    return created
   })
 
   return createApiResponse(message, 201)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 import {
   childIdFromPath,
   isValidId,
@@ -59,7 +59,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const { completed, ...fields } = body.data
   const { project } = access
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { value: updated, scope } = await transactWithEvents(prisma, async (tx) => {
     const edits = {
       title: fields.title,
       description: fields.description,
@@ -96,7 +96,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
             projectId,
             metadata: { milestoneId },
           })
-          await grantAchievement(tx, user.id, 'first-milestone')
+          await emit(tx, 'MILESTONE_COMPLETED', { userId: user.id, projectId, milestoneId })
           await tx.projectUpdate.create({
             data: {
               projectId,
@@ -121,7 +121,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   })
 
   if (!updated) return createApiError('MILESTONE_NOT_FOUND')
-  return createApiResponse(milestoneResponse(updated))
+  return createApiResponse({ ...milestoneResponse(updated), rewards: await scope.rewardsFor(prisma, user.id) })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'progress:milestone-edit' } })
 
 // Removing a milestone is a planning decision for the project owner (or a

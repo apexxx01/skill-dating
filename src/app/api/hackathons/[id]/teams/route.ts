@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
-import { awardXp } from '@/lib/xp'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 
 const registerTeamSchema = z.object({
   teamId: z.string(),
@@ -93,7 +92,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // treat that as "join the existing registration" instead of erroring on
   // the unique-teamId conflict. All writes are one transaction so a member
   // never ends up half-registered if a later step fails.
-  const hackathonTeam = await prisma.$transaction(async (tx) => {
+  const { value: hackathonTeam, scope } = await transactWithEvents(prisma, async (tx) => {
     await tx.hackathonParticipant.update({
       where: { userId_hackathonId: { userId: user.id, hackathonId: id } },
       data: { teamId: team.id, status: 'TEAM_FORMED' }
@@ -141,14 +140,13 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       })
     }
 
-    await awardXp(tx, user.id, 'TEAM_FORMED', `Formed team for "${hackathon.name}"`)
     await recordActivity(tx, user.id, 'TEAM_JOINED', `Formed team for "${hackathon.name}"`, {
       link: `/hackathons/${hackathon.slug}`
     })
-    await grantAchievement(tx, user.id, 'team-builder')
+    await emit(tx, 'TEAM_FORMED', { userId: user.id, teamId: team.id, hackathonId: id, hackathonName: hackathon.name })
 
     return record
   })
 
-  return createApiResponse({ success: true, teamId: team.id, hackathonTeamId: hackathonTeam.id })
+  return createApiResponse({ success: true, teamId: team.id, hackathonTeamId: hackathonTeam.id, rewards: await scope.rewardsFor(prisma, user.id) })
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:team-register' } })

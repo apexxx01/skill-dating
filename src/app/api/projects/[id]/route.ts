@@ -2,9 +2,10 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, authorize, checkOwnership, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
-import { awardXp, canAwardShipXp } from '@/lib/xp'
+import { canAwardShipXp } from '@/lib/rewards-config'
+import { currentRewards } from '@/lib/rewards'
+import { emit, transactWithEvents } from '@/lib/events'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -93,6 +94,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   } as const
 
   let project
+  let rewards
   if (oldProject && canAwardShipXp(oldProject, updateData.status as string | undefined)) {
     updateData.shippedAt = new Date()
     const shippedName = String(updateData.name || oldProject?.name)
@@ -100,24 +102,26 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     // grant, and the actual status flip all commit atomically - a failure
     // partway through must not leave a project marked SHIPPED with no XP
     // awarded (or XP awarded with the project not actually updated).
-    project = await prisma.$transaction(async (tx) => {
-      await awardXp(tx, user.id, 'PROJECT_SHIP', `Shipped project "${shippedName}"`)
+    const shipped = await transactWithEvents(prisma, async (tx) => {
       await tx.reputationEvent.create({
         data: { userId: user.id, type: 'PROJECT_SHIPPED', amount: 100, sourceId: id, sourceType: 'PROJECT', description: `Shipped project` }
       })
       await recordActivity(tx, user.id, 'PROJECT_SHIPPED', `Shipped "${shippedName}"`, { projectId: id })
-      await grantAchievement(tx, user.id, 'first-ship')
+      await emit(tx, 'PROJECT_SHIPPED', { userId: user.id, projectId: id, projectName: shippedName })
       return tx.project.update({ where: { id }, data: updateData, include: projectInclude })
     })
+    project = shipped.value
+    rewards = await shipped.scope.rewardsFor(prisma, user.id)
   } else {
     project = await prisma.project.update({ where: { id }, data: updateData, include: projectInclude })
+    rewards = await currentRewards(prisma, user.id)
   }
 
   await prisma.auditEvent.create({
     data: { userId: user.id, action: 'PROJECT_UPDATED', targetType: 'PROJECT', targetId: id, oldValue: oldProject ?? undefined, newValue: updateData as Prisma.InputJsonValue }
   })
 
-  return createApiResponse(project)
+  return createApiResponse({ ...project, rewards })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'projects:update' } })
 
 export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) => {

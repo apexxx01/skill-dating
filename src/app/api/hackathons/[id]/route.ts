@@ -1,9 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
-import { awardXp } from '@/lib/xp'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 
 const registerSchema = z.object({
   skills: z.array(z.string().max(50)).max(20).default([]),
@@ -113,7 +112,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // Participant creation, XP, activity, achievement, and the confirmation
   // notification all commit atomically - a failure partway through must
   // not leave someone registered with no XP/activity, or vice versa.
-  const participant = await prisma.$transaction(async (tx) => {
+  const { value: participant, scope } = await transactWithEvents(prisma, async (tx) => {
     const created = await tx.hackathonParticipant.create({
       data: {
         userId: user.id,
@@ -123,11 +122,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       }
     })
 
-    await awardXp(tx, user.id, 'HACKATHON_JOIN', `Joined hackathon "${hackathon.name}"`)
     await recordActivity(tx, user.id, 'HACKATHON_JOINED', `Joined hackathon "${hackathon.name}"`, {
       link: `/hackathons/${hackathon.slug}`
     })
-    await grantAchievement(tx, user.id, 'first-hackathon')
+    await emit(tx, 'HACKATHON_JOINED', { userId: user.id, hackathonId: id, hackathonName: hackathon.name })
 
     await tx.notification.create({
       data: {
@@ -143,7 +141,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return created
   })
 
-  return createApiResponse(participant, 201)
+  return createApiResponse({ ...participant, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'hackathons:register' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {

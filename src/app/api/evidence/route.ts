@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
-import { grantAchievement } from '@/lib/achievements'
+import { emit, transactWithEvents } from '@/lib/events'
 import { blockRelation } from '@/lib/blocks'
 import {
   ENDORSEMENT_TYPE,
@@ -107,7 +107,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (bodyResult instanceof Response) return bodyResult
   const { skillId, type, title, url, description } = bodyResult.data
 
-  const result = await prisma.$transaction(async (tx) => {
+  const { value: result, scope } = await transactWithEvents(prisma, async (tx) => {
     const held = await tx.userSkill.findUnique({
       where: { userId_skillId: { userId: user.id, skillId } },
       select: { id: true },
@@ -141,7 +141,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     await recordActivity(tx, user.id, 'SKILL_EVIDENCE_ADDED', `Added evidence "${title}"`, {
       metadata: { evidenceId: created.id, skillId },
     })
-    await grantAchievement(tx, user.id, 'first-evidence')
+    await emit(tx, 'EVIDENCE_ADDED', { userId: user.id, evidenceId: created.id, skillId })
 
     return { outcome: 'created' as const, created }
   })
@@ -153,5 +153,5 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('EVIDENCE_LIMIT_REACHED', { params: { max: MAX_EVIDENCE_PER_SKILL } })
   }
 
-  return createApiResponse({ ...result.created, endorsementCount: 0, endorsedByMe: false }, 201)
+  return createApiResponse({ ...result.created, endorsementCount: 0, endorsedByMe: false, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'evidence:create' } })
