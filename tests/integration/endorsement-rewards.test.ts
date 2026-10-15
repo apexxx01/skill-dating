@@ -2,11 +2,12 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
 import { cleanupTestUsers, testPrisma } from './db'
 import { ACHIEVEMENT_DEFINITIONS } from '../../src/lib/achievement-definitions'
-import { ENDORSEMENT_XP_DAILY_CAP, MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY } from '../../src/lib/skill-evidence'
+import { MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY } from '../../src/lib/skill-evidence'
+import { REWARD_RULES } from '../../src/lib/rewards-config'
 
-// Being endorsed pays out the `endorsed` achievement and its XP. That reward is
-// the farmable part, so it only counts endorsements from verified accounts and
-// is capped per endorser and per recipient per day. The endorsement itself
+// Being endorsed pays out XP and the `endorsed` achievement. That reward is the
+// farmable part, so it only counts endorsements from verified accounts and is
+// capped per endorser (here) and per recipient (by the rewards engine) per day. The endorsement itself
 // still counts toward the evidence either way.
 describe('endorsement rewards', () => {
   const suffix = uniqueSuffix()
@@ -128,17 +129,36 @@ describe('endorsement rewards', () => {
     await verify(endorser)
     const id = await evidenceFor(owner)
 
-    // The owner already earned the daily allowance from endorsements today.
-    const achievement = await testPrisma.achievement.upsert({
-      where: { slug: 'endorsed' },
-      update: {},
-      create: { slug: 'endorsed', ...ACHIEVEMENT_DEFINITIONS.endorsed } as any,
-    })
-    await testPrisma.xPEvent.create({
-      data: { userId: owner.userId, type: 'ACHIEVEMENT_EARNED', amount: ENDORSEMENT_XP_DAILY_CAP, description: `Earned achievement "${achievement.name}"` },
+    // The owner was already paid the day's allowance for being endorsed.
+    const cap = REWARD_RULES.EVIDENCE_ENDORSED.dailyCap!
+    await testPrisma.xPEvent.createMany({
+      data: Array.from({ length: cap }, (_, index) => ({
+        userId: owner.userId,
+        type: 'EVIDENCE_ENDORSED',
+        amount: REWARD_RULES.EVIDENCE_ENDORSED.amount!,
+        description: 'Had evidence endorsed',
+        sourceType: 'ENDORSEMENT',
+        sourceId: `earlier-${index}`,
+        dedupeKey: `endorsement:earlier-${index}`,
+      })),
     })
 
     expect((await req(endorser.jar, 'POST', `/api/evidence/${id}/endorse`)).status).toBe(201)
-    expect(await reward(owner)).toEqual({ achievement: 0, xpEvents: 1 })
+    expect(await testPrisma.xPEvent.count({ where: { userId: owner.userId, type: 'EVIDENCE_ENDORSED' } })).toBe(cap)
+  })
+
+  it('pays the endorsement XP only for a verified endorser', async () => {
+    const owner = await user('o')
+    const endorser = await user('e')
+    const id = await evidenceFor(owner)
+    const paid = () => testPrisma.xPEvent.count({ where: { userId: owner.userId, type: 'EVIDENCE_ENDORSED' } })
+
+    await req(endorser.jar, 'POST', `/api/evidence/${id}/endorse`)
+    expect(await paid()).toBe(0)
+
+    await verify(endorser)
+    await req(endorser.jar, 'DELETE', `/api/evidence/${id}/endorse`)
+    await req(endorser.jar, 'POST', `/api/evidence/${id}/endorse`)
+    expect(await paid()).toBe(1)
   })
 })
