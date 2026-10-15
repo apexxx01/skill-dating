@@ -544,3 +544,37 @@ export interface DashboardResponse {
   recruitingTeams: TeamListItem[]
   upcomingHackathons: HackathonListItem[]
 }
+
+// ---------------------------------------------------------------------------
+// Rewards
+// ---------------------------------------------------------------------------
+
+export type Tier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'DIAMOND' | 'MYTHIC'
+
+/**
+ * What one request earned the signed-in user. Every mutation that can award
+ * anything returns it as `rewards` next to its normal body, also when nothing
+ * was earned (`xpGained: 0`), so the interface can always read it. See
+ * docs/GAMIFICATION.md for the rules.
+ */
+export interface RewardsEnvelope {
+  /** XP added by this request, achievement XP included. */
+  xpGained: number
+  /** The user's XP after this request. */
+  totalXp: number
+  oldLevel: number
+  newLevel: number
+  leveledUp: boolean
+  oldTier: Tier
+  newTier: Tier
+  tierChanged: boolean
+  /** Achievements unlocked by this request. */
+  achievements: { slug: string; name: string }[]
+  /** Quests completed by this request. Always empty until quests ship. */
+  questsCompleted: { slug: string; name: string }[]
+  /** Streak state after this request. Always null until streaks ship. */
+  streak: null
+}
+
+/** A mutation response that also reports what it earned. */
+export type WithRewards<T> = T & { rewards: RewardsEnvelope }
