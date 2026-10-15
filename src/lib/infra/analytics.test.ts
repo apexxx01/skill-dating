@@ -132,3 +132,23 @@ describe('posthogForwarder', () => {
     await expect(posthogForwarder('k', 'https://h.example', fetchImpl as unknown as typeof fetch).forward(record)).rejects.toThrow('401')
   })
 })
+
+describe('createAnalytics', () => {
+  it('still stores events when the application configuration is not valid', async () => {
+    const { createAnalytics } = await import('./analytics')
+    const { resetEnvCache } = await import('../env')
+    const saved = { ...process.env }
+    delete process.env.DATABASE_URL
+    resetEnvCache()
+    try {
+      const created: unknown[] = []
+      const analytics = createAnalytics({ productEvent: { create: async (args: unknown) => void created.push(args) } } as never)
+      expect(analytics.forwarding).toBe(false)
+      await analytics.track('u1', 'signup')
+      expect(created).toHaveLength(1)
+    } finally {
+      Object.assign(process.env, saved)
+      resetEnvCache()
+    }
+  })
+})

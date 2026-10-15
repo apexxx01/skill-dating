@@ -120,9 +120,18 @@ export function posthogForwarder(apiKey: string, host: string, fetchImpl: typeof
   }
 }
 
-/** The database store, plus PostHog when it is configured. */
+/**
+ * The database store, plus PostHog when it is configured. A process that has no valid
+ * application configuration (the demo seed, a one-off script) still gets the database store.
+ */
 export function createAnalytics(client: PrismaClient): Analytics {
-  return new Analytics(prismaAnalyticsStore(client), env.POSTHOG_KEY ? posthogForwarder(env.POSTHOG_KEY, env.POSTHOG_HOST) : undefined)
+  let forwarder: AnalyticsForwarder | undefined
+  try {
+    if (env.POSTHOG_KEY) forwarder = posthogForwarder(env.POSTHOG_KEY, env.POSTHOG_HOST)
+  } catch {
+    forwarder = undefined
+  }
+  return new Analytics(prismaAnalyticsStore(client), forwarder)
 }
 
 const globalForAnalytics = globalThis as unknown as { __analytics?: Analytics }
