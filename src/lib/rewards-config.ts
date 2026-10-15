@@ -5,10 +5,33 @@ import type { AchievementSlug } from '@/lib/achievement-definitions'
 // earned, in one table, so the amounts can be tuned without touching a route.
 // docs/GAMIFICATION.md is the readable version of this file.
 
-export type RewardAction = 'PROJECT_CREATED' | 'PROJECT_SHIP' | 'HACKATHON_JOIN' | 'TEAM_FORMED' | 'HACKATHON_WIN' | 'ACHIEVEMENT_EARNED'
+export type RewardAction =
+  | 'PROJECT_CREATED'
+  | 'PROJECT_SHIP'
+  | 'HACKATHON_JOIN'
+  | 'TEAM_FORMED'
+  | 'HACKATHON_WIN'
+  | 'ACHIEVEMENT_EARNED'
+  | 'MILESTONE_COMPLETED'
+  | 'PROJECT_UPDATE_POSTED'
+  | 'EVIDENCE_ADDED'
+  | 'EVIDENCE_ENDORSED'
+  | 'CONNECTION_ACCEPTED'
+  | 'MESSAGE_SENT_FIRST_IN_CONNECTION'
+  | 'TEAM_APPLICATION_ACCEPTED'
 
 /** What an award is attached to. Together with the action it decides what counts as "the same award". */
-export type RewardSourceType = 'PROJECT' | 'HACKATHON' | 'ACHIEVEMENT'
+export type RewardSourceType =
+  | 'PROJECT'
+  | 'HACKATHON'
+  | 'ACHIEVEMENT'
+  | 'MILESTONE'
+  | 'PROJECT_UPDATE'
+  | 'EVIDENCE'
+  | 'ENDORSEMENT'
+  | 'CONNECTION'
+  | 'CONVERSATION'
+  | 'TEAM_APPLICATION'
 
 export interface RewardRule {
   /** XP per award. Null when the source carries it (an achievement defines its own xpReward). */
@@ -35,6 +58,20 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   HACKATHON_WIN: { amount: 500, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null },
   // Once per achievement, which UserAchievement also guarantees. The amount is the achievement's xpReward.
   ACHIEVEMENT_EARNED: { amount: null, sourceType: 'ACHIEVEMENT', oncePer: 'source', dailyCap: null },
+  // Once per milestone (completing, reopening and completing again pays once), at most 5 a day.
+  MILESTONE_COMPLETED: { amount: 30, sourceType: 'MILESTONE', oncePer: 'source', dailyCap: 5 },
+  // Every update is its own source, so the cap is what limits posting for XP.
+  PROJECT_UPDATE_POSTED: { amount: 15, sourceType: 'PROJECT_UPDATE', oncePer: 'source', dailyCap: 3 },
+  // Once per piece of evidence, at most 3 a day.
+  EVIDENCE_ADDED: { amount: 20, sourceType: 'EVIDENCE', oncePer: 'source', dailyCap: 3 },
+  // Paid to the owner of the evidence, once per (evidence, endorser) pair, at most 10 a day.
+  EVIDENCE_ENDORSED: { amount: 10, sourceType: 'ENDORSEMENT', oncePer: 'source', dailyCap: 10 },
+  // Paid to both people, once per connection, at most 5 a day each.
+  CONNECTION_ACCEPTED: { amount: 10, sourceType: 'CONNECTION', oncePer: 'source', dailyCap: 5 },
+  // Paid to the sender, once per conversation, at most 5 a day.
+  MESSAGE_SENT_FIRST_IN_CONNECTION: { amount: 5, sourceType: 'CONVERSATION', oncePer: 'source', dailyCap: 5 },
+  // Paid to the applicant, once per application.
+  TEAM_APPLICATION_ACCEPTED: { amount: 50, sourceType: 'TEAM_APPLICATION', oncePer: 'source', dailyCap: null },
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]
@@ -54,6 +91,8 @@ interface EventReward<N extends DomainEventName> {
     action: RewardAction
     source: (payload: DomainEvents[N]) => RewardSource
     description: (payload: DomainEvents[N]) => string
+    /** Who is paid. Absent: the event's `userId`. */
+    recipients?: (payload: DomainEvents[N]) => string[]
   }
   achievement?: AchievementSlug
 }
@@ -76,8 +115,22 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
     },
     achievement: 'first-ship',
   },
-  PROJECT_UPDATE_POSTED: { achievement: 'first-update' },
-  MILESTONE_COMPLETED: { achievement: 'first-milestone' },
+  PROJECT_UPDATE_POSTED: {
+    xp: {
+      action: 'PROJECT_UPDATE_POSTED',
+      source: (p) => ({ sourceType: 'PROJECT_UPDATE', sourceId: p.updateId }),
+      description: () => 'Posted a project update',
+    },
+    achievement: 'first-update',
+  },
+  MILESTONE_COMPLETED: {
+    xp: {
+      action: 'MILESTONE_COMPLETED',
+      source: (p) => ({ sourceType: 'MILESTONE', sourceId: p.milestoneId }),
+      description: () => 'Completed a project milestone',
+    },
+    achievement: 'first-milestone',
+  },
   HACKATHON_JOINED: {
     xp: {
       action: 'HACKATHON_JOIN',
@@ -102,12 +155,46 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
     },
     achievement: 'team-builder',
   },
-  TEAM_APPLICATION_ACCEPTED: { achievement: 'team-player' },
-  EVIDENCE_ADDED: { achievement: 'first-evidence' },
-  // Gated by the endorsement rules in src/lib/skill-evidence.ts before it pays.
-  EVIDENCE_ENDORSED: { achievement: 'endorsed' },
-  CONNECTION_ACCEPTED: {},
-  MESSAGE_SENT_FIRST_IN_CONNECTION: {},
+  TEAM_APPLICATION_ACCEPTED: {
+    xp: {
+      action: 'TEAM_APPLICATION_ACCEPTED',
+      source: (p) => ({ sourceType: 'TEAM_APPLICATION', sourceId: p.applicationId }),
+      description: () => 'Had a team application accepted',
+    },
+    achievement: 'team-player',
+  },
+  EVIDENCE_ADDED: {
+    xp: {
+      action: 'EVIDENCE_ADDED',
+      source: (p) => ({ sourceType: 'EVIDENCE', sourceId: p.evidenceId }),
+      description: () => 'Added evidence to a skill',
+    },
+    achievement: 'first-evidence',
+  },
+  // Gated by the endorsement rules in src/lib/skill-evidence.ts before it pays, XP and achievement alike.
+  EVIDENCE_ENDORSED: {
+    xp: {
+      action: 'EVIDENCE_ENDORSED',
+      source: (p) => ({ sourceType: 'ENDORSEMENT', sourceId: `${p.evidenceId}:${p.endorserId}` }),
+      description: () => 'Had evidence endorsed',
+    },
+    achievement: 'endorsed',
+  },
+  CONNECTION_ACCEPTED: {
+    xp: {
+      action: 'CONNECTION_ACCEPTED',
+      source: (p) => ({ sourceType: 'CONNECTION', sourceId: p.connectionId }),
+      description: () => 'Made a new connection',
+      recipients: (p) => [p.userId, p.otherUserId],
+    },
+  },
+  MESSAGE_SENT_FIRST_IN_CONNECTION: {
+    xp: {
+      action: 'MESSAGE_SENT_FIRST_IN_CONNECTION',
+      source: (p) => ({ sourceType: 'CONVERSATION', sourceId: p.conversationId }),
+      description: () => 'Started a conversation with a connection',
+    },
+  },
 }
 
 /**

@@ -1,7 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
-import { ACHIEVEMENT_DEFINITIONS } from '@/lib/achievement-definitions'
 import { blockRelation } from '@/lib/blocks'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -75,17 +74,17 @@ export async function endorsementSummaries(
   return summaries
 }
 
-// Rewards for being endorsed are the one thing worth farming with throwaway
-// accounts, so they are restricted three ways:
+// Rewards for being endorsed (the XP and the `endorsed` achievement) are the one
+// thing worth farming with throwaway accounts, so they are restricted:
+//  - nobody is paid for endorsing themselves or across a block;
 //  - the endorser must have a verified account (anything above NONE; the
 //    levels are ordered, and a password sign-up stays NONE until it signs in
 //    through a provider that proves the email address);
 //  - one endorser can trigger a limited number of rewards per rolling day, so
-//    a single verified account cannot pay out to many owners;
-//  - one owner can earn at most a capped amount of XP from endorsements per
-//    rolling day.
+//    a single verified account cannot pay out to many owners.
+// How much one owner can earn per day is the daily cap on the EVIDENCE_ENDORSED
+// rule in rewards-config.ts, enforced by the rewards engine.
 export const MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY = 10
-export const ENDORSEMENT_XP_DAILY_CAP = 50
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 /**
@@ -93,6 +92,9 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000
  * achievement. The rewards subscriber asks this before granting it.
  */
 export async function endorsementRewardAllowed(tx: Prisma.TransactionClient, ownerId: string, endorserId: string): Promise<boolean> {
+  if (ownerId === endorserId) return false
+  if (await blockRelation(tx, endorserId, ownerId)) return false
+
   const endorser = await tx.user.findUnique({ where: { id: endorserId }, select: { verificationLevel: true } })
   if (!endorser || endorser.verificationLevel === 'NONE') return false
 
@@ -109,20 +111,6 @@ export async function endorsementRewardAllowed(tx: Prisma.TransactionClient, own
     },
   })
   if (rewardedToday >= MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY) return false
-
-  const achievement = await tx.achievement.findUnique({ where: { slug: 'endorsed' }, select: { name: true } })
-  if (achievement) {
-    const xpToday = await tx.xPEvent.aggregate({
-      where: {
-        userId: ownerId,
-        type: 'ACHIEVEMENT_EARNED',
-        description: { startsWith: `Earned achievement "${achievement.name}"` },
-        createdAt: { gte: since },
-      },
-      _sum: { amount: true },
-    })
-    if ((xpToday._sum.amount ?? 0) + ACHIEVEMENT_DEFINITIONS.endorsed.xpReward > ENDORSEMENT_XP_DAILY_CAP) return false
-  }
 
   return true
 }

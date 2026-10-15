@@ -13,6 +13,7 @@ type AnyEventReward = {
     action: Parameters<typeof grant>[2]
     source: (payload: never) => Parameters<typeof grant>[3]
     description: (payload: never) => string
+    recipients?: (payload: never) => string[]
   }
   achievement?: Parameters<typeof grantAchievement>[2]
 }
@@ -26,20 +27,28 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
   const userId = (context.payload as { userId: string }).userId
   let rewarded = false
 
+  // Endorsements pay the owner, XP and achievement alike, only when the endorsement rules allow it.
+  if (context.name === 'EVIDENCE_ENDORSED') {
+    const { endorserId } = context.payload as { endorserId: string }
+    if (!(await endorsementRewardAllowed(context.tx as Parameters<typeof endorsementRewardAllowed>[0], userId, endorserId))) {
+      return { rewarded: false }
+    }
+  }
+
   if (reward.xp) {
     const payload = context.payload as never
     const source = reward.xp.source(payload)
-    const result = await grant(context.tx, userId, reward.xp.action, { ...source, description: reward.xp.description(payload) })
-    if (result.granted) rewarded = true
+    const description = reward.xp.description(payload)
+    // Paid in a fixed order (by id), so two transactions that reward the same pair of
+    // users take their locks in the same order and cannot deadlock each other.
+    const recipients = reward.xp.recipients ? [...new Set(reward.xp.recipients(payload))].sort() : [userId]
+    for (const recipient of recipients) {
+      const result = await grant(context.tx, recipient, reward.xp.action, { ...source, description })
+      if (result.granted) rewarded = true
+    }
   }
 
-  if (reward.achievement) {
-    // Endorsements pay the owner only when the endorsement rules allow it.
-    const allowed =
-      context.name !== 'EVIDENCE_ENDORSED' ||
-      (await endorsementRewardAllowed(context.tx as Parameters<typeof endorsementRewardAllowed>[0], userId, (context.payload as { endorserId: string }).endorserId))
-    if (allowed && (await grantAchievement(context.tx, userId, reward.achievement)).granted) rewarded = true
-  }
+  if (reward.achievement && (await grantAchievement(context.tx, userId, reward.achievement)).granted) rewarded = true
 
   return { rewarded }
 }

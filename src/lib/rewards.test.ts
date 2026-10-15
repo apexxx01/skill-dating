@@ -133,6 +133,76 @@ describe('grant', () => {
     expect(db.tx.$executeRaw).toHaveBeenCalledTimes(1)
   })
 
+  describe('every action', () => {
+    // [action, source type, amount, daily cap]
+    const actions = [
+      ['MILESTONE_COMPLETED', 'MILESTONE', 30, 5],
+      ['PROJECT_UPDATE_POSTED', 'PROJECT_UPDATE', 15, 3],
+      ['EVIDENCE_ADDED', 'EVIDENCE', 20, 3],
+      ['EVIDENCE_ENDORSED', 'ENDORSEMENT', 10, 10],
+      ['CONNECTION_ACCEPTED', 'CONNECTION', 10, 5],
+      ['MESSAGE_SENT_FIRST_IN_CONNECTION', 'CONVERSATION', 5, 5],
+      ['TEAM_APPLICATION_ACCEPTED', 'TEAM_APPLICATION', 50, null],
+    ] as const
+    const source = (sourceType: (typeof actions)[number][1], id: string) => ({ sourceType, sourceId: id, description: `award ${id}` })
+
+    it.each(actions)('%s pays its amount once per source', async (action, sourceType, amount) => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const first = await grant(db.tx, 'u1', action, source(sourceType, 's1'))
+      expect(first).toMatchObject({ granted: true, xp: amount })
+      expect(db.rows).toEqual([expect.objectContaining({ type: action, amount, dedupeKey: `${sourceType.toLowerCase()}:s1` })])
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        expect(await grant(db.tx, 'u1', action, source(sourceType, 's1'))).toMatchObject({ granted: false, reason: 'DUPLICATE' })
+      }
+      expect(db.rows).toHaveLength(1)
+      expect((await grant(db.tx, 'u1', action, source(sourceType, 's2'))).granted).toBe(true)
+    })
+
+    it.each(actions)('%s refuses a source of the wrong kind', async (action, sourceType) => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await expect(grant(db.tx, 'u1', action, { sourceType: 'PROJECT', sourceId: 's1', description: 'x' })).rejects.toThrow(sourceType)
+    })
+
+    it.each(actions.filter((entry) => entry[3] !== null))('%s stops paying after its daily cap, and starts again the next local day', async (action, sourceType, amount, cap) => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: 'Asia/Kolkata' } })
+      const day = new Date('2026-03-10T10:00:00Z')
+      db.createdAt(day)
+      const results = []
+      for (let index = 0; index < cap! + 4; index++) results.push(await grant(db.tx, 'u1', action, { ...source(sourceType, `s${index}`), now: day }))
+
+      expect(results.filter((result) => result.granted)).toHaveLength(cap!)
+      expect(results[cap!]).toMatchObject({ granted: false, reason: 'DAILY_CAP' })
+      expect(await db.tx.user.findUnique({ where: { id: 'u1' } } as never)).toMatchObject({ xp: amount * cap! })
+
+      // 18:30Z is Kolkata midnight.
+      const nextDay = new Date('2026-03-10T18:30:00Z')
+      expect((await grant(db.tx, 'u1', action, { ...source(sourceType, 'tomorrow'), now: nextDay })).granted).toBe(true)
+    })
+
+    it('does not cap a team application, however many are accepted in a day', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      for (let index = 0; index < 8; index++) {
+        expect((await grant(db.tx, 'u1', 'TEAM_APPLICATION_ACCEPTED', source('TEAM_APPLICATION', `a${index}`))).granted).toBe(true)
+      }
+    })
+
+    it('counts each action and each person separately against a cap', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null }, u2: { xp: 0, timezone: null } })
+      for (let index = 0; index < 3; index++) await grant(db.tx, 'u1', 'PROJECT_UPDATE_POSTED', source('PROJECT_UPDATE', `u${index}`))
+      expect((await grant(db.tx, 'u1', 'PROJECT_UPDATE_POSTED', source('PROJECT_UPDATE', 'u3'))).granted).toBe(false)
+      expect((await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', source('MILESTONE', 'm1'))).granted).toBe(true)
+      expect((await grant(db.tx, 'u2', 'PROJECT_UPDATE_POSTED', source('PROJECT_UPDATE', 'u0'))).granted).toBe(true)
+    })
+
+    it('pays both sides of a connection from the same source', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null }, u2: { xp: 0, timezone: null } })
+      expect((await grant(db.tx, 'u1', 'CONNECTION_ACCEPTED', source('CONNECTION', 'c1'))).granted).toBe(true)
+      expect((await grant(db.tx, 'u2', 'CONNECTION_ACCEPTED', source('CONNECTION', 'c1'))).granted).toBe(true)
+      expect((await grant(db.tx, 'u2', 'CONNECTION_ACCEPTED', source('CONNECTION', 'c1'))).granted).toBe(false)
+    })
+  })
+
   describe('daily caps reset at the local midnight of the user', () => {
     // Three awards were made at 2026-03-10T10:00Z. For each zone, ask one second
     // before and exactly at the next local midnight after that moment.

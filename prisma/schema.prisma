@@ -594,7 +594,7 @@ model UserAchievement {
 model XPEvent {
   id          String   @id @default(cuid())
   userId      String
-  type        String // The reward action, see src/lib/rewards-config.ts: PROJECT_CREATED, PROJECT_SHIP, HACKATHON_JOIN, HACKATHON_WIN, TEAM_FORMED, ACHIEVEMENT_EARNED
+  type        String // The reward action: one of the keys of REWARD_RULES in src/lib/rewards-config.ts
   amount      Int
   description String
   metadata    Json?

@@ -35,6 +35,22 @@ describe('REWARD_RULES', () => {
     expect(REWARD_RULES.HACKATHON_WIN.amount).toBe(500)
   })
 
+  it('pays the community and progress actions what the table says, with their daily caps', () => {
+    const table = {
+      MILESTONE_COMPLETED: [30, 5],
+      PROJECT_UPDATE_POSTED: [15, 3],
+      EVIDENCE_ADDED: [20, 3],
+      EVIDENCE_ENDORSED: [10, 10],
+      CONNECTION_ACCEPTED: [10, 5],
+      MESSAGE_SENT_FIRST_IN_CONNECTION: [5, 5],
+      TEAM_APPLICATION_ACCEPTED: [50, null],
+    } as const
+    for (const [action, [amount, cap]] of Object.entries(table)) {
+      const rule = REWARD_RULES[action as keyof typeof table]
+      expect([action, rule.amount, rule.dailyCap]).toEqual([action, amount, cap])
+    }
+  })
+
   it('takes an achievement amount from the achievement, not the table', () => {
     expect(REWARD_RULES.ACHIEVEMENT_EARNED.amount).toBeNull()
   })
@@ -79,7 +95,21 @@ describe('EVENT_REWARDS', () => {
   })
 
   it('attaches each XP award to the source type its rule expects', () => {
-    const samples = { projectId: 'p1', projectName: 'Alpha', hackathonId: 'h1', hackathonName: 'Hack' } as never
+    const samples = {
+      userId: 'u1',
+      projectId: 'p1',
+      projectName: 'Alpha',
+      hackathonId: 'h1',
+      hackathonName: 'Hack',
+      updateId: 'up1',
+      milestoneId: 'm1',
+      evidenceId: 'e1',
+      endorserId: 'u2',
+      otherUserId: 'u2',
+      connectionId: 'c1',
+      conversationId: 'cv1',
+      applicationId: 'a1',
+    } as never
     for (const reward of Object.values(EVENT_REWARDS) as { xp?: { action: keyof typeof REWARD_RULES; source: (p: never) => { sourceType: string; sourceId: string }; description: (p: never) => string } }[]) {
       if (!reward.xp) continue
       const source = reward.xp.source(samples)
@@ -89,16 +119,47 @@ describe('EVENT_REWARDS', () => {
     }
   })
 
-  it('pays XP for exactly the actions that used to pay it', () => {
+  it('pays XP for every event that has a reward rule, and for nothing else', () => {
     const paying = Object.entries(EVENT_REWARDS)
       .filter(([, reward]) => (reward as { xp?: unknown }).xp)
       .map(([name]) => name)
       .sort()
-    expect(paying).toEqual(['HACKATHON_JOINED', 'HACKATHON_WON', 'PROJECT_CREATED', 'PROJECT_SHIPPED', 'TEAM_FORMED'])
+    expect(paying).toEqual(
+      [
+        'CONNECTION_ACCEPTED',
+        'EVIDENCE_ADDED',
+        'EVIDENCE_ENDORSED',
+        'HACKATHON_JOINED',
+        'HACKATHON_WON',
+        'MESSAGE_SENT_FIRST_IN_CONNECTION',
+        'MILESTONE_COMPLETED',
+        'PROJECT_CREATED',
+        'PROJECT_SHIPPED',
+        'PROJECT_UPDATE_POSTED',
+        'TEAM_APPLICATION_ACCEPTED',
+        'TEAM_FORMED',
+      ].sort()
+    )
   })
 
-  it('announces connection events without paying for them yet', () => {
-    expect(EVENT_REWARDS.CONNECTION_ACCEPTED).toEqual({})
-    expect(EVENT_REWARDS.MESSAGE_SENT_FIRST_IN_CONNECTION).toEqual({})
+  it('maps every rule to exactly one event that pays it', () => {
+    const paid = Object.values(EVENT_REWARDS)
+      .map((reward) => (reward as { xp?: { action: string } }).xp?.action)
+      .filter(Boolean)
+      .sort()
+    expect(paid).toEqual(REWARD_ACTIONS.filter((action) => action !== 'ACHIEVEMENT_EARNED').sort())
+  })
+
+  it('pays a connection to both people, and everything else to the one the event is about', () => {
+    const connection = EVENT_REWARDS.CONNECTION_ACCEPTED.xp!
+    expect(connection.recipients!({ userId: 'u1', otherUserId: 'u2', connectionId: 'c1' })).toEqual(['u1', 'u2'])
+    for (const [name, reward] of Object.entries(EVENT_REWARDS)) {
+      if (name !== 'CONNECTION_ACCEPTED') expect((reward as { xp?: { recipients?: unknown } }).xp?.recipients).toBeUndefined()
+    }
+  })
+
+  it('keys an endorsement by the evidence and the endorser, so each pair pays once', () => {
+    const source = EVENT_REWARDS.EVIDENCE_ENDORSED.xp!.source({ userId: 'owner', endorserId: 'u2', evidenceId: 'e1' })
+    expect(source).toEqual({ sourceType: 'ENDORSEMENT', sourceId: 'e1:u2' })
   })
 })
