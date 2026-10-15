@@ -50,6 +50,27 @@ describe('parseEnv', () => {
     expect(env.CLERK_AUTHORIZED_PARTIES).toEqual(['https://a.example', 'https://b.example'])
   })
 
+  it('reads the platform settings: entitlements off by default, optional analytics and error reporting', () => {
+    const env = parseEnv(base)
+    expect(env.ENTITLEMENTS_ENFORCED).toBe(false)
+    expect(env.POSTHOG_KEY).toBeUndefined()
+    expect(env.POSTHOG_HOST).toBe('https://us.i.posthog.com')
+    expect(env.SENTRY_DSN).toBeUndefined()
+    expect(env.LOG_LEVEL).toBeUndefined()
+
+    const set = parseEnv({ ...base, ENTITLEMENTS_ENFORCED: 'true', POSTHOG_KEY: 'phc_x', SENTRY_DSN: 'https://k@o1.ingest.sentry.io/42', LOG_LEVEL: 'debug' })
+    expect(set.ENTITLEMENTS_ENFORCED).toBe(true)
+    expect(set.POSTHOG_KEY).toBe('phc_x')
+    expect(set.LOG_LEVEL).toBe('debug')
+  })
+
+  it('rejects a switch that is not exactly true or false, without echoing the value', () => {
+    const list = problems({ ...base, ENTITLEMENTS_ENFORCED: 'yes-please' })
+    expect(list).toEqual(['ENTITLEMENTS_ENFORCED: must be one of: true, false'])
+    expect(problems({ ...base, SENTRY_DSN: 'not a url' })).toEqual(['SENTRY_DSN: must be a URL'])
+    expect(problems({ ...base, LOG_LEVEL: 'loud' })[0]).toContain('LOG_LEVEL: must be one of')
+  })
+
   it('reports every missing required setting at once', () => {
     const list = problems({})
     expect(list).toHaveLength(3)

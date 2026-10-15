@@ -13,6 +13,9 @@ const csv = z
   .optional()
   .transform((value) => (value ?? '').split(',').map((part) => part.trim()).filter(Boolean))
 
+// "true" / "false" only: a typo in a switch must stop the boot, not silently read as off.
+const flag = (defaultValue: 'true' | 'false') => z.enum(['true', 'false']).default(defaultValue).transform((value) => value === 'true')
+
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     // Set by Vercel. A preview deployment runs with NODE_ENV=production too, so
@@ -50,6 +53,21 @@ const envSchema = z.object({
       .string()
       .regex(/^[^.\s]+\.[^:\s]+:\S+$/, 'must look like appId.keyId:secret')
       .optional(),
+
+    // Plan limits (src/lib/entitlements.ts). Off: every feature is open to everyone
+    // and only the hard safety ceilings apply. On: the limits of the user's plan apply.
+    ENTITLEMENTS_ENFORCED: flag('false'),
+
+    // Product analytics. Events are always stored in ProductEvent; with a PostHog
+    // project key they are also forwarded (src/lib/infra/analytics.ts).
+    POSTHOG_KEY: z.string().min(1).optional(),
+    POSTHOG_HOST: z.string().url('must be a URL').default('https://us.i.posthog.com'),
+
+    // Error reporting (src/lib/log.ts). Without a DSN errors are only logged.
+    SENTRY_DSN: z.string().url('must be a URL').optional(),
+
+    // Minimum level written by the structured logger.
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
   })
 
 // Rules that span several settings. They are checked from which settings are
