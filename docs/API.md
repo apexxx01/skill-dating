@@ -487,6 +487,10 @@ and a unit test fails if a code is missing here.
 | `AUTH_UNAVAILABLE` | 503 | Authentication is temporarily unavailable |
 | `ACCOUNT_CONFLICT` | 409 | This email belongs to a different account |
 | `INTERNAL_ERROR` | 500 | Something went wrong |
+| `INVALID_CURSOR` | 400 | The cursor is not valid. Start again without a cursor |
+| `IDEMPOTENCY_KEY_INVALID` | 400 | The Idempotency-Key header must be 8 to 128 letters, digits or . _ : ~ = + - |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | This Idempotency-Key was already used for a different request |
+| `IDEMPOTENCY_REQUEST_IN_PROGRESS` | 409 | A request with this Idempotency-Key is still being processed |
 | `WEBHOOK_NOT_CONFIGURED` | 503 | Webhook is not configured |
 | `WEBHOOK_SIGNATURE_MISSING` | 400 | Missing signature headers |
 | `WEBHOOK_SIGNATURE_INVALID` | 400 | Invalid signature |
@@ -562,6 +566,8 @@ and a unit test fails if a code is missing here.
 | `TEAM_NO_PROJECT` | 400 | This team has no linked project to submit |
 | `HACKATHON_TEAM_TOO_LARGE` | 400 | Team exceeds this hackathon's max team size of {max} |
 | `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
+| `FLAG_NOT_FOUND` | 404 | Feature flag not found |
+| `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
 
 ---
 

@@ -32,6 +32,10 @@ export const ERROR_CATALOG = {
   AUTH_UNAVAILABLE: { status: 503, message: 'Authentication is temporarily unavailable' },
   ACCOUNT_CONFLICT: { status: 409, message: 'This email belongs to a different account' },
   INTERNAL_ERROR: { status: 500, message: 'Something went wrong' },
+  INVALID_CURSOR: { status: 400, message: 'The cursor is not valid. Start again without a cursor' },
+  IDEMPOTENCY_KEY_INVALID: { status: 400, message: 'The Idempotency-Key header must be 8 to 128 letters, digits or . _ : ~ = + -' },
+  IDEMPOTENCY_KEY_REUSED: { status: 409, message: 'This Idempotency-Key was already used for a different request' },
+  IDEMPOTENCY_REQUEST_IN_PROGRESS: { status: 409, message: 'A request with this Idempotency-Key is still being processed' },
 
   // --- Webhooks --------------------------------------------------------------
   WEBHOOK_NOT_CONFIGURED: { status: 503, message: 'Webhook is not configured' },
@@ -64,6 +68,7 @@ export const ERROR_CATALOG = {
   USER_SKILL_NOT_FOUND: { status: 404, message: 'Skill not found for user' },
   REPORT_NOT_FOUND: { status: 404, message: 'Report not found' },
   BUILD_NOT_FOUND: { status: 404, message: 'No current build found' },
+  FLAG_NOT_FOUND: { status: 404, message: 'Feature flag not found' },
 
   // --- People ------------------------------------------------------------------
   USER_BLOCKED: { status: 403, message: 'You have blocked this user' },
@@ -111,6 +116,9 @@ export const ERROR_CATALOG = {
   SOLE_OWNER_CANNOT_LEAVE: { status: 400, message: "Cannot leave: you're the sole owner. Promote another member or delete the team first" },
   ALREADY_OWNER: { status: 400, message: 'That user is already the owner' },
   NEW_OWNER_NOT_MEMBER: { status: 400, message: 'The new owner must already be a team member' },
+
+  // --- Platform ----------------------------------------------------------------------
+  FLAG_EXISTS: { status: 409, message: 'A feature flag with this key already exists' },
 
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },
