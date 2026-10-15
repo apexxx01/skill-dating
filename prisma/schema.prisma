@@ -592,13 +592,26 @@ model UserAchievement {
 model XPEvent {
   id          String   @id @default(cuid())
   userId      String
-  type        String   // CHALLENGE_COMPLETE, HACKATHON_JOIN, HACKATHON_WIN, PROJECT_SHIP, OSS_CONTRIBUTION, TEAM_HELP, MILESTONE_COMPLETE, ENDORSEMENT_RECEIVED, QUEST_COMPLETE
+  type        String // The reward action, see src/lib/rewards-config.ts: PROJECT_CREATED, PROJECT_SHIP, HACKATHON_JOIN, HACKATHON_WIN, TEAM_FORMED, ACHIEVEMENT_EARNED
   amount      Int
   description String
   metadata    Json?
+  // Set once seasons exist; no relation yet, so it stays a plain nullable column.
+  seasonId    String?
+  // What earned it (PROJECT, HACKATHON, ACHIEVEMENT, ...) and which row.
+  sourceType  String?
+  sourceId    String?
+  // Identifies "the same award" for this user and action, so a retry or a race
+  // cannot pay twice. Null on rows from before the rewards engine, which the
+  // unique index below treats as distinct.
+  dedupeKey   String?
   createdAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, dedupeKey])
+  @@index([userId, createdAt])
+  @@index([userId, type, createdAt])
 }
 
 model ReputationEvent {
