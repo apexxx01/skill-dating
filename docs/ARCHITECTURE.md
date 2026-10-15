@@ -10,7 +10,7 @@ setup see the [README](../README.md), for how authentication was moved to Clerk 
 Browser ──► Next.js 15 (App Router, one deployable)
               ├─ src/middleware.ts        page redirects only (not a security boundary)
               ├─ src/app/api/**           route handlers, each wrapped in withAuth
-              ├─ src/lib/                 domain logic, auth, env, errors, rate limiting
+              ├─ src/lib/                 domain logic, auth, env, errors, rate limiting, events, rewards
               └─ src/lib/infra/           swappable providers behind interfaces
                     ├─ cache      Upstash Redis   counters, rate limits, sorted sets, presence
                     ├─ jobs       Inngest         background work, served at /api/inngest
@@ -138,6 +138,128 @@ request. Channel access is the pure function `authorizeChannels`, built on the e
 checks. The API key never leaves the server. **No code publishes yet**: the adapter and the
 subscription path are in place, and wiring publishes into messaging and notifications is the next
 step.
+
+## Domain events and rewards
+
+Anything that should react to something a user did (pay XP, count it, tell someone) listens to
+a **domain event** instead of being called from the route. `src/lib/events.ts` is a typed
+in-process bus. A route that changes something calls `emit(tx, 'PROJECT_CREATED', payload)`
+**inside its database transaction**, opened with `transactWithEvents()` instead of
+`prisma.$transaction()` so the bus knows when it ends. Two kinds of subscriber exist:
+
+- **transactional** subscribers run inside `emit()`, on the same transaction. Anything that must
+  commit or roll back together with the action belongs here: the rewards engine is one, so XP
+  is never paid for an action that rolled back, and a failing reward rolls the action back;
+- **committed** subscribers run after the commit, and never for a rollback. A throwing committed
+  subscriber is logged and swallowed, since the request already succeeded. Analytics lives here.
+
+`src/lib/subscribers.ts` registers both and is loaded by the bus before the first event. The
+bus is one per process (kept on `globalThis`): Next can evaluate a module once per route bundle,
+and separate copies would each have their own subscribers and their own record of open
+transactions.
+
+```mermaid
+sequenceDiagram
+    participant R as Route (withAuth)
+    participant DB as PostgreSQL (one transaction)
+    participant B as Event bus
+    participant W as Rewards engine
+    participant A as Analytics
+    R->>DB: transactWithEvents: BEGIN
+    R->>DB: write the project, activity, ...
+    R->>B: emit(tx, PROJECT_CREATED)
+    B->>W: transactional subscriber (same tx)
+    W->>DB: XPEvent (unique key), User.xp, level/tier/achievement notifications
+    W-->>B: envelope recorded for the user
+    R->>DB: COMMIT
+    B->>A: committed subscribers: project_created, level_up, ...
+    R-->>R: scope.rewardsFor(user) becomes `rewards` in the response
+    Note over R,DB: on rollback nothing above is kept and no committed subscriber runs
+```
+
+Events today: `PROJECT_CREATED`, `PROJECT_SHIPPED`, `PROJECT_UPDATE_POSTED`, `MILESTONE_COMPLETED`,
+`HACKATHON_JOINED`, `HACKATHON_WON`, `TEAM_FORMED`, `TEAM_APPLICATION_ACCEPTED`, `EVIDENCE_ADDED`,
+`EVIDENCE_ENDORSED`, `CONNECTION_ACCEPTED`, `MESSAGE_SENT_FIRST_IN_CONNECTION`. A new event is one entry
+in `DomainEvents`, one in `DOMAIN_EVENT_NAMES` and one in `EVENT_REWARDS`
+(`src/lib/rewards-config.ts`), which a unit test keeps in step. Emit it from the route inside
+its transaction; nothing else needs to change.
+
+### Rewards engine
+
+`src/lib/rewards.ts` (`grant()`) is the **only** code that writes an `XPEvent` or changes `User.xp`.
+What an event pays is data, in `src/lib/rewards-config.ts`: amount, daily cap and the one-time key
+per action. The rules, the level curve, the tiers and the response envelope are in
+[GAMIFICATION.md](GAMIFICATION.md). Three properties come from the design:
+
+- **Exactly once.** Each award has a `dedupeKey` (`project:<id>`, `achievement:<slug>`) and a
+  unique index on `XPEvent (userId, type, dedupeKey)`. Two racing requests cannot both insert; the
+  loser sees nothing was written and pays nothing. No lock is needed for this.
+- **Capped per local day.** Capped actions take a transaction advisory lock per user and action,
+  then count awards since the user's local midnight (`src/lib/time.ts`, `User.timezone`, UTC if
+  unset). Parallel requests line up on the lock, so none slips under the cap.
+- **One reported total.** `User.xp` moves by one atomic `UPDATE ... RETURNING`, and the
+  `RewardsEnvelope` is computed from the before and after totals by pure functions, so level and
+  tier changes in it cannot disagree with `levelFor()`.
+
+`seasonId` on `XPEvent` is reserved and unused. Existing rows were migrated safely: the new columns
+are nullable, achievement rows were back-filled with their key, and every other legacy row keeps a
+null key, which the unique index treats as distinct (`20261015000000_xp_event_dedupe`).
+
+## Entitlements and feature flags
+
+`src/lib/entitlements.ts` holds one table of what each plan (`FREE`, `PRO`, `CREW_PRO`, `ORG`) gets:
+counted limits (`DAILY_DROPS`, `BUILD_DATES_PER_WEEK`) and switches (`SEE_WHO_SPARKED`,
+`ADVANCED_FILTERS`, `PROFILE_ANALYTICS`, `CUSTOM_DOMAIN`). Code asks `can(subject, feature)` or
+`limit(subject, feature)`, never for a plan name. The plan comes from the user's `Subscription` row
+(`subjectFor`): none, expired, or lapsed means `FREE`. A paywall is therefore a config change:
+
+- `ENTITLEMENTS_ENFORCED=false` (default) opens every switch to everyone and lifts counted limits to
+  their **hard safety ceiling** (`hardLimit`, an abuse bound that applies to every plan, enforced or not);
+- `ENTITLEMENTS_ENFORCED=true` applies the limits of the user's plan.
+
+Nothing consumes `can()` or `limit()` yet; the first caller arrives with the features they guard.
+`Subscription.provider` and `providerRef` are reserved for billing and unused.
+
+`src/lib/flags.ts` evaluates runtime flags stored in `FeatureFlag`: a user is in when they are on
+the allowlist (even while the flag is off), or the flag is enabled and a hash of the flag key and user
+id falls under `rolloutPercent`. The hash is stable, so raising the percentage only adds users. The flag
+set is cached for 30 seconds in the Cache adapter and dropped on every admin change (on Redis that
+reaches every instance). Admins manage flags under `/api/admin/flags`; every user reads their own
+answers from `GET /api/flags`.
+
+## Analytics
+
+`src/lib/infra/analytics.ts` follows the adapter pattern: `track(userId, event, props)` always writes
+a `ProductEvent` row (so the numbers exist with no third party) and, with `POSTHOG_KEY` set, also
+forwards the event to PostHog. Events: `signup`, `onboarding_completed`, `project_created`,
+`project_shipped`, `level_up`, `tier_up`, `achievement_earned`. Tracking happens after the
+transaction commits, never fails the request, and carries no personal data: the user is our
+internal id, and props are reduced to plain values under safe names (names, emails, free text and
+URLs are dropped whoever passes them). `signup` counts a brand-new account only, not the linking of an old
+row; `onboarding_completed` is recorded once, the first time the profile has a headline and a skill.
+
+## API conventions
+
+All of these are built into `withAuth` (`src/lib/api/handler.ts`), so a route gets them by being a
+route:
+
+- **Request id.** One per request (a plausible incoming `X-Request-Id` is kept), returned in the
+  `X-Request-Id` header and attached to every log line written while the request runs, through
+  `AsyncLocalStorage`. The wrapper also writes one access line per request (method, path without query,
+  status, duration, user id) and turns an unexpected exception into a logged `500 INTERNAL_ERROR`.
+- **Logging** (`src/lib/log.ts`) is JSON lines. Fields whose name looks sensitive are replaced before
+  anything is written; the rule for callers is still "ids, never names, emails or message text".
+  With `SENTRY_DSN` set, error-level logs are also sent to Sentry through its envelope endpoint over `fetch`
+  (no SDK); `setErrorReporter()` swaps in an SDK later.
+- **Pagination** (`src/lib/api/pagination.ts`): `paginate()` for lists ordered by a stored column
+  (keyset cursors: the sort value and id of the last row, so a page costs the same at any depth and
+  paging is not shifted by new rows), `paginateOffset()` and offset cursors where the order is computed
+  or spans columns. Page-numbered requests still work and now also return `nextCursor`.
+- **Idempotency** (`src/lib/api/idempotency.ts`): `withAuth(handler, { idempotent: true })` on
+  creating POST routes. The stored response lives 24 hours in the Cache adapter; an atomic counter
+  decides which of several simultaneous requests runs. See [API.md](API.md#platform).
+- **Health.** `GET /api/health` is public and reports database, cache, jobs and realtime. Only a
+  database failure answers 503.
 
 ## Error contract
 

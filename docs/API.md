@@ -20,6 +20,14 @@ Response types for the frontend are exported from `src/types/api.ts`; the page-b
 
 **Blocks.** Blocking is stored one way and enforced both ways. The blocked user gets `404` for the blocker's profile, content and conversations, and the blocker is left out of their lists, search, leaderboard and recommendations. The blocker who tries to interact with someone they blocked gets `403 USER_BLOCKED`. The blocked user is never told. Details under **Blocks** below.
 
+**Request ids.** Every response carries an `X-Request-Id` header, and every log line written while the request ran carries the same id, so a report can be matched to the logs. A plausible `X-Request-Id` sent by the caller or a gateway (8 to 64 letters, digits, `.`, `_`, `-`) is kept; anything else is replaced. An unexpected failure inside a handler answers `500 INTERNAL_ERROR` in the usual error shape, never a bare page, and the cause is logged (and sent to Sentry when `SENTRY_DSN` is set), not returned.
+
+**Pagination.** Every list endpoint takes `limit` and either `page` or `cursor`, and answers with `nextCursor` (`null` on the last page). Send `nextCursor` back as `cursor` to get the next page. Cursors are opaque, so do not build or read them; they are cheap at any depth and are not thrown off by rows added while someone pages. A request with `cursor` runs no count, so its answer has no `pagination` object; a `page` request keeps its `pagination` and also carries `nextCursor`, so a client can start with pages and continue with cursors. A cursor that is not valid is `400 INVALID_CURSOR`. Lists whose order is computed or spans several columns (`/api/discover`, `/api/leaderboard`, `/api/skills`, milestones) use position cursors, which stay valid only while the ordering is unchanged. Two lists answer with a bare array, `GET /api/users/{id}/skills` and `GET /api/teams/{id}/applications`; they take `limit` (default and maximum 100) and `cursor`, and send the next cursor in the `X-Next-Cursor` header. `GET /api/teams/{id}/candidates` is a short ranked recommendation list (top 10) and is never paged.
+
+**Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags.
+
+**Rewards.** Routes that can award XP return a `rewards` object next to their normal body (see [GAMIFICATION.md](GAMIFICATION.md)); it is present even when nothing was earned. The type is `RewardsEnvelope` in `src/types/api.ts`.
+
 **Requirements.** PostgreSQL 13 or newer (`gen_random_uuid()` is used when marking messages read).
 
 ---
@@ -51,7 +59,7 @@ The caller's own local profile summary. **Response:** `{ id, username, name, ema
 ## Users
 
 ### `GET /api/users`
-Paginated user directory, excludes the caller and anyone blocked in either direction. Query: `page, limit, search, skills (comma-separated slugs), location`.
+Paginated user directory, excludes the caller and anyone blocked in either direction. Query: `page, cursor, limit, search, skills (comma-separated slugs), location`.
 **Response:** `{ users: [...], pagination }`
 
 ### `PATCH /api/users`
@@ -86,7 +94,7 @@ List a user's skills. `404` if the user is missing or has blocked the caller.
 ## Discover
 
 ### `GET /api/discover`
-One-to-one match candidates, ranked by real skill-compatibility score against a bounded recency-ordered pool. Blocked users (either direction) are never returned. Query: `page, limit, search, skills, location`.
+One-to-one match candidates, ranked by real skill-compatibility score against a bounded recency-ordered pool. Blocked users (either direction) are never returned. Query: `page, cursor, limit, search, skills, location`.
 **Response:** `{ people: [{ ...user, compatibility }], pagination }`
 
 ---
@@ -94,7 +102,7 @@ One-to-one match candidates, ranked by real skill-compatibility score against a 
 ## Skills
 
 ### `GET /api/skills`
-Browsable skill catalog (`isActive: true` only), annotated with the caller's own `userLevel`/`isVerified` per skill. Query: `page, limit, category, search`.
+Browsable skill catalog (`isActive: true` only), annotated with the caller's own `userLevel`/`isVerified` per skill. Query: `page, cursor, limit, category, search`.
 
 ### `POST /api/skills`
 **Auth:** `ADMIN`/`MODERATOR`.
@@ -105,10 +113,10 @@ Browsable skill catalog (`isActive: true` only), annotated with the caller's own
 ## Projects
 
 ### `GET /api/projects`
-Visibility-scoped listing: public projects, plus (when no `ownerId` filter is given) the caller's own and any they're a member of. Projects owned by a user the caller has a block with (either direction) are left out. Query: `page, limit, status, search, techStack, ownerId`.
+Visibility-scoped listing: public projects, plus (when no `ownerId` filter is given) the caller's own and any they're a member of. Projects owned by a user the caller has a block with (either direction) are left out. Query: `page, cursor, limit, status, search, techStack, ownerId`.
 
 ### `POST /api/projects`
-Creates a project, `ProjectMember(OWNER)`, and its `PROJECT` conversation atomically. Awards `PROJECT_CREATED` XP, records activity, grants `first-project` achievement.
+Creates a project, `ProjectMember(OWNER)`, and its `PROJECT` conversation atomically, records activity and emits `PROJECT_CREATED`, which pays 50 XP (at most 3 a day, once per project) and the `first-project` achievement. **Response:** the project plus `rewards`.
 **Body:** `{ name, description?, shortDesc?, githubUrl?, demoUrl?, websiteUrl?, techStack?(≤20, each ≤50 chars), lookingFor?(≤20, each ≤50 chars), maxTeamSize?(1-10), hackathonId?, isPublic? }`
 
 ### `GET /api/projects/[id]`
@@ -116,7 +124,7 @@ Creates a project, `ProjectMember(OWNER)`, and its `PROJECT` conversation atomic
 
 ### `PATCH /api/projects/[id]`
 **Auth:** owner, member, or `ADMIN`/`MODERATOR` (`authorize()`).
-Setting `status: 'SHIPPED'` for the first time (gated on `shippedAt` being null) atomically awards `PROJECT_SHIP` XP, a `ReputationEvent`, records activity, and grants `first-ship`.
+Setting `status: 'SHIPPED'` for the first time (gated on `shippedAt` being null) atomically emits `PROJECT_SHIPPED` (200 XP once per project, and the `first-ship` achievement), writes a `ReputationEvent` and records activity. **Response:** the project plus `rewards` (nothing earned unless this call shipped it).
 
 ### `DELETE /api/projects/[id]`
 **Auth:** owner or `ADMIN`. Cascades `ProjectMember`; the project's own `Conversation` is deleted too (verified live).
@@ -126,7 +134,7 @@ Setting `status: 'SHIPPED'` for the first time (gated on `shippedAt` being null)
 ## Teams
 
 ### `GET /api/teams`
-Teams owned by a user the caller has a block with are left out. Query: `page, limit, search, isRecruiting, hackathonId, skills` (comma-separated, exact-match against `lookingFor` via `hasSome` — distinct from `search`'s substring match).
+Teams owned by a user the caller has a block with are left out. Query: `page, cursor, limit, search, isRecruiting, hackathonId, skills` (comma-separated, exact-match against `lookingFor` via `hasSome` — distinct from `search`'s substring match).
 
 ### `POST /api/teams`
 Creates a team, `TeamMember(OWNER)`, and its `TEAM` conversation atomically.
@@ -163,7 +171,7 @@ Three distinct authorization paths depending on the request:
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on an owner-sent invitation** (`invitedById` set) — the invitee only.
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on a self-initiated application** — team `OWNER`/`ADMIN` or platform `ADMIN`.
 
-`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity, and grants `team-player`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
+`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity and emits `TEAM_APPLICATION_ACCEPTED` (`team-player` for the applicant). The response carries the caller's own `rewards`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
 
 ### `POST /api/teams/[id]/invitations`
 **Auth:** team `OWNER`/`ADMIN` or platform `ADMIN`.
@@ -171,7 +179,7 @@ Three distinct authorization paths depending on the request:
 **Errors:** `400` already a member, `409` already pending (invited or self-applied).
 
 ### `GET /api/teams/applications`
-The caller's own applications (sent or received-as-invitation), across all teams. Query: `page, limit, status`.
+The caller's own applications (sent or received-as-invitation), across all teams. Query: `page, cursor, limit, status`.
 
 ### `PATCH /api/teams/[id]/members/[userId]`
 **Auth:** team owner or `ADMIN`. Promotes/demotes a `TeamMember.role` (does **not** touch `Team.ownerId` — see transfer-ownership above).
@@ -186,7 +194,7 @@ The caller's own applications (sent or received-as-invitation), across all teams
 ## Hackathons
 
 ### `GET /api/hackathons`
-Public list. Query: `page, limit, status, search`.
+Public list. Query: `page, cursor, limit, status, search`.
 Each item carries the caller's own participation: `registered` (boolean), `myTeamId` (`string | null`) and `myStatus` (`REGISTERED | TEAM_FORMED | SUBMITTED | WITHDRAWN | null`), and `_count: { participants, teams }`.
 
 ### `POST /api/hackathons`
@@ -197,7 +205,7 @@ Each item carries the caller's own participation: `registered` (boolean), `myTea
 Includes the caller's own `HackathonParticipant` row (`participation`).
 
 ### `POST /api/hackathons/[id]`
-Registers the caller as a participant (only while `UPCOMING` and before `registrationDeadline`). Awards `HACKATHON_JOIN` XP, records activity, grants `first-hackathon`, notifies.
+Registers the caller as a participant (only while `UPCOMING` and before `registrationDeadline`). Records activity, notifies, and emits `HACKATHON_JOINED` (100 XP once per hackathon, `first-hackathon`). **Response:** the participant plus `rewards`.
 **Body:** `{ skills?: string[], lookingFor?: string[] }`
 
 ### `PATCH /api/hackathons/[id]`
@@ -207,7 +215,7 @@ Registers the caller as a participant (only while `UPCOMING` and before `registr
 **Auth:** `ADMIN` only.
 
 ### `POST /api/hackathons/[id]/teams`
-Registers an already-formed team for the hackathon (caller must already be the team's owner or an accepted member, and registered as a hackathon participant). Idempotent across team members (a second member's call joins the existing registration). Atomically upserts `HackathonTeam`/`HackathonTeamMember`, links the team, adds the caller to the hackathon's own conversation, awards `TEAM_FORMED` XP, records activity, grants `team-builder`.
+Registers an already-formed team for the hackathon (caller must already be the team's owner or an accepted member, and registered as a hackathon participant). Idempotent across team members (a second member's call joins the existing registration). Atomically upserts `HackathonTeam`/`HackathonTeamMember`, links the team, adds the caller to the hackathon's own conversation, records activity and emits `TEAM_FORMED` (50 XP once per hackathon, `team-builder`). **Response:** `{ success, teamId, hackathonTeamId, rewards }`.
 **Body:** `{ teamId: string, projectId?: string }`
 **Errors:** `400` team already full (own `maxSize`), `400` exceeds/below the hackathon's own `maxTeamSize`/`minTeamSize`, `403` not a team member.
 
@@ -219,14 +227,14 @@ Registers an already-formed team for the hackathon (caller must already be the t
 ### `PATCH /api/hackathons/[id]/results`
 **Auth:** `ADMIN`/`MODERATOR`. Only once the hackathon has `ENDED`.
 **Body:** `{ results: [{ hackathonTeamId, rank, score? }] }`
-For every team newly reaching rank `1` (idempotent — re-submitting the same rank doesn't re-fire), every member gets `HACKATHON_WIN` XP, a `HACKATHON_WON` activity entry, the `hackathon-winner` achievement, and a notification.
+For every team newly reaching rank `1` (idempotent — re-submitting the same rank doesn't re-fire), every member gets a `HACKATHON_WON` activity entry and a notification, and `HACKATHON_WON` is emitted for each (500 XP once per hackathon, `hackathon-winner`). **Response:** `{ success, results, rewards }`, where `rewards` is the caller's own (the winners are told by notification).
 
 ---
 
 ## Teams ↔ Hackathons ↔ Projects: Builds
 
 ### `GET /api/builds`
-Public feed (`isPublic: true`), without builds from users the caller has a block with. Query: `page, limit, hackathonId`.
+Public feed (`isPublic: true`), without builds from users the caller has a block with. Query: `page, cursor, limit, hackathonId`.
 
 ### `PUT /api/builds/me`
 Full-replacement upsert of the caller's own `CurrentBuild` (one per user). An omitted field resets to its schema default, even on update.
@@ -245,21 +253,21 @@ Sends a typed connection request (`TEAMMATE|COLLABORATOR|MENTOR|FRIEND|NETWORK|D
 **Errors:** `400` self-connect, `404` receiver not found (also when the receiver has blocked the caller), `403` the caller has blocked the receiver, `400` already connected, `409` already pending.
 
 ### `GET /api/connections`
-The caller's own connections (sent + received, or filtered). Query: `page, limit, status, direction ('sent'|'received')`.
+The caller's own connections (sent + received, or filtered). Query: `page, cursor, limit, status, direction ('sent'|'received')`.
 
 ### `PATCH /api/connections/[id]`
 **Auth:** the connection's `receiverId` only — not the sender.
 **Body:** `{ status: 'ACCEPTED' | 'DECLINED' }`
-On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender. `400` if not currently `PENDING`.
+On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (no reward yet). `400` if not currently `PENDING`.
 
 ---
 
 ## Conversations & Messages
 
 ### `GET /api/conversations`
-The caller's own conversations, most recently active first. Query: `page, limit, type (DIRECT|GROUP|PROJECT|TEAM|HACKATHON), search`.
+The caller's own conversations, most recently active first. Query: `page, cursor, limit, type (DIRECT|GROUP|PROJECT|TEAM|HACKATHON), search`.
 `search` matches (case-insensitively) the conversation name, its team/project/hackathon name, and the other members' name or username.
-**Response:** `{ conversations: [{ ...conversation, members, messages (latest one only), _count, unreadCount }], totalUnread, pagination }`. `unreadCount` counts messages from other senders with no read row for the caller; `totalUnread` is their sum.
+**Response:** `{ conversations: [{ ...conversation, members, messages (latest one only), _count, unreadCount }], totalUnread, nextCursor, pagination? }`. `unreadCount` counts messages from other senders with no read row for the caller; `totalUnread` is their sum.
 
 ### `POST /api/conversations`
 Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, returns the existing one if a `DIRECT` conversation between the same two users already exists).
@@ -267,10 +275,10 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 **Errors:** `400` any participant does not exist; `404` the direct-conversation counterpart has blocked the caller; `403` the caller has blocked them.
 
 ### `GET /api/conversations/[id]`
-**Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, limit(≤100), before (ISO datetime)`. Marks exactly the messages returned as read for the caller.
+**Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, cursor, limit(≤100), before (ISO datetime)`. The response's `nextCursor` leads to the next **older** page. Marks exactly the messages returned as read for the caller.
 
 ### `POST /api/conversations/[id]`
-**Auth:** conversation member only. Sends a message, notifies other members. Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
+**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (no reward yet). Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
 **Body:** `{ content, type?, replyToId?, metadata? }`
 
 ### `POST /api/conversations/[id]/read`
@@ -300,7 +308,7 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 ## Notifications
 
 ### `GET /api/notifications`
-The caller's own. Query: `page, limit, unreadOnly, type`. Response includes a real `unreadCount`.
+The caller's own. Query: `page, cursor, limit, unreadOnly, type`. Response includes a real `unreadCount`.
 
 ### `PATCH /api/notifications`
 Bulk mark-all-read. **Body:** `{ all: true }`
@@ -317,7 +325,7 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 **Errors:** `400` self-report, `404` reported user not found, `409` an identical pending report from this reporter against this target already exists (returns the existing report in `details`).
 
 ### `GET /api/reports`
-**Auth:** `ADMIN`/`MODERATOR` only (`403` for everyone else, not an empty list). Query: `page, limit, status`.
+**Auth:** `ADMIN`/`MODERATOR` only (`403` for everyone else, not an empty list). Query: `page, cursor, limit, status`.
 
 ### `PATCH /api/reports/[id]`
 **Auth:** `ADMIN`/`MODERATOR` only. Forward-only transitions: `PENDING → REVIEWING|RESOLVED|DISMISSED`, `REVIEWING → RESOLVED|DISMISSED`; both terminal states final. Atomically updates status, writes a `ModerationAction` (targeting the report itself) and an `AuditEvent`.
@@ -328,9 +336,9 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 ## Leaderboard
 
 ### `GET /api/leaderboard`
-Live `SUM(XPEvent.amount)` aggregate per user (not the denormalized `User.xp` cache — that's kept in sync for cheap sort/display elsewhere, but this endpoint computes the real total). Query: `page, limit`.
+Live `SUM(XPEvent.amount)` aggregate per user (not the denormalized `User.xp` cache — that's kept in sync for cheap sort/display elsewhere, but this endpoint computes the real total). Query: `page, cursor, limit`.
 Users blocked in either direction are left out, and ranks are counted among the users the caller can see.
-**Response:** `{ entries: [{ rank, xp, user }], me: { xp, rank }, pagination }`. `me.rank` is `null` until the caller has earned XP, and is computed live so it is right even when the caller is off the current page.
+**Response:** `{ entries: [{ rank, xp, user }], me: { xp, rank }, nextCursor, pagination? }`. People with equal XP keep one order from page to page, and the cursor is a position, so ranks continue across pages. `me.rank` is `null` until the caller has earned XP, and is computed live so it is right even when the caller is off the current page.
 
 ---
 
@@ -343,7 +351,7 @@ Blocks a user. One transaction: creates the block, deletes any connection betwee
 **Errors:** `400` blocking yourself, `404` user not found.
 
 ### `GET /api/blocks`
-The caller's own block list, newest first. Query: `page, limit`. **Response:** `{ blocks: [{ id, createdAt, reason, user }], pagination }`. The list shows only who the caller blocked, never who blocked the caller.
+The caller's own block list, newest first. Query: `page, cursor, limit`. **Response:** `{ blocks: [{ id, createdAt, reason, user }], nextCursor, pagination? }`. The list shows only who the caller blocked, never who blocked the caller.
 
 ### `DELETE /api/blocks/[userId]`
 Removes the caller's block on that user. Severed connections and withdrawn applications are not restored.
@@ -357,12 +365,12 @@ Where blocks are enforced (either direction unless noted): discover, user direct
 Evidence is attached to a skill the user has added to their profile. A peer endorsement is a row on the same table (`type: 'PEER_ENDORSEMENT'`, `metadata: { endorsedEvidenceId, endorserId }`), written only by the endorse endpoint.
 
 ### `GET /api/evidence`
-Query: `page, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`.
+Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`.
 **Response:** `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, skill, endorsementCount, endorsedByMe }], pagination }`
 **Errors:** `404` user not found or has blocked the caller.
 
 ### `POST /api/evidence`
-Creates evidence for the caller. Records activity and grants `first-evidence`.
+Creates evidence for the caller. Records activity and emits `EVIDENCE_ADDED` (`first-evidence`). **Response:** the evidence plus `rewards`.
 **Body:** `{ skillId, type: 'GITHUB_PROJECT' | 'PORTFOLIO' | 'CERTIFICATION' | 'CONTRIBUTION', title(≤200), url? (http/https, ≤2048), description?(≤2000) }` (unknown keys are rejected)
 **Errors:** `400` the caller has not added that skill, or already has 20 pieces of evidence on it.
 
@@ -370,7 +378,7 @@ Creates evidence for the caller. Records activity and grants `first-evidence`.
 **Auth:** the evidence owner (`403` otherwise). Deleting evidence also removes the endorsements on it. **Response:** `{ success: true }`
 
 ### `POST /api/evidence/[id]/endorse`
-Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement. Every endorsement counts toward `endorsementCount`, but the reward (the `endorsed` achievement and its XP) is only granted when the endorser is verified (`verificationLevel` above `NONE`: a password sign-up stays `NONE` until the account signs in through an OAuth provider), at most 10 rewards per endorser per rolling day, and at most 50 XP per recipient per rolling day from endorsements.
+Endorses someone else's evidence, once per endorser (enforced under a transaction-scoped advisory lock). Notifies the owner and records activity on first endorsement. Every endorsement counts toward `endorsementCount`, but the reward (the `endorsed` achievement and its XP, paid through the `EVIDENCE_ENDORSED` event) is only granted when the endorser is verified (`verificationLevel` above `NONE`: a password sign-up stays `NONE` until the account signs in through an OAuth provider), at most 10 rewards per endorser per rolling day, and at most 50 XP per recipient per rolling day from endorsements.
 **Response:** `{ endorsed: true, endorsementCount }` — `201` when created, `200` if already endorsed.
 **Errors:** `403` your own evidence; `403` you have blocked the owner; `404` missing, an endorsement row, or the owner has blocked you.
 
@@ -382,11 +390,11 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 ## Project Progress
 
 ### `GET /api/projects/[id]/updates`
-**Auth:** anyone who can read the project (public, owner or member). Query: `page, limit(≤50)`.
-**Response:** `{ updates: [{ id, projectId, title, content, type, createdAt, author }], pagination }`
+**Auth:** anyone who can read the project (public, owner or member). Query: `page, cursor, limit(≤50)`.
+**Response:** `{ updates: [{ id, projectId, title, content, type, createdAt, author }], nextCursor, pagination? }`
 
 ### `POST /api/projects/[id]/updates`
-**Auth:** project owner or member. Limited to 10 per minute per user. Notifies the other members, records activity, and grants `first-update` on the caller's first.
+**Auth:** project owner or member. Limited to 10 per minute per user. Notifies the other members, records activity and emits `PROJECT_UPDATE_POSTED` (`first-update` on the caller's first). **Response:** the update plus `rewards`.
 **Body:** `{ title(≤200), content(≤10000), type?: 'UPDATE' | 'ANNOUNCEMENT' }` (`MILESTONE` and `SHIPPED` updates are written by the system).
 
 ### `PATCH /api/projects/[id]/updates/[updateId]`
@@ -397,8 +405,8 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 **Auth:** the author, the project owner, or a platform admin.
 
 ### `GET /api/projects/[id]/milestones`
-**Auth:** anyone who can read the project. Query: `page, limit(≤50)`. Ordered by `order`.
-**Response:** `{ milestones: [{ id, projectId, title, description, dueDate, completedAt, completed, order, createdAt, updatedAt }], pagination }`
+**Auth:** anyone who can read the project. Query: `page, cursor, limit(≤50)`. Ordered by `order`.
+**Response:** `{ milestones: [{ id, projectId, title, description, dueDate, completedAt, completed, order, createdAt, updatedAt }], nextCursor, pagination? }`
 
 ### `POST /api/projects/[id]/milestones`
 **Auth:** owner or member. At most 100 per project (`400`).
@@ -406,7 +414,7 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 
 ### `PATCH /api/projects/[id]/milestones/[milestoneId]`
 **Auth:** owner or member.
-**Body (at least one):** `{ title?, description?(nullable), dueDate?(nullable), order?, completed?: boolean }`. Send `completed`, never `completedAt`. Completing a milestone for the first time records activity and grants `first-milestone` (repeating it does not).
+**Body (at least one):** `{ title?, description?(nullable), dueDate?(nullable), order?, completed?: boolean }`. Send `completed`, never `completedAt`. Completing a milestone for the first time records activity and emits `MILESTONE_COMPLETED` (`first-milestone`); repeating it does not. **Response:** the milestone plus `rewards`.
 
 ### `DELETE /api/projects/[id]/milestones/[milestoneId]`
 **Auth:** owner or member.
@@ -416,9 +424,9 @@ Removes the caller's endorsement. **Response:** `{ endorsed: false, endorsementC
 ## Activity
 
 ### `GET /api/activity`
-A user's activity feed, newest first. Query: `page, limit(≤50), userId (default: the caller), type`.
+A user's activity feed, newest first. Query: `page, cursor, limit(≤50), userId (default: the caller), type`.
 Your own feed is complete. Another user's feed shows entries with no project (achievements, team and hackathon milestones), entries on public projects, and entries on projects the caller is a member of.
-**Response:** `{ activity: [{ id, userId, type, title, description, link, metadata, createdAt, project }], pagination }`
+**Response:** `{ activity: [{ id, userId, type, title, description, link, metadata, createdAt, project }], nextCursor, pagination? }`
 **Errors:** `404` user not found or has blocked the caller.
 
 ---
@@ -452,6 +460,34 @@ Any other name, a wildcard, or a channel the caller may not read refuses the **w
 
 ### `GET | POST | PUT /api/inngest`
 **Auth:** none of ours. Inngest calls this route to discover and run the jobs declared in `src/lib/infra/jobs.ts`, and authenticates each request with its signature (`INNGEST_SIGNING_KEY`, required in production). Not for application clients. In development, without keys, `GET` answers a short description of the registered functions.
+
+---
+
+## Platform
+
+### `GET /api/health`
+**Auth: none.** For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails (still `200`, since the app keeps serving); or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached.
+**Response:** `{ status: 'ok' | 'degraded' | 'down', time, checks: { database, cache, jobs, realtime } }`, each check `{ status: 'ok' | 'down', provider: 'postgres' | 'memory' | 'upstash' | 'inngest' | 'ably', latencyMs? }`. The jobs check reports its configuration only, since probing it would mean enqueueing real work.
+
+### `GET /api/flags`
+Every feature flag with its answer for the caller: `{ flags: { "new-feed": true, ... } }`. Only keys and booleans: rollout percentages and allowlists stay with the admins. Read once per session; answers can be up to 30 seconds old on a deployment with several instances.
+
+### `GET /api/admin/flags`
+**Auth:** `ADMIN`. Flags ordered by key. Query: `limit(≤100, default 50), cursor`. **Response:** `{ flags: [{ key, description, enabled, rolloutPercent, allowUserIds, updatedById, createdAt, updatedAt }], nextCursor }`
+
+### `POST /api/admin/flags`
+**Auth:** `ADMIN`. **Body:** `{ key, description?(≤300), enabled?(default false), rolloutPercent?(0-100, default 100), allowUserIds?(≤500) }`. `key` is 2 to 64 characters: lower-case letters, digits, `-`, `_` or `.`, starting with a letter. `201` with the flag; `409 FLAG_EXISTS`.
+
+### `GET /api/admin/flags/[key]`
+**Auth:** `ADMIN`. `404 FLAG_NOT_FOUND`.
+
+### `PATCH /api/admin/flags/[key]`
+**Auth:** `ADMIN`. **Body (any of):** `{ description?(nullable), enabled?, rolloutPercent?, allowUserIds? }`. The change reaches users immediately (the cached flag set is dropped, which on Redis reaches every instance) and is written to the audit log with the old and new values.
+
+### `DELETE /api/admin/flags/[key]`
+**Auth:** `ADMIN`. **Response:** `{ success: true }`. Audited.
+
+A flag is **on for a user** when they are on its `allowUserIds` (even while it is disabled), or it is `enabled` and the user falls inside the rollout: `rolloutPercent` 100 is everyone, a lower value is a stable share of users chosen by a hash of the flag key and the user id. Raising the percentage only adds users. A flag that does not exist is off.
 
 ---
 

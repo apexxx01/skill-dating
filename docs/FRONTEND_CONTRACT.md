@@ -16,7 +16,12 @@ come back, and every field the mocks invent that the API does not provide.
 | --- | --- |
 | Auth | Clerk session: the `__session` cookie Clerk sets, or `Authorization: Bearer <token>`. No session gives `401` with code `UNAUTHORIZED`. Users are identified by their **local** id (`GET /api/users/me`), never by Clerk's id. |
 | Errors | Always `{ error: { code, message, params?, details? } }`. Branch on `code` (the list is in `docs/API.md`, "Errors"); `message` is an English default. `params` carries the values a translation needs. Validation failures are `400 VALIDATION_FAILED` with `details` as `{ field: string[] }`. |
-| Pagination | `?page=1&limit=20`, response carries `pagination: { page, limit, total, totalPages }`. `limit` is capped per route (usually 50, messages and leaderboard 100). Asking for more than the cap is a `400`, not a silent clamp. |
+| Pagination | `?page=1&limit=20`, response carries `pagination: { page, limit, total, totalPages }` **and** `nextCursor` (`string \| null`). For infinite scroll or "load more", send `nextCursor` back as `?cursor=` (with `limit`) until it is `null`: that is cheaper and is not thrown off by items added while the user scrolls. A cursor request has **no `pagination` object** (no count is run). Cursors are opaque; never build or store one across sessions. Two lists are bare arrays and send the cursor in the `X-Next-Cursor` response header (`GET /api/users/{id}/skills`, `GET /api/teams/{id}/applications`). `limit` is capped per route (usually 50, messages and leaderboard 100). Asking for more than the cap is a `400`, not a silent clamp. A bad cursor is `400 INVALID_CURSOR`: start again from the first page. |
+| Rewards | Every request that can earn XP returns `rewards` (`RewardsEnvelope`) next to its normal body, also when nothing was earned. See the next section. |
+| Retrying creates | Send an `Idempotency-Key` header (any UUID, one per user action, reused on a retry) on creating `POST`s. A retry then returns the first response (`Idempotent-Replayed: true`) and creates nothing. Same key with a different body is `409 IDEMPOTENCY_KEY_REUSED`; while the first call is still running, `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` (wait a second, retry). Do not reuse a key for a new action. |
+| Request id | Every response has `X-Request-Id`. Show it in "something went wrong" screens and send it with bug reports. |
+| Time zones | Set `timezone` (an IANA name such as `Europe/Paris`) on the profile with `PATCH /api/users`; anything that is "per day" (XP caps now, streaks later) follows the user's local midnight. An invalid zone is `400`. Dates stay UTC ISO strings. |
+| Feature flags | `GET /api/flags` returns `{ flags: { key: boolean } }` for the signed-in user. Read it once per session and gate unreleased UI on it; a key that is missing is off. |
 | Rate limits | Per signed-in user, per route family. Over the limit gives `429 RATE_LIMITED` (`error.params.retryAfter` is the seconds to wait) with a `Retry-After` header. If the limiter store is down you may see `503 SERVICE_UNAVAILABLE` with `Retry-After`. Back off and retry; do not hammer. |
 | Dates | ISO 8601 strings. |
 | Blocks | Blocking is symmetric. The blocked user cannot see or reach the blocker anywhere: they get `404` on the blocker's profile, and the blocker is missing from lists, search, leaderboard, recommendations and the dashboard. The blocker gets `403 "You have blocked this user"` if they try to interact with someone they blocked (so the UI can offer "Unblock"). Nothing tells the blocked user they were blocked. |
@@ -392,10 +397,43 @@ notification badge: use `GET /api/notifications?unreadOnly=true` and
 
 ---
 
+## Rewards, levels and tiers
+
+Everything that earns XP returns `rewards` (type `RewardsEnvelope` in
+`src/types/api.ts`). Use it to animate the outcome of the action the user just took:
+
+| Field | Use |
+| --- | --- |
+| `xpGained` | "+75 XP" toast. `0` means nothing was earned (a cap was reached or it already paid): show nothing. |
+| `totalXp`, `newLevel`, `newTier` | Replace the cached XP, level and tier in the header without another request. |
+| `leveledUp`, `oldLevel`, `newLevel` | Level-up celebration. |
+| `tierChanged`, `oldTier`, `newTier` | Tier celebration (`BRONZE`, `SILVER`, `GOLD`, `PLATINUM`, `DIAMOND`, `MYTHIC`). |
+| `achievements[]` | `{ slug, name }` of badges unlocked by this request. |
+| `questsCompleted[]`, `streak` | Always `[]` and `null` for now. Ignore until quests and streaks ship. |
+
+Where it comes back: `POST /api/projects`, `PATCH /api/projects/{id}`,
+`POST /api/projects/{id}/updates`, `PATCH /api/projects/{id}/milestones/{milestoneId}`,
+`POST /api/hackathons/{id}` (register), `POST /api/hackathons/{id}/teams`,
+`PATCH /api/hackathons/{id}/results`, `POST /api/evidence`,
+`PATCH /api/teams/{id}/applications/{applicationId}`. It always describes **the signed-in user**.
+When someone else is rewarded (a hackathon winner, an accepted applicant, the owner of endorsed
+evidence) they find out from a notification: level-ups, tier changes and unlocked
+achievements create a `Notification` of type `ACHIEVEMENT` whose `metadata.kind` is `LEVEL_UP`,
+`TIER_UP` or `ACHIEVEMENT_UNLOCKED`.
+
+Level progress for a progress bar is not in the envelope; compute it from the user's `xp` with the
+curve in [GAMIFICATION.md](GAMIFICATION.md#level-curve) (`levelFor()` in `src/lib/levels.ts` is pure
+and safe to import in the browser: `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`).
+
+Do not promise XP the UI cannot be sure of: project creation pays at most three times a day, and
+shipping, joining, forming a team and winning pay once per project or hackathon.
+
+---
+
 ## Leaderboard
 
-`GET /api/leaderboard?page=&limit=` returns
-`{ entries: [{ rank, xp, user }], me: { xp, rank | null }, pagination }`.
+`GET /api/leaderboard?page=&cursor=&limit=` returns
+`{ entries: [{ rank, xp, user }], me: { xp, rank | null }, nextCursor, pagination? }`.
 Ranks are computed live from the XP log, among users you can see. `me.rank` is
 `null` until you have earned XP.
 
@@ -414,6 +452,8 @@ Ranks are computed live from the XP log, among users you can see. `me.rank` is
 | Progress features had no endpoints | updates and milestones under `/api/projects/{id}/` |
 | Evidence and endorsements | `/api/evidence` and `/api/evidence/{id}/endorse` |
 | Blocking | `/api/blocks`, enforced across every list and interaction |
+| Reward feedback after an action | `rewards` envelope on the awarding routes; level-up, tier and achievement notifications |
+| Infinite scroll and retries | `cursor` / `nextCursor` on every list; `Idempotency-Key` on creating POSTs |
 
 ## Still missing (no backend, needs a product decision)
 
@@ -422,5 +462,5 @@ Ranks are computed live from the XP log, among users you can see. `me.rank` is
 | Presence / typing indicators | Needs a realtime channel. |
 | Project stars and forks | No data model. |
 | Followers and following | Only symmetric connections exist. |
-| Streaks and weekly goals | No data model. |
+| Streaks and weekly goals | No data model yet (`rewards.streak` is `null` until they exist). |
 | Team and project logos | Only `Project.thumbnail` exists; upload storage is not built. |
