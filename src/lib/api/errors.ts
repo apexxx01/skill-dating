@@ -130,6 +130,8 @@ export const ERROR_CATALOG = {
   DATING_UNDERAGE: { status: 403, message: 'Dating is only available to people who are 18 or older' },
   DATING_VERIFICATION_REQUIRED: { status: 403, message: 'Dating needs a verified email and either a verified phone number or a connected GitHub account' },
   BIRTH_DATE_LOCKED: { status: 409, message: 'Your date of birth is already set and cannot be changed' },
+  DROP_NOT_FOUND: { status: 404, message: 'Drop not found' },
+  DROP_NOT_PENDING: { status: 409, message: 'This drop has already been answered or has expired' },
 
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },

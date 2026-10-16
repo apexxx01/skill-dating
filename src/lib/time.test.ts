@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  localTimeKey,
   utcOffsetMinutes,
   addDaysToDateKey,
   daysBetweenDateKeys,
@@ -261,5 +262,20 @@ describe('utcOffsetMinutes', () => {
   it('is UTC for a missing or unknown zone', () => {
     expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), null)).toBe(0)
     expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), 'Not/AZone')).toBe(0)
+  })
+})
+
+describe('localTimeKey', () => {
+  it('is the wall clock time as HH:MM, zero padded', () => {
+    expect(localTimeKey(new Date('2026-10-16T03:30:00Z'), 'Asia/Kolkata')).toBe('09:00')
+    expect(localTimeKey(new Date('2026-10-16T00:05:00Z'), 'UTC')).toBe('00:05')
+    expect(localTimeKey(new Date('2026-10-16T23:59:59Z'), 'UTC')).toBe('23:59')
+    expect(localTimeKey(new Date('2026-07-01T16:00:00Z'), 'America/Los_Angeles')).toBe('09:00')
+  })
+
+  it('is UTC for a missing zone, and compares correctly as text', () => {
+    expect(localTimeKey(new Date('2026-10-16T09:00:00Z'), null)).toBe('09:00')
+    expect('09:00' <= '10:30').toBe(true)
+    expect('09:30' <= '09:05').toBe(false)
   })
 })

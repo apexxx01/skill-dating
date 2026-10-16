@@ -148,6 +148,12 @@ export function localHour(instant: Date, timeZone: string | null | undefined): n
   return wallClock(instant, resolveTimeZone(timeZone)).hour
 }
 
+/** The time of day at `instant` in the zone, as HH:MM (24 hour, zero padded, so two of them compare as text). */
+export function localTimeKey(instant: Date, timeZone: string | null | undefined): string {
+  const wall = wallClock(instant, resolveTimeZone(timeZone))
+  return `${String(wall.hour).padStart(2, '0')}:${String(wall.minute).padStart(2, '0')}`
+}
+
 /** ISO weekday of a calendar date: 1 for Monday to 7 for Sunday. */
 export function isoWeekdayOfDateKey(dateKey: string): number {
   const { year, month, day } = parseDateKey(dateKey)

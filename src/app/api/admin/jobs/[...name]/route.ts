@@ -30,7 +30,14 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (!body.success) return createApiError('VALIDATION_FAILED', { details: body.error.flatten().fieldErrors })
 
   const started = Date.now()
-  const result = await runJob(jobs, name, body.data.data ?? {})
+  let result: unknown
+  try {
+    result = await runJob(jobs, name, body.data.data ?? {})
+  } catch (error) {
+    // A payload the job's own schema refuses is the caller's mistake, not a failure of the job.
+    if (error instanceof z.ZodError) return createApiError('VALIDATION_FAILED', { details: error.flatten().fieldErrors })
+    throw error
+  }
   const durationMs = Date.now() - started
 
   await prisma.auditEvent.create({

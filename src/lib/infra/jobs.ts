@@ -90,6 +90,21 @@ export const jobs = {
     retries: 1,
     handler: async ({ data }) => (await import('@/lib/cosmetics')).runCosmeticsBackfill(data),
   }),
+  // Gives every person whose daily drop time has passed in their own time zone their drops for the day (src/lib/matching/drops.ts).
+  // Hourly, so each lands within the hour after the time they chose; safe to repeat. Pass `userIds` to generate for those people only.
+  'drops/generate': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
+    schedule: '5 * * * *',
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/matching/drops')).runDropGenerationJob(data),
+  }),
+  // Marks drops nobody answered by the end of their day as EXPIRED.
+  'drops/expire': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '20 * * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/matching/drops')).runDropExpiryJob(),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

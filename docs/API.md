@@ -492,6 +492,15 @@ Saves the whole profile (what is left out takes its default). **Body:** `{ conne
 
 **DATING is opt-in and gated.** Saving a profile with `DATING` needs a date of birth on file that makes the caller 18 or older, a verified email, and a verified phone or a connected GitHub account: `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` or `403 DATING_VERIFICATION_REQUIRED` (`details.blockers` lists everything missing), and nothing is saved. Set the date of birth with `PATCH /api/users/me/profile`.
 
+### `GET /api/drops/today`
+The caller's daily drops for their own current date: `{ date, drops, hasProfile, paused, dropTimeLocal, nextDropAt }`. Each drop is `{ id, connectionType, score (0-100), reasons (≤3 lines), status (NEW|SPARKED|PASSED|EXPIRED), secondLook, expiresAt, candidate: { id, name, username, image, headline, builderRole, location, level, tier, skills (top 5), proof: { verifiedEvidence, shipped } } }`, best first. Someone who has been blocked either way since, or whose account is gone, is left out. The first read of a new drop counts one `drop_viewed`. `hasProfile: false` means the caller has not saved a matching profile (show the setup). `nextDropAt` is when the next drops arrive, to the hour (an hourly job makes them); `null` while paused or without a profile. Drops are made by the job `drops/generate`, not by this request, so it can be empty early in the day.
+
+### `POST /api/drops/{id}/pass`
+Passes on a drop: the person is not shown to the caller again for 30 days. **Response:** `{ id, status: "PASSED" }`; passing twice returns the same. `404 DROP_NOT_FOUND` for a drop that does not exist or is not the caller's; `409 DROP_NOT_PENDING` for one already sparked or expired.
+
+### Jobs
+`drops/generate` (hourly; payload `{ userIds?: string[] }` generates for exactly those people, whether or not they are due) and `drops/expire` (hourly) are run on demand with `POST /api/admin/jobs/drops/generate` and `/expire`. A payload the job's own schema refuses is `400 VALIDATION_FAILED`.
+
 ## Realtime
 
 ### `POST /api/realtime/token`
@@ -667,6 +676,8 @@ and a unit test fails if a code is missing here.
 | `DATING_UNDERAGE` | 403 | Dating is only available to people who are 18 or older |
 | `DATING_VERIFICATION_REQUIRED` | 403 | Dating needs a verified email and either a verified phone number or a connected GitHub account |
 | `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
+| `DROP_NOT_FOUND` | 404 | Drop not found |
+| `DROP_NOT_PENDING` | 409 | This drop has already been answered or has expired |
 
 ---
 

@@ -924,3 +924,54 @@ export interface AdminFlagsResponse {
   flags: AdminFlag[]
   nextCursor: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Matching: drops, sparks and matches (docs/MATCHING.md)
+// ---------------------------------------------------------------------------
+
+export type MatchTypeName = 'COFOUNDER' | 'HACKATHON_TEAMMATE' | 'COLLABORATOR' | 'MENTOR' | 'MENTEE' | 'DATING'
+
+/** The short card of a person in the matching screens. Public profile fields only. */
+export interface MatchPerson {
+  id: string
+  name: string | null
+  username: string
+  image: string | null
+  headline: string | null
+  builderRole: string | null
+  location: string | null
+  level: number
+  tier: Tier
+  /** Their five strongest skills. */
+  skills: { slug: string; name: string; level: number }[]
+  proof: { verifiedEvidence: number; shipped: number }
+}
+
+/** One person shown to the caller for one local day. */
+export interface DropItem {
+  id: string
+  /** The relationship, from the caller's side: a MENTEE is shown mentors. */
+  connectionType: MatchTypeName
+  /** 0 to 100. */
+  score: number
+  /** At most three lines saying why. */
+  reasons: string[]
+  status: 'NEW' | 'SPARKED' | 'PASSED' | 'EXPIRED'
+  /** Resurfaced because the person has grown since the caller passed. */
+  secondLook: boolean
+  expiresAt: IsoDate
+  candidate: MatchPerson
+}
+
+/** GET /api/drops/today. */
+export interface TodayDrops {
+  /** The caller's own calendar day, "YYYY-MM-DD". */
+  date: string
+  drops: DropItem[]
+  /** False until the caller has saved a matching profile: show the setup instead. */
+  hasProfile: boolean
+  paused: boolean
+  dropTimeLocal: string
+  /** When the next drops arrive, to the hour (they are made by an hourly job). Null while paused or without a profile. */
+  nextDropAt: IsoDate | null
+}

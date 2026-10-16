@@ -87,3 +87,47 @@ The three strongest lines, strongest first (a line's strength is how strong its 
 type). They are built from facts and never from a guess: "You need ML, they have 3 verified ML projects", "6h timezone overlap", "Both
 want to ship by year end", "You both build with Next.js and Postgres", "They have shipped 4 projects". They say **"they"**, never a guess
 at a pronoun, and a component with no data behind it says nothing.
+
+## Daily drops
+
+A **drop** (`Drop`) is one person shown to another for one day of the viewer's own calendar: `{ userId, candidateId, connectionType, score,
+reasons, localDate, status: NEW | SPARKED | PASSED | EXPIRED, secondLook, expiresAt }`, unique on `(userId, candidateId, localDate)`. The
+type is the relationship from the *viewer's* side (a mentee is shown mentors as `MENTEE`).
+
+### When
+
+The job `drops/generate` runs **hourly** (`:05`). A person is *due* when their `dropTimeLocal` has passed in **their own time zone** today and
+they have no drops for that local day yet (`MatchingProfile.lastDropDate`). That is a catch-up rule, not "this exact hour": somebody who saves
+their profile at 22:00 gets their drops at the next run, and a missed run is made up by the next. A day is generated once, even when nobody
+fits (the marker is written either way). The time zones in use are looked up once, and each zone's due people are one query. A person
+with no time zone is on UTC. `drops/expire` runs hourly (`:20`) and marks `NEW` drops past `expiresAt` (the end of the viewer's day) as `EXPIRED`.
+
+### How many, and which
+
+- **How many:** `limit(user, DAILY_DROPS)` from the entitlements table (3 on FREE, 10 on PRO/CREW_PRO/ORG when `ENTITLEMENTS_ENFORCED=true`; the
+  hard ceiling of 50 when it is off), less what they already have today. A second-look drop is extra and does not count.
+- **Who is in the pool** (`src/lib/matching/candidates.ts`, one SQL query per type of relationship the viewer chose):
+  has the counterpart type · not paused · not deleted · seen in the last 60 days · **a trusted account** (verified email, at least 7 days old: the same
+  rule as the trusted-counterparty gate, `MIN_TRUSTED_ACCOUNT_AGE_DAYS`) · **not blocked either way** · not shown to the viewer in the last 7 days ·
+  **not passed in the last 30 days** · for DATING only, dating-eligible · the "only my city" wish of either side · and under the **exposure
+  cap**. (Existing matches and people already sparked are left out too: see Sparks and matches.)
+- **Fairness: the exposure cap.** One person is shown to at most **20** people a UTC day (`DROP_CONFIG.exposureCapPerDay`). Drops are made
+  one viewer at a time, so each sees what the viewers before them were shown, and the order of viewers is shuffled by the day
+  (`shuffledForDay`) so nobody is always first at the popular candidates. A popular person is therefore spread over many viewers, not shown to all of them.
+- **Scored in batches:** the database hands back at most 300 candidates per type, pre-ranked cheaply (skills each wants that the other has, then recency).
+  Their profiles are loaded 300 at a time in a handful of queries (never one per person; a person who is a candidate for many viewers is loaded once per run)
+  and ranked by the pure scorer.
+- **Floor:** a candidate scoring under 30 is not shown.
+- **Diversity:** somebody who chose **several types** gets **at most one drop per type** a day (the best cofounder, the best teammate, the best mentor, each
+  a different person); somebody who chose **only one type** gets as many as their allowance. A person who fits two types is shown once, as the better fit.
+- **Dating** pools are separate queries from every other type (see "The dating gate"), and a viewer who is no longer eligible is simply given no dating drops.
+
+Writing the drops is one transaction under a per-person advisory lock that re-checks the marker and the allowance, so two runs at once (or an
+admin run during the hourly one) cannot give anybody more than their allowance.
+
+### Reading and passing
+
+`GET /api/drops/today` returns the caller's drops for their own current date, best first, each with the person's card, the score and the reasons; people who
+were blocked since, or whose account is gone, are left out. The first read of a new drop stamps `viewedAt` and counts one `drop_viewed` (once per drop, even
+under concurrent reads). `POST /api/drops/{id}/pass` marks a `NEW` drop `PASSED` and stores a snapshot of the person's tier and verified evidence (for the second look);
+passing twice is fine; someone else's drop is `404`; a sparked or expired one is `409`.
