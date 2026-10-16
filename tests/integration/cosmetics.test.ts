@@ -35,7 +35,7 @@ describe('cosmetics', () => {
       const u = await user()
       const res = await list(u)
       expect(res.status).toBe(200)
-      expect(res.data).toMatchObject({ owned: 0, total: 20, equipped: { title: null, frame: null, banner: null } })
+      expect(res.data).toMatchObject({ owned: 0, total: 20, equipped: { title: null, frame: null, banner: null, badges: [] } })
       expect(res.data.cosmetics).toHaveLength(20)
       const masked = res.data.cosmetics.filter((item: { masked: boolean }) => item.masked)
       expect(masked).toHaveLength(3)
@@ -112,8 +112,8 @@ describe('cosmetics', () => {
       await project(u)
       const res = await req(u.jar, 'PATCH', '/api/users/me/equipped', { title: 'title-bronze' })
       expect(res.status).toBe(200)
-      expect(res.data).toEqual({ equipped: { title: 'title-bronze', frame: null, banner: null } })
-      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).equipped).toEqual({ title: 'title-bronze', frame: null, banner: null })
+      expect(res.data).toEqual({ equipped: { title: 'title-bronze', frame: null, banner: null, badges: [] } })
+      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).equipped).toEqual({ title: 'title-bronze', frame: null, banner: null, badges: [] })
 
       const listed = await list(u)
       expect(listed.data.equipped.title).toBe('title-bronze')
@@ -131,7 +131,7 @@ describe('cosmetics', () => {
       await project(u)
       await req(u.jar, 'PATCH', '/api/users/me/equipped', { title: 'title-bronze' })
       const frame = await req(u.jar, 'PATCH', '/api/users/me/equipped', { frame: 'frame-streak-7' })
-      expect(frame.data.equipped).toEqual({ title: 'title-bronze', frame: 'frame-streak-7', banner: null })
+      expect(frame.data.equipped).toEqual({ title: 'title-bronze', frame: 'frame-streak-7', banner: null, badges: [] })
     })
 
     it('refuses a cosmetic the user has not earned, one that does not exist, and changes nothing', async () => {
@@ -144,7 +144,7 @@ describe('cosmetics', () => {
         expect(res.status, slug).toBe(403)
         expect(res.data.error.code, slug).toBe('COSMETIC_NOT_OWNED')
       }
-      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).equipped).toEqual({ title: 'title-bronze', frame: null, banner: null })
+      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).equipped).toEqual({ title: 'title-bronze', frame: null, banner: null, badges: [] })
     })
 
     it('refuses a cosmetic in the wrong slot', async () => {
@@ -164,6 +164,45 @@ describe('cosmetics', () => {
       expect(await owned(a)).toContain('frame-streak-7')
       const res = await req(b.jar, 'PATCH', '/api/users/me/equipped', { frame: 'frame-streak-7' })
       expect(res.status).toBe(403)
+    })
+
+    it('wears up to three badges, in order, replacing the list, and shows them on the player card', async () => {
+      const u = await user()
+      const slugs = [1, 2, 3, 4].map((season) => `season-${900 + season}-participant`)
+      for (const [index, badge] of slugs.entries()) {
+        const cosmetic = await testPrisma.cosmetic.upsert({
+          where: { slug: badge },
+          create: { slug: badge, type: 'BADGE', name: `Season ${900 + index + 1} Participant`, description: 'test', rarity: 'COMMON', unlockRule: { type: 'SEASON', season: 900 + index + 1, award: 'PARTICIPANT' }, order: 1 },
+          update: {},
+        })
+        await testPrisma.userCosmetic.create({ data: { userId: u.userId, cosmeticId: cosmetic.id, source: 'test' } })
+      }
+      const wear = await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: [slugs[2], slugs[0]] })
+      expect(wear.status).toBe(200)
+      expect(wear.data.equipped.badges).toEqual([slugs[2], slugs[0]])
+      const card = await req(u.jar, 'GET', `/api/users/${u.userId}/stats`)
+      expect(card.data.equipped.badges).toEqual([
+        { slug: slugs[2], name: 'Season 903 Participant' },
+        { slug: slugs[0], name: 'Season 901 Participant' },
+      ])
+      const listed = await list(u)
+      expect(listed.data.cosmetics.filter((item: { equipped: boolean; slug: string }) => item.equipped).map((item: { slug: string }) => item.slug).sort()).toEqual([slugs[0], slugs[2]].sort())
+
+      // A slot not mentioned is left alone; an empty list takes every badge off.
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { title: null })).data.equipped.badges).toEqual([slugs[2], slugs[0]])
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: [] })).data.equipped.badges).toEqual([])
+
+      // Three at most, each once, and only badges that were earned.
+      const four = await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: slugs })
+      expect(four.status).toBe(400)
+      expect(four.data.error.code).toBe('VALIDATION_FAILED')
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: [slugs[0], slugs[0]] })).status).toBe(400)
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: ['season-955-participant'] })).status).toBe(403)
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: 'x' })).status).toBe(400)
+      expect((await req(u.jar, 'PATCH', '/api/users/me/equipped', { badges: [null] })).status).toBe(400)
+      const wrongSlot = await req(u.jar, 'PATCH', '/api/users/me/equipped', { frame: slugs[0] })
+      expect(wrongSlot.status).toBe(400)
+      expect(wrongSlot.data.error.code).toBe('COSMETIC_WRONG_SLOT')
     })
 
     it('validates the body: at least one slot, nothing else, text or null', async () => {

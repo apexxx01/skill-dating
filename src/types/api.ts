@@ -733,7 +733,13 @@ export interface PlayerCard {
   /** Null for somebody else's card when the person keeps their activity private. */
   streak: { current: number; longest: number; freezes: number; lastDay: string | null } | null
   /** What the person wears, named. */
-  equipped: { title: { slug: string; name: string } | null; frame: { slug: string; name: string } | null; banner: { slug: string; name: string } | null }
+  equipped: {
+    title: { slug: string; name: string } | null
+    frame: { slug: string; name: string } | null
+    banner: { slug: string; name: string } | null
+    /** At most three, in the order the person put them. */
+    badges: { slug: string; name: string }[]
+  }
   /** The three rarest achievements earned, rarest first. */
   topAchievements: { slug: string; name: string; icon: string | null; rarity: number | null; earnedAt: IsoDate }[]
   counts: {
@@ -756,6 +762,8 @@ export interface EquippedCosmetics {
   title: string | null
   frame: string | null
   banner: string | null
+  /** Up to three badge slugs, in display order. */
+  badges: string[]
 }
 
 /**
@@ -764,12 +772,12 @@ export interface EquippedCosmetics {
  */
 export interface CosmeticItem {
   slug: string
-  type: 'TITLE' | 'FRAME' | 'BANNER' | 'AVATAR_PART'
+  type: 'TITLE' | 'FRAME' | 'BANNER' | 'BADGE' | 'AVATAR_PART'
   name: string
   description: string
   rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
   /** Which of `EquippedCosmetics` it goes in; null for a type that cannot be worn yet. */
-  slot: 'title' | 'frame' | 'banner' | null
+  slot: 'title' | 'frame' | 'banner' | 'badges' | null
   owned: boolean
   masked: boolean
   /** Being worn right now. */

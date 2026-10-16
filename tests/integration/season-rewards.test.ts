@@ -113,8 +113,13 @@ describe('season rewards', () => {
     const wear = await req(winner.jar, 'PATCH', '/api/users/me/equipped', { title: slug('TOP_100'), frame: slug('TOP_1_PERCENT') })
     expect(wear.status).toBe(200)
     expect(wear.data.equipped).toMatchObject({ title: slug('TOP_100'), frame: slug('TOP_1_PERCENT') })
-    // The badge has no slot to wear. Another season's title was never earned.
+    // The badge goes in the badges slot and nowhere else. Another season's title was never earned.
     expect((await req(winner.jar, 'PATCH', '/api/users/me/equipped', { banner: slug('PARTICIPANT') })).status).toBe(400)
+    const wearBadge = await req(winner.jar, 'PATCH', '/api/users/me/equipped', { badges: [slug('PARTICIPANT')] })
+    expect(wearBadge.status).toBe(200)
+    expect(wearBadge.data.equipped.badges).toEqual([slug('PARTICIPANT')])
+    expect(list.data.cosmetics.find((item: { slug: string }) => item.slug === slug('PARTICIPANT'))).toMatchObject({ type: 'BADGE', slot: 'badges' })
+    expect((await testPrisma.cosmetic.findUniqueOrThrow({ where: { slug: slug('PARTICIPANT') } })).type).toBe('BADGE')
     const foreign = await req(winner.jar, 'PATCH', '/api/users/me/equipped', { title: seasonCosmeticSlug(season.number + 50, 'TOP_100') })
     expect(foreign.status).toBe(403)
   }, 600_000)

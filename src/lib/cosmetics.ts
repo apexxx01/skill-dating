@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import type { DomainEventName, TransactionalContext, Db } from '@/lib/events'
-import { cosmeticDefinition, matchingCosmetics, seasonAwardCutoffs, seasonCosmetic, SEASON_AWARDS, SLOT_OF, type CosmeticDefinition, type SeasonAward, type UnlockTrigger } from '@/lib/cosmetic-definitions'
+import { cosmeticDefinition, matchingCosmetics, MAX_BADGES_SHOWN, seasonAwardCutoffs, seasonCosmetic, SEASON_AWARDS, SLOT_OF, type CosmeticDefinition, type CosmeticSlot, type SeasonAward, type UnlockTrigger } from '@/lib/cosmetic-definitions'
 import { levelFor } from '@/lib/levels'
 import { utcTimestamp } from '@/lib/sql'
 
@@ -170,15 +170,23 @@ export interface Equipped {
   title: string | null
   frame: string | null
   banner: string | null
+  /** At most MAX_BADGES_SHOWN, in the order the person put them. */
+  badges: string[]
 }
 
-export const NOTHING_EQUIPPED: Equipped = { title: null, frame: null, banner: null }
+export const NOTHING_EQUIPPED: Equipped = { title: null, frame: null, banner: null, badges: [] }
+
+/** What a request can change: a slot left out stays as it is; `badges` replaces the whole list. */
+export type EquipChange = Partial<Omit<Equipped, 'badges'>> & { badges?: string[] }
 
 /** What `User.equipped` holds, tolerating anything stored there: unknown keys and non-text values are dropped. */
 export function readEquipped(value: Prisma.JsonValue | null | undefined): Equipped {
   const stored = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>
-  const slot = (key: keyof Equipped) => (typeof stored[key] === 'string' && cosmeticDefinition(stored[key] as string) !== undefined ? (stored[key] as string) : null)
-  return { title: slot('title'), frame: slot('frame'), banner: slot('banner') }
+  const slot = (key: 'title' | 'frame' | 'banner') => (typeof stored[key] === 'string' && cosmeticDefinition(stored[key] as string) !== undefined ? (stored[key] as string) : null)
+  const badges = Array.isArray(stored.badges)
+    ? [...new Set(stored.badges.filter((slug): slug is string => typeof slug === 'string' && cosmeticDefinition(slug) !== undefined))].slice(0, MAX_BADGES_SHOWN)
+    : []
+  return { title: slot('title'), frame: slot('frame'), banner: slot('banner'), badges }
 }
 
 export type EquipOutcome =
@@ -190,12 +198,16 @@ export type EquipOutcome =
  * the user OWNS and that belongs in that slot; a slot left out stays as it is. Nothing is granted here: this only
  * chooses among what the user has already earned.
  */
-export async function equip(db: Pick<PrismaClient, 'user' | 'userCosmetic'>, userId: string, change: Partial<Equipped>): Promise<EquipOutcome> {
-  const wanted = (Object.entries(change) as [keyof Equipped, string | null | undefined][]).filter(([, slug]) => slug !== undefined)
-  const slugs = wanted.map(([, slug]) => slug).filter((slug): slug is string => typeof slug === 'string')
+export async function equip(db: Pick<PrismaClient, 'user' | 'userCosmetic'>, userId: string, change: EquipChange): Promise<EquipOutcome> {
+  const { badges, ...single } = change
+  const wanted = (Object.entries(single) as [Exclude<keyof Equipped, 'badges'>, string | null | undefined][]).filter(([, slug]) => slug !== undefined)
+  const requested: [CosmeticSlot, string][] = [
+    ...wanted.flatMap(([slot, slug]): [CosmeticSlot, string][] => (typeof slug === 'string' ? [[slot, slug]] : [])),
+    ...(badges ?? []).map((slug): [CosmeticSlot, string] => ['badges', slug]),
+  ]
+  const slugs = requested.map(([, slug]) => slug)
 
-  for (const [slot, slug] of wanted) {
-    if (typeof slug !== 'string') continue
+  for (const [slot, slug] of requested) {
     const definition = cosmeticDefinition(slug)
     // An unknown slug is answered like one the user does not own, so nobody can probe for cosmetics they have not seen.
     if (!definition) return { ok: false, reason: 'NOT_OWNED', slug }
@@ -212,6 +224,7 @@ export async function equip(db: Pick<PrismaClient, 'user' | 'userCosmetic'>, use
   const current = readEquipped((await db.user.findUnique({ where: { id: userId }, select: { equipped: true } }))?.equipped)
   const next: Equipped = { ...current }
   for (const [slot, slug] of wanted) next[slot] = slug ?? null
+  if (badges !== undefined) next.badges = [...new Set(badges)].slice(0, MAX_BADGES_SHOWN)
   await db.user.update({ where: { id: userId }, data: { equipped: next as unknown as Prisma.InputJsonValue } })
   return { ok: true, equipped: next }
 }

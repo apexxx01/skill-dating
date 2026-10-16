@@ -18,7 +18,7 @@ export async function loadCosmetics(db: Pick<PrismaClient, 'user' | 'userCosmeti
     db.userCosmetic.findMany({ where: { userId }, select: { unlockedAt: true, source: true, cosmetic: { select: { slug: true } } } }),
   ])
   const equipped = readEquipped(user?.equipped)
-  const wearing = new Set(Object.values(equipped).filter((slug): slug is string => slug !== null))
+  const wearing = new Set([equipped.title, equipped.frame, equipped.banner, ...equipped.badges].filter((slug): slug is string => slug !== null))
   const mine = new Map(owned.map((row) => [row.cosmetic.slug, row]))
 
   const seasonal = owned.flatMap((row) => {

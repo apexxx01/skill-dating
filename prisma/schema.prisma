@@ -664,6 +664,8 @@ enum CosmeticType {
   TITLE
   FRAME
   BANNER
+  // Worn in the "badges" slot, up to three at a time.
+  BADGE
   AVATAR_PART
 }
 

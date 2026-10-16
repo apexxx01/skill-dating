@@ -11,7 +11,7 @@ const now = new Date('2026-10-16T12:00:00Z')
 const [, , , allTime] = periodsAt(now, { id: 'season-1', endsAt: new Date('2026-12-11T00:00:00Z') })
 
 interface Setup {
-  user?: Partial<{ xp: number; timezone: string | null; deletedAt: Date | null; currentStreak: number; longestStreak: number; lastStreakDay: string | null; streakFreezes: number }> | null
+  user?: Partial<{ equipped: unknown; xp: number; timezone: string | null; deletedAt: Date | null; currentStreak: number; longestStreak: number; lastStreakDay: string | null; streakFreezes: number }> | null
   profile?: { hideFromLeaderboards?: boolean; countryCode?: string | null; cityKey?: string | null; campusKey?: string | null } | null
   counters?: Record<string, number>
   earned?: { slug: string; name: string; icon?: string | null; rarity: number | null; xpReward: number; earnedAt: string }[]
@@ -76,6 +76,22 @@ describe('buildPlayerCard', () => {
     expect((await buildPlayerCard(fakeDb(), cache, 'u1', now))!.ranks).toEqual({ global: 1, country: null, city: null })
     expect((await buildPlayerCard(fakeDb(), cache, 'nobody', now))!.ranks.global).toBeNull()
     expect((await buildPlayerCard(fakeDb({ profile: { hideFromLeaderboards: true, countryCode: 'IN' } }), cache, 'u1', now))!.ranks).toEqual({ global: null, country: null, city: null })
+  })
+
+  it('names what the person wears, a season title and up to three badges included', async () => {
+    const equipped = { title: 'season-2-top-100', frame: 'frame-streak-7', banner: null, badges: ['season-1-participant', 'season-2-participant', 'season-3-participant', 'season-4-participant'] }
+    const card = (await buildPlayerCard(fakeDb({ user: { equipped } }), cache, 'u1', now))!
+    expect(card.equipped).toEqual({
+      title: { slug: 'season-2-top-100', name: 'Season 2 Top 100' },
+      frame: { slug: 'frame-streak-7', name: 'Ember' },
+      banner: null,
+      badges: [
+        { slug: 'season-1-participant', name: 'Season 1 Participant' },
+        { slug: 'season-2-participant', name: 'Season 2 Participant' },
+        { slug: 'season-3-participant', name: 'Season 3 Participant' },
+      ],
+    })
+    expect((await buildPlayerCard(fakeDb(), cache, 'u1', now))!.equipped).toEqual({ title: null, frame: null, banner: null, badges: [] })
   })
 
   it('reports the live streak: 0 once it has lapsed, with the best run kept', async () => {
