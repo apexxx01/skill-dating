@@ -175,7 +175,7 @@ describe('frontend contract', () => {
     expect((await req(a.jar, 'GET', '/api/conversations?type=NOPE')).status).toBe(400)
   })
 
-  it('leaderboard: me carries the live rank and reflects blocks', async () => {
+  it('leaderboard: me carries the live rank, and a block hides people without renumbering', async () => {
     const a = await user('la')
     const top = await user('lt')
     await testPrisma.xPEvent.create({ data: { userId: a.userId, type: 'PROJECT_CREATED', amount: 100, description: 'seed' } })
@@ -194,7 +194,8 @@ describe('frontend contract', () => {
 
     await req(a.jar, 'POST', '/api/blocks', { userId: top.userId })
     const after = await req(a.jar, 'GET', '/api/leaderboard?limit=100')
-    expect(after.data.me.rank).toBe(before.data.me.rank - 1)
+    // Ranks are absolute: blocking somebody above you hides them from your list but does not move you up.
+    expect(after.data.me.rank).toBe(before.data.me.rank)
     expect(after.data.entries.map((e: any) => e.user.id)).not.toContain(top.userId)
   })
 
