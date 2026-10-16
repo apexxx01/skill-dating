@@ -204,6 +204,7 @@ model User {
   leaderboardEntries  LeaderboardEntry[]
   subscription        Subscription?
   productEvents       ProductEvent[]
+  seasonStandings     SeasonStanding[]
 }
 
 model Account {
@@ -623,7 +624,7 @@ model XPEvent {
   amount      Int
   description String
   metadata    Json?
-  // Set once seasons exist; no relation yet, so it stays a plain nullable column.
+  // The season being played when it was earned (see Season). Null for XP from before seasons began.
   seasonId    String?
   // What earned it (PROJECT, HACKATHON, ACHIEVEMENT, ...) and which row.
   sourceType  String?
@@ -634,11 +635,53 @@ model XPEvent {
   dedupeKey   String?
   createdAt   DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@unique([userId, type, dedupeKey])
   @@index([userId, createdAt])
   @@index([userId, type, createdAt])
+  // Leaderboards and the nightly reconcile add XP up over a time range or a season.
+  @@index([createdAt])
+  @@index([seasonId, userId])
+}
+
+// A fixed stretch of time with its own leaderboard. At most one is active (the rollover job closes
+// one and opens the next in the same transaction). Every XPEvent is stamped with the season it was
+// earned in, so a season's standings are always a sum over the log.
+model Season {
+  id        String    @id @default(cuid())
+  number    Int       @unique
+  name      String
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean   @default(false)
+  // Set when the rollover job has closed the season and written its final standings.
+  closedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  xpEvents  XPEvent[]
+  standings SeasonStanding[]
+
+  @@index([active])
+}
+
+// A season's final standing for one person, written once when the season closes. No rewards are
+// attached yet; this is the record they will be paid from.
+model SeasonStanding {
+  id        String   @id @default(cuid())
+  seasonId  String
+  userId    String
+  rank      Int
+  score     Int
+  createdAt DateTime @default(now())
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId])
+  @@index([seasonId, rank])
+  @@index([userId])
 }
 
 model ReputationEvent {
