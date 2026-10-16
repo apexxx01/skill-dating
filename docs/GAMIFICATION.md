@@ -108,12 +108,24 @@ parallel requests cannot all slip under the cap.
 
 ## Level curve
 
-`xpForLevel(n) = round(5 × n^1.85)` is the XP needed to get from level `n` to level
-`n + 1`. Level 1 starts at 0 XP. The maximum level is 100, which has no next level.
+The size of a level is the XP needed to get from level `n` to level `n + 1`. Level 1 starts at
+0 XP. The maximum level is 100, which has no next level.
+
+- **Levels 1 to 55:** `xpForLevel(n) = round(5 × n^1.85)`.
+- **Levels 56 to 99:** `xpForLevel(n) = 3600 + 50 × (n − 56)`, a straight line: 3,600 XP for level 56,
+  4,800 for level 80, 5,750 for level 99.
+
 The early levels are deliberately cheap: level 2 starts at 5 XP and level 4 at 61, so a first
 project (50 XP) with its *First Project* achievement (25 XP) takes a new user to **level 4**,
-the onboarding moment, and level 5 starts at 126. The curve then steepens, which is what keeps the
-upper tiers rare (see the simulation below).
+the onboarding moment, and level 5 starts at 126. The power law then steepens, which is what keeps
+the Silver, Gold and Platinum tiers on schedule (see the simulation below).
+
+Left alone, the power law makes Mythic (level 80) a nine year goal even for a power user, so
+past Diamond (level 55) the size of a level stops growing with the square and grows by a fixed 50
+XP a level instead. Nothing up to level 55 changed (`xpForLevel` and every threshold up to the start of
+level 56 are the same as before), and the size of a level steps **down** once, at level 56, from 8,292 to
+3,600 XP, because that is where the old curve was the problem. Getting from level 55 to 56 still costs
+8,292 XP; from there a level takes a power user about a month instead of two to four.
 
 | Level | Size of the level | Total XP where it starts |
 | ---: | ---: | ---: |
@@ -126,8 +138,9 @@ upper tiers rare (see the simulation below).
 | 20 | 1,276 | 8,326 |
 | 35 | 3,593 | 42,348 |
 | 55 | 8,292 | 155,891 |
-| 80 | 16,584 | 457,255 |
-| 100 | 25,059 | 866,787 |
+| 56 | 3,600 | 164,183 |
+| 80 | 4,800 | 264,383 |
+| 100 | 5,800 | 369,883 |
 
 `levelFor(xp)` returns `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`, where
 `progress` is `xpIntoLevel / xpForNextLevel` (0 to 1; always 1 at level 100, where
@@ -148,26 +161,28 @@ The constants are `TIERS` and `TIER_START_LEVEL` in `src/lib/levels.ts`.
 
 ## How long it takes: the progression simulation
 
-`npm run sim:progression` (`scripts/simulate-progression.ts`) plays four kinds of user, day by day
-for six years, against the real rules. The XP table, daily caps, once-per-source rule, achievements
+`npm run sim:progression` (`scripts/simulate-progression.ts`) plays five kinds of user, day by day
+for ten years, against the real rules. The XP table, daily caps, once-per-source rule, achievements
 and level curve are imported from the files above, not copied, so the numbers follow any change to
 them. Nothing is random and nothing touches the database. After changing a rule, run it and paste
 the output below; a unit test (`src/lib/progression-sim.test.ts`) keeps the script honest about
-caps and levels.
+caps and levels, and fails when a target below is missed.
 
 - **Casual**: 3 actions a week: a project every two weeks, shipped, with a milestone and an update along the way. Earns about 24 XP a day over its first year.
 - **Active**: Something every day, about 3 a day: a project every 10 days, milestones, updates, and the social side. Earns about 69 XP a day over its first year.
 - **Power**: About 6 a day, ships a project every week, joins a hackathon every month. Earns about 142 XP a day over its first year.
+- **Power + wins**: The Power user, with about four hackathon wins a year instead of one. Earns about 146 XP a day over its first year.
 - **Ceiling**: Hits every daily cap every day. The fastest the rules allow, not a person. Earns about 1181 XP a day over its first year.
 
 Days until the user first reaches each level (a tier starts at levels 10, 20, 35, 55 and 80):
 
 | User | Level 2 | Level 5 | Level 10 | Level 20 | Level 35 | Level 55 | Level 80 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Casual | 10 d | 14 d (2.0 wk) | 42 d (6.0 wk) | 350 d (11.5 mo) | 1820 d (5.0 yr) | never (6 yr+) | never (6 yr+) |
-| Active | 2 d | 3 d | 14 d (2.0 wk) | 120 d (3.9 mo) | 616 d (1.7 yr) | never (6 yr+) | never (6 yr+) |
-| Power | 1 d | 1 d | 7 d | 59 d (8.4 wk) | 303 d (10.0 mo) | 1104 d (3.0 yr) | never (6 yr+) |
-| Ceiling | 1 d | 1 d | 1 d | 7 d | 36 d (5.1 wk) | 132 d (4.3 mo) | 388 d (12.8 mo) |
+| Casual | 10 d | 14 d (2.0 wk) | 42 d (6.0 wk) | 350 d (11.5 mo) | 1820 d (5.0 yr) | never (10 yr+) | never (10 yr+) |
+| Active | 2 d | 3 d | 14 d (2.0 wk) | 120 d (3.9 mo) | 616 d (1.7 yr) | 2272 d (6.2 yr) | never (10 yr+) |
+| Power | 1 d | 1 d | 7 d | 59 d (8.4 wk) | 303 d (10.0 mo) | 1104 d (3.0 yr) | 1874 d (5.1 yr) |
+| Power + wins | 1 d | 1 d | 7 d | 59 d (8.4 wk) | 290 d (9.5 mo) | 1075 d (2.9 yr) | 1820 d (5.0 yr) |
+| Ceiling | 1 d | 1 d | 1 d | 7 d | 36 d (5.1 wk) | 132 d (4.3 mo) | 224 d (7.4 mo) |
 
 What the curve is tuned against:
 
@@ -177,18 +192,22 @@ What the curve is tuned against:
 | Casual: Silver in 6-8 weeks | 42-56 d | 42 d (6.0 wk) | 22 / 24 | met |
 | Active: Gold in 3-4 months | 91-122 d | 120 d (3.9 mo) | 78 / 69 | met |
 | Power: Platinum in 9-12 months | 274-365 d | 303 d (10.0 mo) | 133 / 142 | met |
-| Mythic is top-0.1% territory | not within 3 years of steady play | Power: never (6 yr+) | | met |
+| Power: Mythic in 5-6 years | 1825-2190 d | 1874 d (5.1 yr) | 132 / 142 | met |
+| Power + wins: Mythic in 3-5 years | 1095-1825 d | 1820 d (5.0 yr) | 181 / 146 | met |
+| Mythic is top-0.1% territory | not within 3 years of steady play | Power: 1874 d (5.1 yr) | | met |
 
-The curve was tuned against these users. Notes on the targets:
+Notes on the targets:
 
 - **The first project lands on level 4**, on purpose. A curve that also met the speed targets
   below and kept the first project on level 2 does not exist among `round(a × n^p)` curves; the
   closest, `round(24 × n^1.2)`, puts power at about 6 months to Platinum instead of 9 to 12. Cheap early levels and a steep later
   curve were chosen over that.
-- **Mythic stays top-0.1% territory.** The power user reaches Diamond (level 55) in about 3 years and
-  does not reach Mythic (level 80) within the six simulated; run for longer, it takes about 9 years.
-  Only the ceiling, a user who hits every daily cap every day (a person cannot), gets there in about 13 months. No steeper upper
-  levels were needed.
+- **Mythic is a multi-year goal.** The power user reaches Diamond (level 55) in about 3 years and
+  Mythic (level 80) in about 5. The power user who also wins about four hackathons a year is only
+  a few percent faster, because a win is 500 XP in a year of about 52,000: wins alone do not move anyone
+  a year closer. The two windows (3 to 5 years for the top competitor, 5 to 6 for the plain power user)
+  meet at five years, which is where both sit. The *Ceiling* is not a person: it hits every daily
+  cap every day, and reaches Mythic in about 7 months.
 - Casual and active sit at the early edge of their windows (42 days of 42 to 56, 120 days of 91 to 122), so a
   cut to an XP amount slows them past the target; re-run the script after touching `REWARD_RULES`.
 
@@ -217,15 +236,14 @@ interface RewardsEnvelope {
 Routes that return it: `POST /api/projects`, `PATCH /api/projects/{id}`,
 `POST /api/projects/{id}/updates`, `PATCH /api/projects/{id}/milestones/{milestoneId}`,
 `POST /api/hackathons/{id}` (register), `POST /api/hackathons/{id}/teams`,
-`PATCH /api/hackathons/{id}/results`, `POST /api/evidence` and
+`PATCH /api/hackathons/{id}/results`, `POST /api/evidence`,
 `PATCH /api/teams/{id}/applications/{applicationId}`. The envelope always describes
 the **signed-in caller**. A route that rewards someone else (the winners of a
 hackathon, an applicant who was accepted, the owner of endorsed evidence) tells them with
 a notification instead.
 
-Two routes pay the caller XP without returning an envelope yet:
-`PATCH /api/connections/{id}` (accepting) and `POST /api/conversations/{id}` (the first
-message of a direct conversation). The gain shows in the next read of the user's XP.
+`PATCH /api/connections/{id}` (accepting; 10 XP) and `POST /api/conversations/{id}` (the
+first message of a direct conversation; 5 XP) return it too.
 
 ### Examples
 

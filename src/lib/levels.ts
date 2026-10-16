@@ -3,7 +3,14 @@
 //
 // A level's size is the XP needed to move from that level to the next one:
 //
-//   xpForLevel(n) = round(5 * n^1.85)         (5 for level 1, 18 for level 2, ...)
+//   levels 1 to 55:    xpForLevel(n) = round(5 * n^1.85)      (5 for level 1, 18 for level 2, ...)
+//   levels 56 to 99:   xpForLevel(n) = 3600 + 50 * (n - 56)   (3600 for level 56, 5700 for level 98)
+//
+// The power law keeps climbing, and left alone it would make level 80 (Mythic) a
+// ten year goal even for someone who plays like a full-time builder. From level 56 the
+// size grows in a straight line instead, which is what puts Mythic at about five years
+// for a power user (see the simulation in docs/GAMIFICATION.md). The sizes up to level 55
+// are untouched, so every threshold up to the start of level 56 is the same as before.
 //
 // Level 1 starts at 0 XP, so the XP at which a level begins is the sum of the
 // sizes of all the levels before it. The top level (MAX_LEVEL) has no next level.
@@ -34,9 +41,15 @@ export interface LevelInfo {
   progress: number
 }
 
+/** The last level whose size follows the power law. Larger levels follow the straight line. */
+export const POWER_LAW_LAST_LEVEL = 55
+const LINEAR_FIRST_SIZE = 3600
+const LINEAR_STEP = 50
+
 /** XP needed to get from `level` to `level + 1`. */
 export function xpForLevel(level: number): number {
-  return Math.round(5 * Math.pow(level, 1.85))
+  if (level <= POWER_LAW_LAST_LEVEL) return Math.round(5 * Math.pow(level, 1.85))
+  return LINEAR_FIRST_SIZE + LINEAR_STEP * (level - POWER_LAW_LAST_LEVEL - 1)
 }
 
 // cumulative[n - 1] = XP at which level n begins (cumulative[0] = 0).

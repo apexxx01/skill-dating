@@ -16,8 +16,8 @@ import { dedupeKeyFor, EVENT_REWARDS, REWARD_RULES, type RewardSource } from '..
 /** The levels the table reports: the first level of each tier, plus two early ones. */
 export const REPORT_LEVELS = [2, 5, 10, 20, 35, 55, 80] as const
 
-/** Days simulated: six years is long enough to say "effectively never". */
-export const SIMULATED_DAYS = 6 * 365
+/** Days simulated: ten years is long enough to say "effectively never". */
+export const SIMULATED_DAYS = 10 * 365
 
 type EventName = keyof typeof EVENT_REWARDS
 
@@ -81,6 +81,18 @@ export const PERSONAS: Persona[] = [
 ]
 
 /**
+ * Power, plus about four hackathon wins a year (the base Power user wins roughly one): a
+ * top competitor. Wins are worth 500 XP each, so they add a few percent, not a multiple, to
+ * what a power user earns; the curve's job is to keep this user near the end of the
+ * "Mythic in 3-5 years" window and the plain Power user near the start of "5-6 years".
+ */
+export const POWER_WINS: Persona = {
+  name: 'Power + wins',
+  description: 'The Power user, with about four hackathon wins a year instead of one.',
+  perWeek: { ...PERSONAS.find((persona) => persona.name === 'Power')!.perWeek, HACKATHON_WON: 4 / 52 },
+}
+
+/**
  * Not a user, a ceiling: someone who earns every capped action up to its daily cap every
  * day (and ships three projects a day). It is here to show the fastest the rules allow,
  * which is the number to compare "the top 0.1%" against.
@@ -105,6 +117,8 @@ export const TARGETS: { persona: string; level: number; label: string; from: num
   { persona: 'Casual', level: 10, label: 'Silver in 6-8 weeks', from: 42, to: 56 },
   { persona: 'Active', level: 20, label: 'Gold in 3-4 months', from: 91, to: 122 },
   { persona: 'Power', level: 35, label: 'Platinum in 9-12 months', from: 274, to: 365 },
+  { persona: 'Power', level: 80, label: 'Mythic in 5-6 years', from: 5 * 365, to: 6 * 365 },
+  { persona: 'Power + wins', level: 80, label: 'Mythic in 3-5 years', from: 3 * 365, to: 5 * 365 },
 ]
 
 /** The level a user is on after their first project (50 XP) and its achievement (25 XP): the onboarding moment. */
@@ -212,7 +226,7 @@ export function daysToLevels(persona: Persona, days = SIMULATED_DAYS, levelOf: (
 }
 
 export function describeDays(days: number | undefined): string {
-  if (days === undefined) return 'never (6 yr+)'
+  if (days === undefined) return 'never (10 yr+)'
   if (days < 14) return `${days} d`
   if (days < 70) return `${days} d (${(days / 7).toFixed(1)} wk)`
   if (days < 540) return `${days} d (${(days / 30.4).toFixed(1)} mo)`
@@ -261,7 +275,7 @@ export function renderTargets(rows: { persona: Persona; reached: Map<number, num
 }
 
 function main() {
-  const rows = [...PERSONAS, CEILING].map((persona) => ({ persona, reached: daysToLevels(persona) }))
+  const rows = [...PERSONAS, POWER_WINS, CEILING].map((persona) => ({ persona, reached: daysToLevels(persona) }))
   console.log(renderTable(rows))
   console.log('')
   console.log(renderTargets(rows))
