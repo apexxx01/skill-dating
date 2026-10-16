@@ -54,6 +54,7 @@ class FakeRedis implements RedisCommands {
   }
 
   private zs(key: string) {
+    this.sweepExpired()
     let set = this.zsets.get(key)
     if (!set) {
       set = new Map()
@@ -62,6 +63,7 @@ class FakeRedis implements RedisCommands {
     return set
   }
   private sorted(key: string): ScoredMember[] {
+    this.sweepExpired()
     return [...(this.zsets.get(key)?.entries() ?? [])]
       .map(([member, score]) => ({ member, score }))
       .sort((a, b) => a.score - b.score || (a.member < b.member ? -1 : 1))
@@ -77,12 +79,14 @@ class FakeRedis implements RedisCommands {
     return next
   }
   async zscore(key: string, member: string) {
+    this.sweepExpired()
     return this.zsets.get(key)?.get(member) ?? null
   }
   async zrem(key: string, member: string) {
     return this.zsets.get(key)?.delete(member) ? 1 : 0
   }
   async zcard(key: string) {
+    this.sweepExpired()
     return this.zsets.get(key)?.size ?? 0
   }
   async zrevrank(key: string, member: string) {
@@ -107,6 +111,45 @@ class FakeRedis implements RedisCommands {
       }
     }
     return removed
+  }
+  readonly expiries = new Map<string, number>()
+  readonly pipelines: { key: string; member: string; by: number; ttlMs?: number }[][] = []
+  readonly renames: [string, string][] = []
+  async zincrbyPipeline(operations: { key: string; member: string; by: number; ttlMs?: number }[]) {
+    this.pipelines.push(operations)
+    for (const { key, member, by, ttlMs } of operations) {
+      await this.zincrby(key, by, member)
+      // PEXPIRE ... NX: only when the key has no expiry yet.
+      if (ttlMs && ttlMs > 0 && !this.expiries.has(key)) this.expiries.set(key, this.clock.now + ttlMs)
+    }
+    this.sweepExpired()
+  }
+  async zaddMany(key: string, entries: ScoredMember[]) {
+    this.addManyCalls.push(entries.length)
+    for (const { member, score } of entries) await this.zadd(key, score, member)
+  }
+  readonly addManyCalls: number[] = []
+  async rename(from: string, to: string) {
+    this.renames.push([from, to])
+    const set = this.zsets.get(from)
+    if (!set) throw new Error('ERR no such key')
+    this.zsets.delete(from)
+    this.keys.delete(from)
+    this.zsets.set(to, set)
+    this.keys.add(to)
+    this.expiries.delete(to)
+  }
+  async pexpire(key: string, ttlMs: number) {
+    if (this.zsets.has(key) || this.strings.has(key)) this.expiries.set(key, this.clock.now + ttlMs)
+  }
+  private sweepExpired() {
+    for (const [key, at] of this.expiries) {
+      if (this.clock.now >= at) {
+        this.zsets.delete(key)
+        this.keys.delete(key)
+        this.expiries.delete(key)
+      }
+    }
   }
   async ping() {}
 }
@@ -169,6 +212,41 @@ describe('RedisCache', () => {
   it('fails loudly on a reply it does not understand rather than guessing', async () => {
     const broken: RedisCommands = { ...new FakeRedis({ now: 1 }), eval: async () => 'OK' } as unknown as RedisCommands
     await expect(new RedisCache(broken).hit('w', 1000)).rejects.toThrow('unexpected reply')
+  })
+
+  it('sends many sorted-set increments as one pipeline, with the prefix on every key', async () => {
+    const redis = new FakeRedis({ now: 1 })
+    const cache = new RedisCache(redis, 'sd:')
+    await cache.zincrMany([
+      { key: 'a', member: 'u1', by: 5, ttlMs: 1000 },
+      { key: 'b', member: 'u1', by: 5 },
+    ])
+    await cache.zincrMany([])
+    expect(redis.pipelines).toHaveLength(1)
+    expect(redis.pipelines[0].map((operation) => operation.key)).toEqual(['sd:a', 'sd:b'])
+    expect(await cache.zscore('a', 'u1')).toBe(5)
+  })
+
+  it('rebuilds a sorted set under a scratch key in chunks and swaps it in with one rename', async () => {
+    const redis = new FakeRedis({ now: 1 })
+    const cache = new RedisCache(redis, 'sd:')
+    const entries = Array.from({ length: 4500 }, (_, index) => ({ member: `u${index}`, score: index }))
+    await cache.zadd('board', 'stale', 1)
+    await cache.zreplace('board', entries)
+    expect(redis.addManyCalls).toEqual([2000, 2000, 500])
+    expect(redis.renames).toEqual([['sd:board:rebuild', 'sd:board']])
+    expect(await cache.zcard('board')).toBe(4500)
+    expect(await cache.zscore('board', 'stale')).toBeNull()
+    expect(redis.keys.has('sd:board:rebuild')).toBe(false)
+  })
+
+  it('deletes the key when rebuilt from nothing', async () => {
+    const redis = new FakeRedis({ now: 1 })
+    const cache = new RedisCache(redis, 'sd:')
+    await cache.zadd('board', 'a', 1)
+    await cache.zreplace('board', [])
+    expect(await cache.zcard('board')).toBe(0)
+    expect(redis.renames).toEqual([])
   })
 
   it('never lets the counter script leave a key without an expiry', () => {

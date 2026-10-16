@@ -52,6 +52,22 @@ export interface Cache {
   zrangeByScore(key: string, min: number, max: number): Promise<ScoredMember[]>
   zremByScore(key: string, min: number, max: number): Promise<number>
 
+  /**
+   * Several `zincr`s in ONE round trip (a pipeline on Redis), so a request that has to
+   * move a score on many boards pays for one network call, not one per board. When an
+   * operation has a `ttlMs`, its key gets that expiry unless it already has one, so a board
+   * for a finished week or month cleans itself up.
+   */
+  zincrMany(operations: { key: string; member: string; by: number; ttlMs?: number }[]): Promise<void>
+  /**
+   * Replaces the whole sorted set at `key` with `entries`, atomically for readers: the new
+   * set is built under a scratch key and swapped in with one rename, so nobody ever sees
+   * a half-built board. An empty list deletes the key.
+   */
+  zreplace(key: string, entries: ScoredMember[], options?: { ttlMs?: number }): Promise<void>
+  /** Gives an existing key an expiry. Does nothing for a key that is not there. */
+  expire(key: string, ttlMs: number): Promise<void>
+
   ping(): Promise<void>
 }
 
@@ -70,6 +86,12 @@ export interface RedisCommands {
   zrevrangeWithScores(key: string, start: number, stop: number): Promise<ScoredMember[]>
   zrangeByScoreWithScores(key: string, min: number, max: number): Promise<ScoredMember[]>
   zremrangebyscore(key: string, min: number, max: number): Promise<number>
+  /** One request: every increment, then `PEXPIRE ... NX` for the ones that carry a ttl. */
+  zincrbyPipeline(operations: { key: string; member: string; by: number; ttlMs?: number }[]): Promise<void>
+  /** One request adding many members (the scratch key of a rebuild is filled in chunks). */
+  zaddMany(key: string, entries: ScoredMember[]): Promise<void>
+  rename(from: string, to: string): Promise<void>
+  pexpire(key: string, ttlMs: number): Promise<void>
   ping(): Promise<void>
 }
 
@@ -167,10 +189,38 @@ export class RedisCache implements Cache {
     return this.redis.zremrangebyscore(this.k(key), min, max)
   }
 
+  async zincrMany(operations: { key: string; member: string; by: number; ttlMs?: number }[]) {
+    if (operations.length === 0) return
+    await this.redis.zincrbyPipeline(operations.map((operation) => ({ ...operation, key: this.k(operation.key) })))
+  }
+
+  async zreplace(key: string, entries: ScoredMember[], { ttlMs }: { ttlMs?: number } = {}) {
+    if (entries.length === 0) {
+      await this.redis.del(this.k(key))
+      return
+    }
+    // Built beside the real key and swapped in with one rename. A scratch key from a
+    // rebuild that died halfway is overwritten by the next one.
+    const scratch = this.k(`${key}:rebuild`)
+    await this.redis.del(scratch)
+    for (let start = 0; start < entries.length; start += ZADD_CHUNK) {
+      await this.redis.zaddMany(scratch, entries.slice(start, start + ZADD_CHUNK))
+    }
+    await this.redis.rename(scratch, this.k(key))
+    if (ttlMs && ttlMs > 0) await this.redis.pexpire(this.k(key), ttlMs)
+  }
+
+  async expire(key: string, ttlMs: number) {
+    await this.redis.pexpire(this.k(key), ttlMs)
+  }
+
   ping() {
     return this.redis.ping()
   }
 }
+
+// Members added per request while a board is rebuilt: a few thousand fit comfortably under a REST request's size limit.
+const ZADD_CHUNK = 2000
 
 // `zrange ... withScores` answers with a flat [member, score, member, score, ...].
 function pairs(flat: unknown): ScoredMember[] {
@@ -204,6 +254,25 @@ export function upstashCommands(redis: Redis): RedisCommands {
     zrangeByScoreWithScores: async (key, min, max) =>
       pairs(await redis.zrange(key, min, max, { byScore: true, withScores: true })),
     zremrangebyscore: (key, min, max) => redis.zremrangebyscore(key, min, max),
+    zincrbyPipeline: async (operations) => {
+      const pipeline = redis.pipeline()
+      for (const { key, member, by, ttlMs } of operations) {
+        pipeline.zincrby(key, by, member)
+        if (ttlMs && ttlMs > 0) pipeline.pexpire(key, ttlMs, 'NX')
+      }
+      await pipeline.exec()
+    },
+    zaddMany: async (key, entries) => {
+      if (entries.length === 0) return
+      const [first, ...rest] = entries.map(({ member, score }) => ({ score, member }))
+      await redis.zadd(key, first, ...rest)
+    },
+    rename: async (from, to) => {
+      await redis.rename(from, to)
+    },
+    pexpire: async (key, ttlMs) => {
+      await redis.pexpire(key, ttlMs)
+    },
     ping: async () => {
       await redis.ping()
     },

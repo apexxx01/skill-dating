@@ -174,5 +174,33 @@ export class MemoryCache implements Cache {
     return removed
   }
 
+  async zincrMany(operations: { key: string; member: string; by: number; ttlMs?: number }[]) {
+    for (const { key, member, by, ttlMs } of operations) {
+      await this.zincr(key, member, by)
+      if (ttlMs && ttlMs > 0) {
+        const entry = this.zset(key, false)
+        if (entry && entry.expiresAt === null) entry.expiresAt = this.now() + ttlMs
+      }
+    }
+  }
+
+  async zreplace(key: string, entries: ScoredMember[], { ttlMs }: { ttlMs?: number } = {}) {
+    this.live(key)
+    if (entries.length === 0) {
+      this.entries.delete(key)
+      return
+    }
+    this.store(key, {
+      type: 'zset',
+      members: new Map(entries.map(({ member, score }) => [member, score])),
+      expiresAt: ttlMs && ttlMs > 0 ? this.now() + ttlMs : null,
+    })
+  }
+
+  async expire(key: string, ttlMs: number) {
+    const entry = this.live(key)
+    if (entry) entry.expiresAt = this.now() + ttlMs
+  }
+
   async ping() {}
 }

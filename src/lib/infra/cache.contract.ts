@@ -145,6 +145,63 @@ export function cacheContract(name: string, make: (clock: Clock) => Cache) {
     })
   })
 
+  describe(`${name}: batched and replaced sorted sets`, () => {
+    it('applies many increments at once, across boards', async () => {
+      const { cache } = fresh()
+      await cache.zincrMany([
+        { key: 'week', member: 'ann', by: 10 },
+        { key: 'all', member: 'ann', by: 10 },
+        { key: 'all', member: 'bob', by: 3 },
+        { key: 'all', member: 'ann', by: 5 },
+      ])
+      expect(await cache.zscore('week', 'ann')).toBe(10)
+      expect(await cache.zscore('all', 'ann')).toBe(15)
+      expect(await cache.zscore('all', 'bob')).toBe(3)
+      await cache.zincrMany([])
+    })
+
+    it('starts a board expiry on the first increment and does not push it back', async () => {
+      const { cache, clock } = fresh()
+      await cache.zincrMany([{ key: 'week', member: 'ann', by: 1, ttlMs: 1000 }])
+      clock.now += 600
+      await cache.zincrMany([{ key: 'week', member: 'ann', by: 1, ttlMs: 1000 }])
+      expect(await cache.zscore('week', 'ann')).toBe(2)
+      clock.now += 401
+      expect(await cache.zscore('week', 'ann')).toBeNull()
+    })
+
+    it('replaces a whole board, dropping members that are not in the new list', async () => {
+      const { cache } = fresh()
+      await cache.zadd('z', 'old', 100)
+      await cache.zadd('z', 'kept', 1)
+      await cache.zreplace('z', [{ member: 'kept', score: 7 }, { member: 'new', score: 9 }])
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'new', score: 9 }, { member: 'kept', score: 7 }])
+      expect(await cache.zscore('z', 'old')).toBeNull()
+      expect(await cache.zrevrank('z', 'kept')).toBe(1)
+    })
+
+    it('replaces with nothing by deleting, and creates a board that was not there', async () => {
+      const { cache } = fresh()
+      await cache.zreplace('fresh', [{ member: 'a', score: 1 }])
+      expect(await cache.zcard('fresh')).toBe(1)
+      await cache.zreplace('fresh', [])
+      expect(await cache.zcard('fresh')).toBe(0)
+    })
+
+    it('can give a replaced board an expiry, and an existing key one later', async () => {
+      const { cache, clock } = fresh()
+      await cache.zreplace('z', [{ member: 'a', score: 1 }], { ttlMs: 1000 })
+      clock.now += 1001
+      expect(await cache.zcard('z')).toBe(0)
+
+      await cache.zadd('y', 'a', 1)
+      await cache.expire('y', 500)
+      await cache.expire('missing', 500)
+      clock.now += 501
+      expect(await cache.zcard('y')).toBe(0)
+    })
+  })
+
   describe(`${name}: presence`, () => {
     it('lists who has been seen recently, newest first, and forgets the rest', async () => {
       const { cache, clock } = fresh()
