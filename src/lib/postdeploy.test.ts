@@ -3,7 +3,11 @@ import { MemoryCache } from './infra/cache.memory'
 import { BOARDS_READY_KEY } from './leaderboard-write'
 
 const ensureActiveSeason = vi.fn()
-vi.mock('@/lib/seasons', () => ({ ensureActiveSeason: (...args: unknown[]) => ensureActiveSeason(...args) }))
+const grantPendingSeasonRewards = vi.fn()
+vi.mock('@/lib/seasons', () => ({
+  ensureActiveSeason: (...args: unknown[]) => ensureActiveSeason(...args),
+  grantPendingSeasonRewards: (...args: unknown[]) => grantPendingSeasonRewards(...args),
+}))
 
 import { checkEnvironment, PostdeployError, runPostdeploy, type PostdeployDeps } from './postdeploy'
 
@@ -38,6 +42,7 @@ function deps(over: Partial<PostdeployDeps> = {}) {
 
 beforeEach(() => {
   ensureActiveSeason.mockReset().mockResolvedValue({ action: 'kept', season })
+  grantPendingSeasonRewards.mockReset().mockResolvedValue([])
 })
 
 describe('checkEnvironment', () => {
@@ -122,6 +127,13 @@ describe('runPostdeploy', () => {
     ensureActiveSeason.mockResolvedValue({ action: 'created', season })
     const reports = await runPostdeploy(deps().all)
     expect(reports.find((report) => report.step === 'season')!.detail).toMatch(/Season 1 none was running: opened/)
+  })
+
+  it('grants the cosmetics a closed season is owed, and says for which', async () => {
+    ensureActiveSeason.mockResolvedValue({ action: 'rolled-over', season: { ...season, number: 2, name: 'Season 2' } })
+    grantPendingSeasonRewards.mockResolvedValue([{ seasonId: 's1', seasonNumber: 1, ranked: 10, grants: [] }])
+    const reports = await runPostdeploy(deps().all)
+    expect(reports.find((report) => report.step === 'season')!.detail).toMatch(/Season 2 was over: closed it and opened .*; cosmetics granted for Season 1$/)
   })
 
   it('does everything but the leaderboards outside production without Upstash, and warns', async () => {

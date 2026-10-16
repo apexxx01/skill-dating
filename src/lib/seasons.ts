@@ -1,12 +1,14 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { advisoryLock } from '@/lib/progress'
+import { grantSeasonCosmetics, type SeasonCosmeticGrant } from '@/lib/cosmetics'
 import { log } from '@/lib/log'
 
 // Seasons: fixed stretches of time with their own leaderboard. Exactly one is active at a time.
 // grant() stamps every XPEvent with the active season, so a season's standings are always the sum of
 // the XP stamped with it. The rollover job (src/lib/infra/jobs.ts, hourly) closes the season whose
 // time is up: it writes the final standings once, deactivates it and opens the next one in the same
-// transaction. Nothing is paid for a placing yet; SeasonStanding is the record rewards will use.
+// transaction. A placing pays COSMETICS ONLY, never XP (see grantSeasonRewards): a title for the top 100, a
+// frame for the top 1% and another for the top 10%, and a badge for everyone who earned XP in the season.
 
 export const SEASON_LENGTH_DAYS = 56 // eight weeks
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -86,6 +88,47 @@ export async function closeDueSeason(prisma: PrismaClient, now: Date = new Date(
   )
 }
 
+export interface SeasonRewardsResult {
+  seasonId: string
+  seasonNumber: number
+  /** People in the final standings. */
+  ranked: number
+  grants: SeasonCosmeticGrant[]
+}
+
+/**
+ * Gives a closed season's cosmetics to the people who earned them (see grantSeasonCosmetics) and notes that it was done.
+ * Idempotent three ways: a season already marked done is skipped, a lock keeps two runs from doing it at once, and a cosmetic
+ * somebody already has is never granted twice. Returns null when there was nothing to do (not closed yet, or done already).
+ * No XP is involved: the rewards engine is not called.
+ */
+export async function grantSeasonRewards(prisma: PrismaClient, seasonId: string, now: Date = new Date()): Promise<SeasonRewardsResult | null> {
+  return prisma.$transaction(
+    async (tx) => {
+      await advisoryLock(tx, `season-rewards:${seasonId}`)
+      const season = await tx.season.findUnique({ where: { id: seasonId }, select: { id: true, number: true, closedAt: true, rewardsGrantedAt: true } })
+      if (!season || !season.closedAt || season.rewardsGrantedAt) return null
+      const grants = await grantSeasonCosmetics(tx, season, now)
+      await tx.season.update({ where: { id: season.id }, data: { rewardsGrantedAt: now } })
+      const ranked = await tx.seasonStanding.count({ where: { seasonId: season.id } })
+      log.info('season rewards granted', { season: season.number, ranked, granted: grants.map((grant) => `${grant.award}:${grant.granted}`).join(' ') })
+      return { seasonId: season.id, seasonNumber: season.number, ranked, grants }
+    },
+    { timeout: 300_000 }
+  )
+}
+
+/** Grants the rewards of every closed season that has not had them yet, oldest first. The season that just closed is one of them. */
+export async function grantPendingSeasonRewards(prisma: PrismaClient, now: Date = new Date()): Promise<SeasonRewardsResult[]> {
+  const pending = await prisma.season.findMany({ where: { closedAt: { not: null }, rewardsGrantedAt: null }, orderBy: { number: 'asc' }, select: { id: true } })
+  const done: SeasonRewardsResult[] = []
+  for (const { id } of pending) {
+    const result = await grantSeasonRewards(prisma, id, now)
+    if (result) done.push(result)
+  }
+  return done
+}
+
 export interface EnsuredSeason {
   /** `kept`: one was already running. `rolled-over`: the running one was over, so it was closed and the next opened. `created`: there was none at all. */
   action: 'kept' | 'rolled-over' | 'created'
@@ -121,8 +164,11 @@ export async function activeSeason(db: Pick<PrismaClient, 'season'> | Prisma.Tra
   return db.season.findFirst({ where: { active: true }, orderBy: { number: 'desc' } })
 }
 
-/** What the scheduled job runs. */
-export async function runSeasonRollover(): Promise<RolloverResult> {
+export type RolloverJobResult = RolloverResult & { rewards: SeasonRewardsResult[] }
+
+/** What the scheduled job runs: close the season if its time is up, then grant the cosmetics of every closed season that is owed them. */
+export async function runSeasonRollover(): Promise<RolloverJobResult> {
   const { prisma } = await import('@/lib/prisma')
-  return closeDueSeason(prisma)
+  const closed = await closeDueSeason(prisma)
+  return { ...closed, rewards: await grantPendingSeasonRewards(prisma) }
 }

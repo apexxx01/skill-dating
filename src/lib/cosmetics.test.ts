@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import type { Db, TransactionalContext, DomainEventName } from './events'
-import { backfillCosmetics, COSMETIC_EVENTS, equip, NOTHING_EQUIPPED, readEquipped, sourceOf, unlockCosmetics, unlockForEvent } from './cosmetics'
+import { backfillCosmetics, COSMETIC_EVENTS, equip, grantSeasonCosmetics, NOTHING_EQUIPPED, readEquipped, sourceOf, unlockCosmetics, unlockForEvent } from './cosmetics'
 import { xpAtLevelStart } from './levels'
 
 function fakeTx(owned: string[] = []) {
@@ -104,6 +104,85 @@ describe('unlockForEvent', () => {
   })
 })
 
+describe('grantSeasonCosmetics', () => {
+  /** A transaction that records the four grants (one per award) and what each was asked to do. */
+  function seasonTx(ranked: number, granted: number[] = [0, 0, 0, 0]) {
+    const upserts: { slug: string; create: Record<string, unknown> }[] = []
+    const statements: { text: string; values: unknown[] }[] = []
+    const tx = {
+      $queryRaw: vi.fn(async () => [{ ranked }]),
+      $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        statements.push({ text: strings.join('?'), values })
+        return granted[statements.length - 1] ?? 0
+      }),
+      cosmetic: {
+        upsert: vi.fn(async ({ where, create }: { where: { slug: string }; create: Record<string, unknown> }) => {
+          upserts.push({ slug: where.slug, create })
+          return { id: `id-${where.slug}` }
+        }),
+      },
+    }
+    return { tx: tx as unknown as Db, upserts, statements }
+  }
+  const at = new Date('2026-12-11T00:00:00Z')
+
+  it('makes the season’s four cosmetics from its number, once each, in order', async () => {
+    const { tx, upserts } = seasonTx(500)
+    await grantSeasonCosmetics(tx, { id: 's3', number: 3 }, at)
+    expect(upserts.map((upsert) => upsert.slug)).toEqual(['season-3-top-100', 'season-3-top-1-percent', 'season-3-top-10-percent', 'season-3-participant'])
+    expect(upserts.map((upsert) => upsert.create.type)).toEqual(['TITLE', 'FRAME', 'FRAME', 'AVATAR_PART'])
+    expect(upserts.map((upsert) => upsert.create.name)).toEqual(['Season 3 Top 100', 'Season 3 Top 1%', 'Season 3 Top 10%', 'Season 3 Participant'])
+  })
+
+  it('gives each award to the ranks it reaches in a season of that size, and reports who got what', async () => {
+    const { tx, statements } = seasonTx(250, [100, 3, 25, 400])
+    const grants = await grantSeasonCosmetics(tx, { id: 's1', number: 1 }, at)
+    expect(grants).toEqual([
+      { award: 'TOP_100', cutoff: 100, granted: 100 },
+      { award: 'TOP_1_PERCENT', cutoff: 3, granted: 3 },
+      { award: 'TOP_10_PERCENT', cutoff: 25, granted: 25 },
+      { award: 'PARTICIPANT', cutoff: null, granted: 400 },
+    ])
+    expect(statements).toHaveLength(4)
+    // Rank awards read the final standings; the badge reads the log.
+    for (const statement of statements.slice(0, 3)) expect(JSON.stringify(statement.values)).toContain('SeasonStanding')
+    expect(JSON.stringify(statements[3].values)).toContain('XPEvent')
+  })
+
+  it('only ever inserts into the inventory and the notifications: it pays no XP and touches no other table', async () => {
+    const { tx, statements } = seasonTx(10)
+    await grantSeasonCosmetics(tx, { id: 's1', number: 1 }, at)
+    for (const statement of statements) {
+      expect(statement.text).toMatch(/INSERT INTO "UserCosmetic"/)
+      expect(statement.text).toMatch(/ON CONFLICT \("userId", "cosmeticId"\) DO NOTHING/)
+      expect(statement.text).toMatch(/INSERT INTO "Notification"/)
+      expect(statement.text).not.toMatch(/XPEvent"\s*\(|UPDATE "User"|"xp"/)
+    }
+  })
+
+  it('tells only the people who were newly given it', async () => {
+    const { tx, statements } = seasonTx(10)
+    await grantSeasonCosmetics(tx, { id: 's1', number: 1 }, at)
+    // The notification is written from the rows the grant returned, in the same statement, so it cannot go to anybody else.
+    for (const statement of statements) expect(statement.text).toMatch(/WITH granted AS \([\s\S]*RETURNING "userId"[\s\S]*FROM granted/)
+  })
+
+  it('records where each came from, so an operator can see why somebody has it', async () => {
+    const { tx, statements } = seasonTx(10)
+    await grantSeasonCosmetics(tx, { id: 's4', number: 4 }, at)
+    const sources = statements.map((statement) => statement.values.find((value) => typeof value === 'string' && value.startsWith('season:')))
+    expect(sources).toEqual(['season:4:top_100', 'season:4:top_1_percent', 'season:4:top_10_percent', 'season:4:participant'])
+  })
+
+  it('grants nothing by rank in a season nobody was ranked in, but still offers the badge to anyone who played', async () => {
+    const { tx, statements } = seasonTx(0, [0, 0, 0, 2])
+    const grants = await grantSeasonCosmetics(tx, { id: 's1', number: 1 }, at)
+    expect(grants.map((grant) => grant.cutoff)).toEqual([0, 0, 0, null])
+    expect(grants[3].granted).toBe(2)
+    expect(statements).toHaveLength(4)
+  })
+})
+
 describe('readEquipped', () => {
   it('reads the three slots, tolerating whatever is stored', () => {
     expect(readEquipped({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })).toEqual({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })
@@ -115,6 +194,10 @@ describe('readEquipped', () => {
 
   it('drops unknown cosmetics, other keys and values that are not text', () => {
     expect(readEquipped({ title: 'title-from-the-future', frame: 7, banner: null, hat: 'title-gold' })).toEqual(NOTHING_EQUIPPED)
+  })
+
+  it('keeps a season’s title and frame', () => {
+    expect(readEquipped({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant' })).toEqual({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant' })
   })
 })
 
@@ -242,7 +325,7 @@ describe('cosmetics are only ever earned', () => {
     expect(files).toContain(path.join(SRC, 'lib', 'cosmetics.ts'))
   })
 
-  it('has no code outside src/lib/cosmetics.ts that gives anyone a cosmetic or edits the catalog', () => {
+  it('has no code outside src/lib/cosmetics.ts that gives anyone a cosmetic or edits the catalog (a season’s rewards included)', () => {
     const offenders = files.filter((file) => file !== path.join(SRC, 'lib', 'cosmetics.ts')).filter((file) => WRITES_INVENTORY.test(text(file)) || WRITES_CATALOG.test(text(file))).map(rel)
     expect(offenders).toEqual([])
   })
@@ -260,7 +343,7 @@ describe('cosmetics are only ever earned', () => {
   it('has no route that calls the unlock functions: a request cannot earn a cosmetic', () => {
     const routes = files.filter((file) => rel(file).startsWith(path.join('app', 'api')))
     expect(routes.length).toBeGreaterThan(30)
-    const offenders = routes.filter((file) => /\b(unlockCosmetics|unlockForEvent|backfillCosmetics|runCosmeticsBackfill)\b/.test(text(file))).map(rel)
+    const offenders = routes.filter((file) => /\b(unlockCosmetics|unlockForEvent|backfillCosmetics|runCosmeticsBackfill|grantSeasonCosmetics|grantSeasonRewards|grantPendingSeasonRewards)\b/.test(text(file))).map(rel)
     expect(offenders).toEqual([])
   })
 

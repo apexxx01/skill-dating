@@ -1,11 +1,14 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import type { DomainEventName, TransactionalContext, Db } from '@/lib/events'
-import { COSMETIC_BY_SLUG, matchingCosmetics, SLOT_OF, type CosmeticDefinition, type UnlockTrigger } from '@/lib/cosmetic-definitions'
+import { cosmeticDefinition, matchingCosmetics, seasonAwardCutoffs, seasonCosmetic, SEASON_AWARDS, SLOT_OF, type CosmeticDefinition, type SeasonAward, type UnlockTrigger } from '@/lib/cosmetic-definitions'
 import { levelFor } from '@/lib/levels'
+import { utcTimestamp } from '@/lib/sql'
 
 // The ONLY code that gives anyone a cosmetic. A cosmetic is earned by something that happens to a person (a
 // tier reached, an achievement unlocked, a streak extended), announced as a domain event by the rewards
 // engine; the subscriber below asks which cosmetics have an unlock rule that event satisfies and grants those.
+// The one other way in is a season closing: grantSeasonCosmetics() gives the season's title, frames and badge from
+// its final standings, called only by the season rewards code in src/lib/seasons.ts (the rollover job).
 // There is no other way in: no route calls unlockCosmetics, nothing is for sale, and
 // src/lib/cosmetics.test.ts scans the code base to keep it that way.
 
@@ -98,6 +101,69 @@ export async function unlockForEvent(context: TransactionalContext<DomainEventNa
 /** The events the cosmetics subscriber listens to. */
 export const COSMETIC_EVENTS = ['TIER_REACHED', 'ACHIEVEMENT_UNLOCKED', 'STREAK_EXTENDED'] as const satisfies readonly DomainEventName[]
 
+// --- A season closing --------------------------------------------------------------------------------
+
+export interface SeasonCosmeticGrant {
+  award: SeasonAward
+  /** The last rank that got it, for the awards given by rank; null for the badge, which everyone who played gets. */
+  cutoff: number | null
+  /** People who got it now (not counting anybody who already had it). */
+  granted: number
+}
+
+/**
+ * Gives out a closed season's cosmetics: "Season N Top 100" to the 100 best, a top 1% and a top 10% frame by rank, and a
+ * participation badge to everyone who earned XP in it. They are read from the season's final standings (the badge, from the log, since
+ * somebody who switched leaderboards off has no standing but did play). Nothing here pays XP. Safe to run again: a
+ * cosmetic a person already has is left alone, and only the people newly given one are told.
+ */
+export async function grantSeasonCosmetics(db: Db, season: { id: string; number: number }, at: Date = new Date()): Promise<SeasonCosmeticGrant[]> {
+  const tx = db as Tx
+  const [{ ranked }] = await tx.$queryRaw<{ ranked: number }[]>`SELECT COUNT(*)::int AS "ranked" FROM "SeasonStanding" WHERE "seasonId" = ${season.id}`
+  const cutoffs = seasonAwardCutoffs(ranked)
+  const when = utcTimestamp(at)
+  const results: SeasonCosmeticGrant[] = []
+
+  for (const award of SEASON_AWARDS) {
+    const cosmetic = seasonCosmetic(season.number, award)
+    const row = await tx.cosmetic.upsert({
+      where: { slug: cosmetic.slug },
+      create: {
+        slug: cosmetic.slug,
+        type: cosmetic.type,
+        name: cosmetic.name,
+        description: cosmetic.description,
+        rarity: cosmetic.rarity,
+        unlockRule: cosmetic.unlockRule as unknown as Prisma.InputJsonValue,
+        order: cosmetic.order,
+      },
+      update: {},
+      select: { id: true },
+    })
+    const source = `season:${season.number}:${award.toLowerCase()}`
+    const note = JSON.stringify({ kind: 'COSMETIC_UNLOCKED', slug: cosmetic.slug, cosmeticType: cosmetic.type, season: season.number })
+
+    // Who it is for: by rank from the final standings, or everybody who earned in the season. Deleted accounts get nothing.
+    const recipients =
+      award === 'PARTICIPANT'
+        ? Prisma.sql`SELECT e."userId" FROM "XPEvent" e JOIN "User" u ON u."id" = e."userId" AND u."deletedAt" IS NULL WHERE e."seasonId" = ${season.id} GROUP BY e."userId" HAVING SUM(e."amount") > 0`
+        : Prisma.sql`SELECT s."userId" FROM "SeasonStanding" s JOIN "User" u ON u."id" = s."userId" AND u."deletedAt" IS NULL WHERE s."seasonId" = ${season.id} AND s."rank" <= ${cutoffs[award]}`
+    // One statement: grant, and tell exactly the people who did not have it yet.
+    const granted = await tx.$executeRaw`
+      WITH granted AS (
+        INSERT INTO "UserCosmetic" ("id", "userId", "cosmeticId", "source", "unlockedAt")
+        SELECT gen_random_uuid()::text, r."userId", ${row.id}, ${source}, ${when} FROM (${recipients}) r
+        ON CONFLICT ("userId", "cosmeticId") DO NOTHING
+        RETURNING "userId"
+      )
+      INSERT INTO "Notification" ("id", "userId", "type", "title", "message", "metadata", "isRead", "createdAt")
+      SELECT gen_random_uuid()::text, "userId", 'ACHIEVEMENT', 'New cosmetic', ${cosmetic.name}, ${note}::jsonb, false, ${when} FROM granted
+    `
+    results.push({ award, cutoff: award === 'PARTICIPANT' ? null : cutoffs[award], granted })
+  }
+  return results
+}
+
 // --- Wearing them ------------------------------------------------------------------------------------
 
 export interface Equipped {
@@ -111,7 +177,7 @@ export const NOTHING_EQUIPPED: Equipped = { title: null, frame: null, banner: nu
 /** What `User.equipped` holds, tolerating anything stored there: unknown keys and non-text values are dropped. */
 export function readEquipped(value: Prisma.JsonValue | null | undefined): Equipped {
   const stored = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>
-  const slot = (key: keyof Equipped) => (typeof stored[key] === 'string' && COSMETIC_BY_SLUG.has(stored[key] as string) ? (stored[key] as string) : null)
+  const slot = (key: keyof Equipped) => (typeof stored[key] === 'string' && cosmeticDefinition(stored[key] as string) !== undefined ? (stored[key] as string) : null)
   return { title: slot('title'), frame: slot('frame'), banner: slot('banner') }
 }
 
@@ -130,7 +196,7 @@ export async function equip(db: Pick<PrismaClient, 'user' | 'userCosmetic'>, use
 
   for (const [slot, slug] of wanted) {
     if (typeof slug !== 'string') continue
-    const definition = COSMETIC_BY_SLUG.get(slug)
+    const definition = cosmeticDefinition(slug)
     // An unknown slug is answered like one the user does not own, so nobody can probe for cosmetics they have not seen.
     if (!definition) return { ok: false, reason: 'NOT_OWNED', slug }
     if (SLOT_OF[definition.type] !== slot) return { ok: false, reason: 'WRONG_SLOT', slug }

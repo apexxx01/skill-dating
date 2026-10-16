@@ -1,12 +1,13 @@
 import type { PrismaClient } from '@prisma/client'
 import type { CosmeticItem, CosmeticsResponse } from '@/types/api'
 import { isSecretAchievement } from '@/lib/achievement-definitions'
-import { COSMETIC_DEFINITIONS, requirementText, SLOT_OF } from '@/lib/cosmetic-definitions'
+import { COSMETIC_DEFINITIONS, cosmeticDefinition, requirementText, SLOT_OF } from '@/lib/cosmetic-definitions'
 import { readEquipped } from '@/lib/cosmetics'
 
 // What GET /api/users/me/cosmetics shows: the whole catalog, with what the caller owns and wears. A cosmetic
 // that is earned by a secret achievement stays hidden (name, text and requirement) until it is owned, the way
-// the achievement itself does.
+// the achievement itself does. A season's cosmetics are made for each season, so they are listed once their owner has them
+// (the fixed catalog is always listed in full).
 
 export const SECRET_COSMETIC_NAME = 'Secret cosmetic'
 export const SECRET_COSMETIC_DESCRIPTION = 'Keep building to find out what unlocks it.'
@@ -20,7 +21,11 @@ export async function loadCosmetics(db: Pick<PrismaClient, 'user' | 'userCosmeti
   const wearing = new Set(Object.values(equipped).filter((slug): slug is string => slug !== null))
   const mine = new Map(owned.map((row) => [row.cosmetic.slug, row]))
 
-  const cosmetics = [...COSMETIC_DEFINITIONS]
+  const seasonal = owned.flatMap((row) => {
+    const definition = cosmeticDefinition(row.cosmetic.slug)
+    return definition && definition.unlockRule.type === 'SEASON' ? [definition] : []
+  })
+  const cosmetics = [...COSMETIC_DEFINITIONS, ...seasonal]
     .sort((a, b) => a.order - b.order)
     .map((definition): CosmeticItem => {
       const row = mine.get(definition.slug)

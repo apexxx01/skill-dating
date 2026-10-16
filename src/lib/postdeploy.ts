@@ -2,14 +2,14 @@ import type { PrismaClient } from '@prisma/client'
 import type { Cache } from '@/lib/infra/cache'
 import { requiresProductionConfig } from '@/lib/env'
 import { BOARDS_READY_KEY } from '@/lib/leaderboard-write'
-import { ensureActiveSeason } from '@/lib/seasons'
+import { ensureActiveSeason, grantPendingSeasonRewards } from '@/lib/seasons'
 
 // What has to happen once after every deploy that touches the gamification stage, in one command (`npm run postdeploy`,
 // scripts/postdeploy.ts, docs/DEPLOY.md). Every step is safe to repeat, so the command can run on every deploy:
 //
 //   1. check the environment: production without Upstash Redis FAILS, because the leaderboards live in Redis and a
 //      script cannot fill an in-process cache for the web servers;
-//   2. make sure a season is running (closing one that is over);
+//   2. make sure a season is running (closing one that is over, and granting the cosmetics a closed season owes);
 //   3. rebuild every leaderboard from the XP log (the job leaderboards/reconcile);
 //   4. give people the cosmetics they had already earned (the job cosmetics/backfill), page by page until it is done.
 
@@ -124,7 +124,10 @@ export async function runPostdeploy(deps: PostdeployDeps, options: PostdeployOpt
     }
     const { action, season } = await ensureActiveSeason(deps.prisma, now())
     const verb = action === 'kept' ? 'already running' : action === 'rolled-over' ? 'was over: closed it and opened' : 'none was running: opened'
-    return { status: 'done', detail: `${season.name} ${verb} (until ${season.endsAt.toISOString()})` }
+    // A season that was just closed (or one closed earlier whose rewards failed) is owed its cosmetics.
+    const rewards = await grantPendingSeasonRewards(deps.prisma, now())
+    const rewarded = rewards.length === 0 ? '' : `; cosmetics granted for ${rewards.map((result) => `Season ${result.seasonNumber}`).join(', ')}`
+    return { status: 'done', detail: `${season.name} ${verb} (until ${season.endsAt.toISOString()})${rewarded}` }
   })
 
   await step('leaderboards', async () => {

@@ -753,6 +753,9 @@ model Season {
   active    Boolean   @default(false)
   // Set when the rollover job has closed the season and written its final standings.
   closedAt  DateTime?
+  // Set when the season's cosmetic rewards (title, frames, participation badge) have been granted. Null until then;
+  // the rollover job grants them for every closed season that is still null.
+  rewardsGrantedAt DateTime?
   createdAt DateTime  @default(now())
 
   xpEvents  XPEvent[]
@@ -761,8 +764,8 @@ model Season {
   @@index([active])
 }
 
-// A season's final standing for one person, written once when the season closes. No rewards are
-// attached yet; this is the record they will be paid from.
+// A season's final standing for one person, written once when the season closes. The season's cosmetic
+// rewards (see src/lib/seasons.ts) are granted from this record; no XP is paid for a placing.
 model SeasonStanding {
   id        String   @id @default(cuid())
   seasonId  String
