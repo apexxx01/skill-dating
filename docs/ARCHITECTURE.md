@@ -364,6 +364,10 @@ full run is a flake, and re-running clears it. The
 bypass test therefore requests each route once, one at a time, before sending anything in parallel.
 `next start` uses prebuilt manifests and is not affected.
 
+## Deploying
+
+The order of a deploy (migrate, deploy, `npm run postdeploy`) and the post-deploy command are in [`DEPLOY.md`](DEPLOY.md).
+
 ## Continuous integration
 
 Type-check, backend lint (blocking), whole-repo lint (report only), production build, unit tests,

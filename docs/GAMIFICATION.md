@@ -406,7 +406,7 @@ normalised, control characters removed, whitespace collapsed, 80 characters) and
    in that same window is applied on the next run. The scratch boards of a rebuild that died expire by themselves after six hours.
 
 Boards that were never built (a restart of the in-process cache, a new Redis) are built on the first read with the in-process cache,
-and by queueing `leaderboards/reconcile` with Redis. Run the job once after deploying (`POST /api/admin/jobs/leaderboards/reconcile`).
+and by queueing `leaderboards/reconcile` with Redis. `npm run postdeploy` runs it after every deploy (see [DEPLOY.md](DEPLOY.md)).
 
 **What the viewer sees.** A rank belongs to the board alone: it is the same for every viewer and the same as the rank on the player card. People the viewer has blocked
 (or who blocked them) are left out of their list and nobody is renumbered, so a viewer's page can skip ranks and hold fewer than `limit`
@@ -653,8 +653,8 @@ by `grant()`. The `/api/users/{id}` rank, and the leaderboards' source of truth,
 | `cosmetics/backfill` | once, on demand | gives people who earned things before cosmetics existed their cosmetics |
 
 Schedules are cron triggers in Inngest. Any job can be run right now with `POST /api/admin/jobs/{name}` (admin only; this is also how a
-deployment without Inngest runs them). **After deploying this stage:** run `leaderboards/reconcile` and `cosmetics/backfill`, and make sure
-Upstash Redis is configured (the in-process stand-in cannot hold leaderboards across several instances).
+deployment without Inngest runs them). **After every deploy** run `npm run postdeploy` ([DEPLOY.md](DEPLOY.md)): it makes sure a season is running, runs `leaderboards/reconcile` and
+`cosmetics/backfill`, and fails if production has no Upstash Redis (the in-process stand-in cannot hold leaderboards across several instances).
 
 ## Changing the rules
 

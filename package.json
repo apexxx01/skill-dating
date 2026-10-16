@@ -17,6 +17,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:clerk": "tsx prisma/seed-clerk.ts",
     "sim:progression": "tsx scripts/simulate-progression.ts",
+    "postdeploy": "tsx scripts/postdeploy.ts",
     "test": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test"

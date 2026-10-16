@@ -86,6 +86,36 @@ export async function closeDueSeason(prisma: PrismaClient, now: Date = new Date(
   )
 }
 
+export interface EnsuredSeason {
+  /** `kept`: one was already running. `rolled-over`: the running one was over, so it was closed and the next opened. `created`: there was none at all. */
+  action: 'kept' | 'rolled-over' | 'created'
+  season: { id: string; number: number; name: string; startsAt: Date; endsAt: Date }
+}
+
+const seasonFields = { id: true, number: true, name: true, startsAt: true, endsAt: true } as const
+
+/**
+ * Makes sure a season is running, and says what it had to do. A season that is over is closed first (the way the hourly
+ * job does it, standings and all). With none running and none to close (a database that never had one, or a gap left by
+ * a job that was down), the next one is opened: Season 1 starting now for an empty table, otherwise the one after the
+ * last, following on from it. Safe to run any number of times, and from several places at once.
+ */
+export async function ensureActiveSeason(prisma: PrismaClient, now: Date = new Date()): Promise<EnsuredSeason> {
+  const rolled = await closeDueSeason(prisma, now)
+  return prisma.$transaction(async (tx) => {
+    await advisoryLock(tx, 'season-rollover')
+    const running = await tx.season.findFirst({ where: { active: true }, orderBy: { number: 'desc' }, select: seasonFields })
+    if (running) return { action: rolled.closed ? ('rolled-over' as const) : ('kept' as const), season: running }
+
+    const last = await tx.season.findFirst({ orderBy: { number: 'desc' }, select: { number: true, endsAt: true } })
+    const number = (last?.number ?? 0) + 1
+    const window = last ? nextSeasonWindow(last.endsAt, now) : { startsAt: now, endsAt: new Date(now.getTime() + SEASON_LENGTH_DAYS * DAY_MS) }
+    const season = await tx.season.create({ data: { number, name: seasonName(number), active: true, ...window }, select: seasonFields })
+    log.info('season opened', { season: number })
+    return { action: 'created' as const, season }
+  })
+}
+
 /** The season being played, or null between seasons. */
 export async function activeSeason(db: Pick<PrismaClient, 'season'> | Prisma.TransactionClient) {
   return db.season.findFirst({ where: { active: true }, orderBy: { number: 'desc' } })

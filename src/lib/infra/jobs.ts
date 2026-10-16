@@ -59,7 +59,7 @@ export const jobs = {
     handler: async () => (await import('@/lib/achievement-rarity')).runRarityJob(),
   }),
   // Rebuilds every leaderboard of the current periods from the XP log and swaps each in whole
-  // (src/lib/leaderboard-write.ts). Nightly, and once when boards are found never to have been built.
+  // (src/lib/leaderboard-rebuild.ts). Nightly, after every deploy (npm run postdeploy), and once when boards are found never to have been built.
   'leaderboards/reconcile': defineJob({
     schema: z.object({}).default({}),
     schedule: '0 4 * * *',
