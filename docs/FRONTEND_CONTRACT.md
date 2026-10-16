@@ -461,17 +461,17 @@ do not need to: the response already says what completed.
 
 | Need | Call |
 | --- | --- |
-| Header: title, frame, banner, level, tier, rank, streak | `GET /api/users/{id}/stats`: `equipped.{title,frame,banner}` are `{ slug, name }`, `ranks` are absolute places (null where not on a board), `streak` is `null` on someone else's page when they keep their activity private |
+| Header: title, frame, banner, level, tier, rank, streak | `GET /api/users/{id}/stats`: `equipped.{title,frame,banner}` are `{ slug, name }` or null and `equipped.badges` is a list of up to three `{ slug, name }`, `ranks` are absolute places (null where not on a board), `streak` is `null` on someone else's page when they keep their activity private |
 | Rarest badges | `stats.topAchievements` (three, rarest first, with `rarity`) |
 | Badge wall | `GET /api/users/{id}/achievements` (see Achievements) |
 | Contribution calendar | `GET /api/users/{id}/heatmap?days=365`; `hidden: true` means the owner keeps it private: show nothing |
-| My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner? }` (**write**) |
+| My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner?, badges? }` (**write**; `badges` is up to three slugs in order and replaces the list) |
 | Settings: where I am, privacy | `GET`/`PATCH /api/users/me/profile` `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }` (**write**) |
 
 Cosmetics are only earned: there is nothing to buy and no "unlock" button, only `requirement` text on the locked ones. A finished season
 adds a few for everyone who played or placed (`Season N Top 100` title, `Season N Top 1%` and `Season N Top 10%` frames, a `Season N Participant`
-badge): they appear in `cosmetics` once owned, with the badge as `type: "AVATAR_PART"`, `slot: null` (show it, do not offer to wear it). Equipping a
-slot-less one is `400 COSMETIC_WRONG_SLOT`. Placings cost no XP and do not appear in a `rewards` envelope; they arrive as a `COSMETIC_UNLOCKED` notification. A
+badge): they appear in `cosmetics` once owned, with the badge as `type: "BADGE"`, `slot: "badges"` (it can be worn, up to three at a time, via `badges`). Equipping a
+cosmetic in the wrong slot is `400 COSMETIC_WRONG_SLOT`; more than three badges is `400 VALIDATION_FAILED`. Placings cost no XP and do not appear in a `rewards` envelope; they arrive as a `COSMETIC_UNLOCKED` notification. A
 cosmetic earned by a secret achievement is `masked` until owned (show a mystery tile). Equipping something you do not own is
 `403 COSMETIC_NOT_OWNED`, so disable the control for locked items. Tell the user why a rank is missing: `hideFromLeaderboards`,
 no XP yet, or no country/city set.

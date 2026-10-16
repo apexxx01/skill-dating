@@ -379,13 +379,19 @@ and the integration suite against a Postgres service container.
 - Nothing publishes realtime events.
 - Leaderboard boards are copies of the XP log in Redis. They are repaired nightly, so a failure to update one
   can show a stale score for up to a day. XP that arrives during a rebuild is counted exactly once (see
-  [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); the one gap is an award committing between the last replay pass and the
-  rename, which costs that award until the next run. The rebuild aggregates in SQL and holds one batch of 5,000 people in
+  [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); an award committing between the last replay pass and the
+  rename is put back by a final pass after the swap; what remains is an award committing after that pass has read the log,
+  which costs it until the next run. The rebuild aggregates in SQL and holds one batch of 5,000 people in
   memory, but it still scans each period's slice of the `XPEvent` table (indexed by time and by season) every night;
   at tens of millions of rows an incremental version is the next step.
 - Raw SQL that compares a bound `Date` with a `DateTime` column goes through `utcTimestamp()` (`src/lib/sql.ts`); written
-  without it the comparison is read in the database's time zone, which is only right when that zone is UTC. The leaderboard
-  queries use it; `heatmap.ts` and `achievement-rarity.ts` still compare directly.
+  without it the comparison is read in the database's time zone, which is only right when that zone is UTC. Every raw query
+  that binds a date uses it (leaderboards, heatmap, rarity, counters). Beyond that, every database session runs in UTC, in three
+  layers: the application's connections ask for it with the `options=-c timezone=UTC` connection parameter
+  (`src/lib/database-url.ts`, skipped for a URL with `pgbouncer=true`, since poolers refuse startup options); the
+  migration `utc_database_default` sets the database's own default to UTC (this also covers pooled connections); and
+  the queries convert explicitly. `tests/integration/session-timezone.test.ts` runs the heatmap, the rarity job and the counters on
+  sessions in five zones and requires identical answers.
 - `ProgressTick` gets a row per counted action. Once an action has paid, its XP award is what stops it counting
   twice, so ticks older than a couple of weeks are only history (the week-based secret achievements look back at most
   seven days); pruning them is not built.
