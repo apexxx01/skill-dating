@@ -101,24 +101,26 @@ parallel requests cannot all slip under the cap.
 
 ## Level curve
 
-`xpForLevel(n) = round(60 × n^1.25)` is the XP needed to get from level `n` to level
+`xpForLevel(n) = round(5 × n^1.85)` is the XP needed to get from level `n` to level
 `n + 1`. Level 1 starts at 0 XP. The maximum level is 100, which has no next level.
-Level 2 starts at 60 XP, so a first project (50 XP) with its *First Project* achievement
-(25 XP) takes a new user to level 2, and no further: level 3 starts at 203.
+The early levels are deliberately cheap: level 2 starts at 5 XP and level 4 at 61, so a first
+project (50 XP) with its *First Project* achievement (25 XP) takes a new user to **level 4**,
+the onboarding moment, and level 5 starts at 126. The curve then steepens, which is what keeps the
+upper tiers rare (see the simulation below).
 
 | Level | Size of the level | Total XP where it starts |
 | ---: | ---: | ---: |
-| 1 | 60 | 0 |
-| 2 | 143 | 60 |
-| 3 | 237 | 203 |
-| 4 | 339 | 440 |
-| 5 | 449 | 779 |
-| 10 | 1,067 | 4,216 |
-| 20 | 2,538 | 21,298 |
-| 35 | 5,108 | 76,915 |
-| 55 | 8,987 | 215,200 |
-| 80 | 14,355 | 503,253 |
-| 100 | 18,974 | 833,806 |
+| 1 | 5 | 0 |
+| 2 | 18 | 5 |
+| 3 | 38 | 23 |
+| 4 | 65 | 61 |
+| 5 | 98 | 126 |
+| 10 | 354 | 1,070 |
+| 20 | 1,276 | 8,326 |
+| 35 | 3,593 | 42,348 |
+| 55 | 8,292 | 155,891 |
+| 80 | 16,584 | 457,255 |
+| 100 | 25,059 | 866,787 |
 
 `levelFor(xp)` returns `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`, where
 `progress` is `xpIntoLevel / xpForNextLevel` (0 to 1; always 1 at level 100, where
@@ -142,8 +144,9 @@ The constants are `TIERS` and `TIER_START_LEVEL` in `src/lib/levels.ts`.
 `npm run sim:progression` (`scripts/simulate-progression.ts`) plays four kinds of user, day by day
 for six years, against the real rules. The XP table, daily caps, once-per-source rule, achievements
 and level curve are imported from the files above, not copied, so the numbers follow any change to
-them. Nothing is random and nothing touches the database. Paste the output back here after changing
-a rule; a unit test (`src/lib/progression-sim.test.ts`) keeps the script honest about caps and levels.
+them. Nothing is random and nothing touches the database. After changing a rule, run it and paste
+the output below; a unit test (`src/lib/progression-sim.test.ts`) keeps the script honest about
+caps and levels.
 
 - **Casual**: 3 actions a week: a project every two weeks, shipped, with a milestone and an update along the way. Earns about 24 XP a day over its first year.
 - **Active**: Something every day, about 3 a day: a project every 10 days, milestones, updates, and the social side. Earns about 69 XP a day over its first year.
@@ -154,42 +157,33 @@ Days until the user first reaches each level (a tier starts at levels 10, 20, 35
 
 | User | Level 2 | Level 5 | Level 10 | Level 20 | Level 35 | Level 55 | Level 80 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Casual | 10 d | 28 d (4.0 wk) | 182 d (6.0 mo) | 910 d (2.5 yr) | never (6 yr+) | never (6 yr+) | never (6 yr+) |
-| Active | 2 d | 10 d | 60 d (8.6 wk) | 310 d (10.2 mo) | 1120 d (3.1 yr) | never (6 yr+) | never (6 yr+) |
-| Power | 1 d | 7 d | 29 d (4.1 wk) | 153 d (5.0 mo) | 546 d (1.5 yr) | 1525 d (4.2 yr) | never (6 yr+) |
-| Ceiling | 1 d | 1 d | 4 d | 18 d (2.6 wk) | 65 d (9.3 wk) | 183 d (6.0 mo) | 427 d (14.0 mo) |
+| Casual | 10 d | 14 d (2.0 wk) | 42 d (6.0 wk) | 350 d (11.5 mo) | 1820 d (5.0 yr) | never (6 yr+) | never (6 yr+) |
+| Active | 2 d | 3 d | 14 d (2.0 wk) | 120 d (3.9 mo) | 616 d (1.7 yr) | never (6 yr+) | never (6 yr+) |
+| Power | 1 d | 1 d | 7 d | 59 d (8.4 wk) | 303 d (10.0 mo) | 1104 d (3.0 yr) | never (6 yr+) |
+| Ceiling | 1 d | 1 d | 1 d | 7 d | 36 d (5.1 wk) | 132 d (4.3 mo) | 388 d (12.8 mo) |
 
-What the curve is tuned against, and how far off it is:
+What the curve is tuned against:
 
 | Target | Wanted | Simulated | XP a day: needed / earned | |
 | --- | --- | --- | --- | --- |
-| First project and its achievement | level 2 | level 2 | | met |
-| Casual: Silver in 6-8 weeks | 42-56 d | 182 d (6.0 mo) | 86 / 24 | MISSED (too slow) |
-| Active: Gold in 3-4 months | 91-122 d | 310 d (10.2 mo) | 200 / 69 | MISSED (too slow) |
-| Power: Platinum in 9-12 months | 274-365 d | 546 d (1.5 yr) | 241 / 142 | MISSED (too slow) |
+| First project and its achievement | level 4 | level 4 | | met |
+| Casual: Silver in 6-8 weeks | 42-56 d | 42 d (6.0 wk) | 22 / 24 | met |
+| Active: Gold in 3-4 months | 91-122 d | 120 d (3.9 mo) | 78 / 69 | met |
+| Power: Platinum in 9-12 months | 274-365 d | 303 d (10.0 mo) | 133 / 142 | met |
 | Mythic is top-0.1% territory | not within 3 years of steady play | Power: never (6 yr+) | | met |
 
-How to read it. The first-project target is met: 75 XP is level 2, not level 3. The three
-speed targets are not: with the amounts in the XP table, this curve is 2 to 4 times too slow for
-them. The "needed" column is the XP a day a user would have to earn, on average, to land in the
-middle of the target window; none of the three users earns anything like it. Three actions a
-week cannot: most actions pay 5 to 50 XP and only shipping pays 200, so a casual user earns about
-24 XP a day, not 86.
+The curve was tuned against these users. Notes on the targets:
 
-What would meet them, found by searching `round(a × n^p)` against these same users:
-
-- Keeping the XP table, a steeper and much cheaper-to-start curve fits all three speed targets,
-  for example `round(5 × n^1.85)` (casual 42 days to Silver, active 120 to Gold, power 303 to
-  Platinum; the ceiling reaches Mythic in about a year). The price is the first target: level 2
-  would start at 5 XP, so a first project and its achievement would land on level 4.
-- Keeping "a first project reaches level 2" (`a` of at least about 22), no `(a, p)` fits all three:
-  the best compromise (`round(24 × n^1.2)`) puts casual and active inside their windows and power at about 6
-  months instead of 9 to 12.
-- Or change the economy rather than the curve: the XP amounts in `REWARD_RULES` and the
-  achievements are the other lever.
-
-Mythic stays out of reach for ordinary play with the current curve: the power user does not get
-there in six years, and only a user who hits every daily cap, every day (the ceiling) takes about 14 months.
+- **The first project lands on level 4**, on purpose. A curve that also met the speed targets
+  below and kept the first project on level 2 does not exist among `round(a × n^p)` curves; the
+  closest, `round(24 × n^1.2)`, puts power at about 6 months to Platinum instead of 9 to 12. Cheap early levels and a steep later
+  curve were chosen over that.
+- **Mythic stays top-0.1% territory.** The power user reaches Diamond (level 55) in about 3 years and
+  does not reach Mythic (level 80) within the six simulated; run for longer, it takes about 9 years.
+  Only the ceiling, a user who hits every daily cap every day (a person cannot), gets there in about 13 months. No steeper upper
+  levels were needed.
+- Casual and active sit at the early edge of their windows (42 days of 42 to 56, 120 days of 91 to 122), so a
+  cut to an XP amount slows them past the target; re-run the script after touching `REWARD_RULES`.
 
 ## What the interface receives: `RewardsEnvelope`
 
@@ -235,7 +229,7 @@ First project (50 XP for the project, 25 for the *First Project* achievement):
   "id": "clx…", "name": "Habit tracker",
   "rewards": {
     "xpGained": 75, "totalXp": 75,
-    "oldLevel": 1, "newLevel": 2, "leveledUp": true,
+    "oldLevel": 1, "newLevel": 4, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "BRONZE", "tierChanged": false,
     "achievements": [{ "slug": "first-project", "name": "First Project" }],
     "questsCompleted": [], "streak": null
@@ -244,13 +238,13 @@ First project (50 XP for the project, 25 for the *First Project* achievement):
 ```
 
 Shipping that project (200 XP, plus 100 for *Shipped It*) takes the user from 75 to
-375 XP, across the level 3 boundary at 203:
+375 XP, from level 4 to level 7 (which starts at 362):
 
 ```json
 {
   "rewards": {
     "xpGained": 300, "totalXp": 375,
-    "oldLevel": 2, "newLevel": 3, "leveledUp": true,
+    "oldLevel": 4, "newLevel": 7, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "BRONZE", "tierChanged": false,
     "achievements": [{ "slug": "first-ship", "name": "Shipped It" }],
     "questsCompleted": [], "streak": null
@@ -263,7 +257,7 @@ A user 10 XP short of level 10 creates a project (tier boundary: `BRONZE` → `S
 ```json
 {
   "rewards": {
-    "xpGained": 50, "totalXp": 4256,
+    "xpGained": 50, "totalXp": 1110,
     "oldLevel": 9, "newLevel": 10, "leveledUp": true,
     "oldTier": "BRONZE", "newTier": "SILVER", "tierChanged": true,
     "achievements": [], "questsCompleted": [], "streak": null
@@ -274,7 +268,7 @@ A user 10 XP short of level 10 creates a project (tier boundary: `BRONZE` → `S
 A fourth project in a day, or a repeated action that already paid:
 
 ```json
-{ "rewards": { "xpGained": 0, "totalXp": 175, "oldLevel": 2, "newLevel": 2, "leveledUp": false,
+{ "rewards": { "xpGained": 0, "totalXp": 175, "oldLevel": 5, "newLevel": 5, "leveledUp": false,
                "oldTier": "BRONZE", "newTier": "BRONZE", "tierChanged": false,
                "achievements": [], "questsCompleted": [], "streak": null } }
 ```
