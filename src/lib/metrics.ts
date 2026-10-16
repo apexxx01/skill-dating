@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@prisma/client'
 import type { DomainEventName, DomainEvents, Db } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
 
@@ -121,7 +121,7 @@ export async function recordTick(db: Db, tick: Tick, now: Date = new Date()): Pr
 }
 
 /** All of a user's counters, as a plain lookup. */
-export async function readCounters(db: Db, userId: string): Promise<Record<string, number>> {
+export async function readCounters(db: Pick<PrismaClient, 'userCounter'>, userId: string): Promise<Record<string, number>> {
   const rows = await db.userCounter.findMany({ where: { userId }, select: { key: true, value: true } })
   return Object.fromEntries(rows.map((row) => [row.key, row.value]))
 }

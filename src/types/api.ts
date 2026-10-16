@@ -716,6 +716,39 @@ export interface StreakStatus {
   freezeUsed: boolean
 }
 
+/**
+ * GET /api/users/{id}/stats: the player card, everything a profile header shows about progress, in one
+ * call. Cached for 60 seconds and refreshed by every award. `ranks` are the absolute places on the all-time
+ * boards (not the place among the people you can see, which the leaderboard gives), null where the person is
+ * not on the board (no XP, no country or city set, or opted out of leaderboards).
+ */
+export interface PlayerCard {
+  userId: string
+  xp: number
+  level: number
+  tier: Tier
+  /** Progress through the current level. `fraction` is 0 to 1 and 1 at the top level. */
+  progress: { xpIntoLevel: number; xpForNextLevel: number; fraction: number }
+  ranks: { global: number | null; country: number | null; city: number | null }
+  /** Null for somebody else's card when the person keeps their activity private. */
+  streak: { current: number; longest: number; freezes: number; lastDay: string | null } | null
+  /** The three rarest achievements earned, rarest first. */
+  topAchievements: { slug: string; name: string; icon: string | null; rarity: number | null; earnedAt: IsoDate }[]
+  counts: {
+    /** Projects shipped. */
+    shipped: number
+    /** Hackathons registered for. */
+    hackathons: number
+    /** Hackathons won. */
+    wins: number
+    endorsementsReceived: number
+    /** Teams the person is in now. */
+    crews: number
+    /** Milestones completed. */
+    milestones: number
+  }
+}
+
 /** One quest as GET /api/quests lists it. */
 export interface QuestItem {
   slug: string
