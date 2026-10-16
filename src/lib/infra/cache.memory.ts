@@ -1,4 +1,4 @@
-import type { Cache, ScoredMember, WindowHit } from './cache'
+import type { Cache, ScoredMember, WindowHit, ZStage } from './cache'
 
 // In-process `Cache`. Used by tests, and in development when no Redis is
 // configured. Two properties matter for safety, carried over from the rate
@@ -195,6 +195,34 @@ export class MemoryCache implements Cache {
       members: new Map(entries.map(({ member, score }) => [member, score])),
       expiresAt: ttlMs && ttlMs > 0 ? this.now() + ttlMs : null,
     })
+  }
+
+  zstage(key: string): ZStage {
+    const staged = new Map<string, number>()
+    let spent = false
+    const assertOpen = () => {
+      if (spent) throw new Error('this stage was already committed or discarded')
+    }
+    return {
+      set: async (entries) => {
+        assertOpen()
+        for (const { member, score } of entries) staged.set(member, score)
+      },
+      remove: async (members) => {
+        assertOpen()
+        for (const member of members) staged.delete(member)
+      },
+      commit: async ({ ttlMs } = {}) => {
+        assertOpen()
+        spent = true
+        await this.zreplace(key, [...staged].map(([member, score]) => ({ member, score })), ttlMs ? { ttlMs } : {})
+      },
+      discard: async () => {
+        assertOpen()
+        spent = true
+        staged.clear()
+      },
+    }
   }
 
   async expire(key: string, ttlMs: number) {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Redis } from '@upstash/redis'
 import { env } from '@/lib/env'
 import { MemoryCache } from './cache.memory'
@@ -21,6 +22,20 @@ export interface WindowHit {
   count: number
   /** Milliseconds until the window ends and the counter disappears. */
   ttlMs: number
+}
+
+/** A sorted set under construction (see Cache.zstage). Nothing here is visible to readers until `commit`. */
+export interface ZStage {
+  /** Sets (overwrites, does not add to) the scores of these members. */
+  set(entries: ScoredMember[]): Promise<void>
+  remove(members: string[]): Promise<void>
+  /**
+   * Swaps the staged set in for the real one with one rename. Staging nothing deletes the real key. The result has
+   * `ttlMs` as its expiry, or none. A stage is spent once committed or discarded.
+   */
+  commit(options?: { ttlMs?: number }): Promise<void>
+  /** Drops the staged set without touching the real one. */
+  discard(): Promise<void>
 }
 
 export interface Cache {
@@ -65,6 +80,11 @@ export interface Cache {
    * a half-built board. An empty list deletes the key.
    */
   zreplace(key: string, entries: ScoredMember[], options?: { ttlMs?: number }): Promise<void>
+  /**
+   * A copy of the sorted set at `key` that is built on the side and swapped in whole: for a rebuild that has to
+   * take its time (and be corrected while it runs) without readers ever seeing a half-built board. Starts empty.
+   */
+  zstage(key: string): ZStage
   /** Gives an existing key an expiry. Does nothing for a key that is not there. */
   expire(key: string, ttlMs: number): Promise<void>
 
@@ -92,6 +112,8 @@ export interface RedisCommands {
   zaddMany(key: string, entries: ScoredMember[]): Promise<void>
   rename(from: string, to: string): Promise<void>
   pexpire(key: string, ttlMs: number): Promise<void>
+  /** Removes a key's expiry. */
+  persist(key: string): Promise<void>
   ping(): Promise<void>
 }
 
@@ -210,6 +232,42 @@ export class RedisCache implements Cache {
     if (ttlMs && ttlMs > 0) await this.redis.pexpire(this.k(key), ttlMs)
   }
 
+  zstage(key: string): ZStage {
+    const live = this.k(key)
+    // Beside the real key, under a name of its own so two rebuilds at once cannot trample each other. A scratch
+    // key that nobody commits (a rebuild that died) expires by itself.
+    const scratch = this.k(`${key}:stage:${randomUUID()}`)
+    let started = false
+    return {
+      set: async (entries) => {
+        for (let start = 0; start < entries.length; start += ZADD_CHUNK) {
+          await this.redis.zaddMany(scratch, entries.slice(start, start + ZADD_CHUNK))
+          if (!started) {
+            started = true
+            await this.redis.pexpire(scratch, STAGE_TTL_MS)
+          }
+        }
+      },
+      remove: async (members) => {
+        for (const member of members) await this.redis.zrem(scratch, member)
+      },
+      commit: async ({ ttlMs } = {}) => {
+        // RENAME fails on a key that is not there, and an emptied set is not a key: that board is simply gone.
+        if (!started || (await this.redis.zcard(scratch)) === 0) {
+          await this.redis.del(scratch)
+          await this.redis.del(live)
+          return
+        }
+        await this.redis.rename(scratch, live)
+        if (ttlMs && ttlMs > 0) await this.redis.pexpire(live, ttlMs)
+        else await this.redis.persist(live)
+      },
+      discard: async () => {
+        await this.redis.del(scratch)
+      },
+    }
+  }
+
   async expire(key: string, ttlMs: number) {
     await this.redis.pexpire(this.k(key), ttlMs)
   }
@@ -218,6 +276,9 @@ export class RedisCache implements Cache {
     return this.redis.ping()
   }
 }
+
+// How long a half-built board is kept if nobody commits it.
+const STAGE_TTL_MS = 6 * 60 * 60 * 1000
 
 // Members added per request while a board is rebuilt: a few thousand fit comfortably under a REST request's size limit.
 const ZADD_CHUNK = 2000
@@ -272,6 +333,9 @@ export function upstashCommands(redis: Redis): RedisCommands {
     },
     pexpire: async (key, ttlMs) => {
       await redis.pexpire(key, ttlMs)
+    },
+    persist: async (key) => {
+      await redis.persist(key)
     },
     ping: async () => {
       await redis.ping()

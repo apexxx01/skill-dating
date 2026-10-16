@@ -188,6 +188,79 @@ export function cacheContract(name: string, make: (clock: Clock) => Cache) {
       expect(await cache.zcard('fresh')).toBe(0)
     })
 
+    it('builds a board on the side and shows nothing of it until it is committed', async () => {
+      const { cache } = fresh()
+      await cache.zadd('z', 'live', 1)
+      const stage = cache.zstage('z')
+      await stage.set([{ member: 'a', score: 5 }, { member: 'b', score: 9 }])
+      await stage.set([{ member: 'a', score: 6 }])
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'live', score: 1 }])
+      await stage.commit()
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'b', score: 9 }, { member: 'a', score: 6 }])
+    })
+
+    it('lets a stage be corrected before it is committed: set overwrites, remove removes', async () => {
+      const { cache } = fresh()
+      const stage = cache.zstage('z')
+      await stage.set([{ member: 'a', score: 5 }, { member: 'b', score: 9 }, { member: 'c', score: 1 }])
+      await stage.set([{ member: 'c', score: 40 }])
+      await stage.remove(['b', 'nobody'])
+      await stage.commit()
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'c', score: 40 }, { member: 'a', score: 5 }])
+    })
+
+    it('leaves live writes to the real board alone until the swap, which then replaces them', async () => {
+      const { cache } = fresh()
+      const stage = cache.zstage('z')
+      await stage.set([{ member: 'a', score: 10 }])
+      await cache.zincr('z', 'a', 3)
+      expect(await cache.zscore('z', 'a')).toBe(3)
+      await stage.commit()
+      expect(await cache.zscore('z', 'a')).toBe(10)
+    })
+
+    it('commits an empty stage by deleting the board, and a discarded one by changing nothing', async () => {
+      const { cache } = fresh()
+      await cache.zadd('z', 'a', 1)
+      const dropped = cache.zstage('z')
+      await dropped.set([{ member: 'x', score: 9 }])
+      await dropped.discard()
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'a', score: 1 }])
+      const emptied = cache.zstage('z')
+      await emptied.set([{ member: 'x', score: 9 }])
+      await emptied.remove(['x'])
+      await emptied.commit()
+      expect(await cache.zcard('z')).toBe(0)
+      await cache.zadd('y', 'a', 1)
+      await cache.zstage('y').commit()
+      expect(await cache.zcard('y')).toBe(0)
+    })
+
+    it('gives the committed board the expiry asked for, or none', async () => {
+      const { cache, clock } = fresh()
+      const timed = cache.zstage('timed')
+      await timed.set([{ member: 'a', score: 1 }])
+      await timed.commit({ ttlMs: 1000 })
+      const forever = cache.zstage('forever')
+      await forever.set([{ member: 'a', score: 1 }])
+      await forever.commit()
+      clock.now += 7 * 60 * 60 * 1000
+      expect(await cache.zcard('timed')).toBe(0)
+      expect(await cache.zcard('forever')).toBe(1)
+    })
+
+    it('can have two stages for one board at once without them touching', async () => {
+      const { cache } = fresh()
+      const first = cache.zstage('z')
+      const second = cache.zstage('z')
+      await first.set([{ member: 'a', score: 1 }])
+      await second.set([{ member: 'b', score: 2 }])
+      await first.commit()
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'a', score: 1 }])
+      await second.commit()
+      expect(await cache.ztop('z', 10)).toEqual([{ member: 'b', score: 2 }])
+    })
+
     it('can give a replaced board an expiry, and an existing key one later', async () => {
       const { cache, clock } = fresh()
       await cache.zreplace('z', [{ member: 'a', score: 1 }], { ttlMs: 1000 })

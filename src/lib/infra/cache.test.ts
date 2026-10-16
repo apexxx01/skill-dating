@@ -142,6 +142,9 @@ class FakeRedis implements RedisCommands {
   async pexpire(key: string, ttlMs: number) {
     if (this.zsets.has(key) || this.strings.has(key)) this.expiries.set(key, this.clock.now + ttlMs)
   }
+  async persist(key: string) {
+    this.expiries.delete(key)
+  }
   private sweepExpired() {
     for (const [key, at] of this.expiries) {
       if (this.clock.now >= at) {
@@ -238,6 +241,57 @@ describe('RedisCache', () => {
     expect(await cache.zcard('board')).toBe(4500)
     expect(await cache.zscore('board', 'stale')).toBeNull()
     expect(redis.keys.has('sd:board:rebuild')).toBe(false)
+  })
+
+  it('stages a board under a scratch key of its own, in chunks, and swaps it in with one rename that keeps no scratch expiry', async () => {
+    const clock: Clock = { now: 1_000 }
+    const redis = new FakeRedis(clock)
+    const cache = new RedisCache(redis, 'sd:')
+    await cache.zadd('board', 'stale', 1)
+    const stage = cache.zstage('board')
+    await stage.set(Array.from({ length: 4500 }, (_, index) => ({ member: `u${index}`, score: index + 1 })))
+    await stage.remove(['u0'])
+    expect(redis.addManyCalls).toEqual([2000, 2000, 500])
+    // Nothing of it is on the real key yet.
+    expect(await cache.zscore('board', 'stale')).toBe(1)
+    expect(await cache.zcard('board')).toBe(1)
+    const scratch = [...redis.keys].find((key) => key.startsWith('sd:board:stage:'))!
+    expect(scratch).toBeDefined()
+    expect(redis.expiries.has(scratch)).toBe(true)
+
+    await stage.commit()
+    expect(redis.renames).toEqual([[scratch, 'sd:board']])
+    expect(await cache.zcard('board')).toBe(4499)
+    expect(await cache.zscore('board', 'stale')).toBeNull()
+    // The scratch key's expiry did not come along to the real board.
+    expect(redis.expiries.has('sd:board')).toBe(false)
+    clock.now += 7 * 60 * 60 * 1000
+    expect(await cache.zcard('board')).toBe(4499)
+  })
+
+  it('lets a stage that was never committed expire, and a committed one carry the expiry asked for', async () => {
+    const clock: Clock = { now: 1_000 }
+    const redis = new FakeRedis(clock)
+    const cache = new RedisCache(redis, 'sd:')
+    const abandoned = cache.zstage('w')
+    await abandoned.set([{ member: 'a', score: 1 }])
+    const scratch = [...redis.keys].find((key) => key.startsWith('sd:w:stage:'))!
+    clock.now += 7 * 60 * 60 * 1000
+    expect(await redis.zcard(scratch)).toBe(0)
+
+    const stage = cache.zstage('w')
+    await stage.set([{ member: 'a', score: 1 }])
+    await stage.commit({ ttlMs: 5000 })
+    expect(redis.expiries.get('sd:w')).toBe(clock.now + 5000)
+  })
+
+  it('commits a stage with nothing in it by deleting the real key and renaming nothing', async () => {
+    const redis = new FakeRedis({ now: 1 })
+    const cache = new RedisCache(redis, 'sd:')
+    await cache.zadd('board', 'a', 1)
+    await cache.zstage('board').commit()
+    expect(await cache.zcard('board')).toBe(0)
+    expect(redis.renames).toEqual([])
   })
 
   it('deletes the key when rebuilt from nothing', async () => {
