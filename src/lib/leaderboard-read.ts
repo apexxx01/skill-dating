@@ -4,9 +4,11 @@ import { decodeRankCursor, encodeRankCursor } from '@/lib/api/pagination'
 import { getCache, type Cache, type ScoredMember } from '@/lib/infra/cache'
 import { getJobQueue } from '@/lib/infra/jobs'
 import { boardKey, ownScopeIds, scopeRef, type BoardPeriod, type BoardScope, type CachedScope, type PeriodRef } from '@/lib/leaderboard-boards'
-import { BOARDS_READY_KEY, currentPeriods, loadMembership, rebuildBoards } from '@/lib/leaderboard-write'
+import { rebuildBoards } from '@/lib/leaderboard-rebuild'
+import { BOARDS_READY_KEY, currentPeriods, loadMembership } from '@/lib/leaderboard-write'
 import { levelFor } from '@/lib/levels'
 import { log } from '@/lib/log'
+import { utcTimestamp } from '@/lib/sql'
 
 // Reading a leaderboard. A board is a ranked list, and a rank is a property of the board alone: the same
 // person has the same rank for every viewer, and the same rank on their player card. What the viewer sees is
@@ -117,7 +119,7 @@ export async function crewEntries(db: Pick<PrismaClient, '$queryRaw'>, teamId: s
   const window = period.seasonId
     ? Prisma.sql`AND e."seasonId" = ${period.seasonId}`
     : period.start && period.end
-      ? Prisma.sql`AND e."createdAt" >= ${period.start} AND e."createdAt" < ${period.end}`
+      ? Prisma.sql`AND e."createdAt" >= ${utcTimestamp(period.start)} AND e."createdAt" < ${utcTimestamp(period.end)}`
       : Prisma.empty
   const rows = await db.$queryRaw<{ userId: string; score: number }[]>`
     SELECT m."userId", SUM(e."amount")::int AS "score"

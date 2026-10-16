@@ -1,7 +1,8 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
-import { getCache, type Cache, type ScoredMember } from '@/lib/infra/cache'
+import { getCache, type Cache } from '@/lib/infra/cache'
 import { boardKey, periodsAt, scopesOf, type BoardMembership, type PeriodRef } from '@/lib/leaderboard-boards'
 import { log } from '@/lib/log'
+import { utcTimestamp } from '@/lib/sql'
 
 // Keeping the Redis leaderboards right. The XPEvent log is the truth; the boards are a fast copy of it, kept
 // up to date in three ways, each covering what the one before can miss:
@@ -10,16 +11,14 @@ import { log } from '@/lib/log'
 //     transaction that paid it commits - one pipelined call to the cache;
 //  2. refreshUserBoards(): when somebody changes where they are, or opts in or out, their entries are moved
 //     (the job leaderboards/refresh-user);
-//  3. rebuildBoards(): every night, every board of the current periods is rebuilt from the log and swapped
-//     in whole (the job leaderboards/reconcile), which repairs anything a failure or a race in 1 and 2 left
-//     behind. XP that arrives between reading the log and the swap can be counted twice or missed until the
-//     next run: a few awards of drift at the worst, never more.
+//  3. rebuildBoards() (leaderboard-rebuild.ts): every night, every board of the current periods is rebuilt
+//     from the log, corrected for what was earned while it was being built, and swapped in whole (the job
+//     leaderboards/reconcile). That repairs anything a failure or a race in 1 and 2 left behind.
 
 type Db = Pick<PrismaClient, '$queryRaw' | 'profile' | 'season'>
 
 /** Set once boards have been built from the log, so a cold cache (a restart, a new Redis) knows to build them. */
 export const BOARDS_READY_KEY = 'lb:ready'
-const READY_TTL_MS = 400 * 24 * 60 * 60 * 1000
 
 export async function loadMembership(db: Pick<PrismaClient, 'profile'>, userId: string): Promise<BoardMembership> {
   const profile = await db.profile.findUnique({
@@ -69,73 +68,10 @@ export async function recordBoardXp(db: Db, cache: Cache, earned: BoardXp): Prom
 
 // --- Reading the log ---------------------------------------------------------------------------------
 
-function periodFilter(period: PeriodRef): Prisma.Sql {
+export function periodFilter(period: PeriodRef): Prisma.Sql {
   if (period.seasonId) return Prisma.sql`AND e."seasonId" = ${period.seasonId}`
-  if (period.start && period.end) return Prisma.sql`AND e."createdAt" >= ${period.start} AND e."createdAt" < ${period.end}`
+  if (period.start && period.end) return Prisma.sql`AND e."createdAt" >= ${utcTimestamp(period.start)} AND e."createdAt" < ${utcTimestamp(period.end)}`
   return Prisma.empty
-}
-
-interface ScoreRow {
-  userId: string
-  score: number
-  countryCode: string | null
-  cityKey: string | null
-  campusKey: string | null
-}
-
-async function scoresFor(db: Pick<PrismaClient, '$queryRaw'>, period: PeriodRef): Promise<ScoreRow[]> {
-  return db.$queryRaw<ScoreRow[]>`
-    SELECT e."userId", SUM(e."amount")::int AS "score", p."countryCode", p."cityKey", p."campusKey"
-    FROM "XPEvent" e
-    JOIN "User" u ON u."id" = e."userId" AND u."deletedAt" IS NULL
-    LEFT JOIN "Profile" p ON p."userId" = e."userId"
-    WHERE COALESCE(p."hideFromLeaderboards", false) = false ${periodFilter(period)}
-    GROUP BY e."userId", p."countryCode", p."cityKey", p."campusKey"
-    HAVING SUM(e."amount") > 0
-  `
-}
-
-export interface RebuildResult {
-  periods: number
-  boards: number
-  members: number
-}
-
-/**
- * Rebuilds every board of the current periods from the XPEvent log and swaps each in whole. People who
- * opted out, whose account is gone, or who have no XP in the period are not on the new boards.
- */
-export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date = new Date()): Promise<RebuildResult> {
-  const periods = await currentPeriods(db, now)
-  let boards = 0
-  let members = 0
-
-  for (const period of periods) {
-    const rows = await scoresFor(db, period)
-    const byBoard = new Map<string, ScoredMember[]>()
-    for (const row of rows) {
-      const member: BoardMembership = { hidden: false, countryCode: row.countryCode, cityKey: row.cityKey, campusKey: row.campusKey }
-      for (const scope of scopesOf(member)) {
-        const key = boardKey(period, scope)
-        const entries = byBoard.get(key) ?? []
-        entries.push({ member: row.userId, score: row.score })
-        byBoard.set(key, entries)
-      }
-    }
-    // The global board is always replaced, even when it is empty, so a board of departed people does not linger.
-    const globalKey = boardKey(period, 'g')
-    if (!byBoard.has(globalKey)) byBoard.set(globalKey, [])
-
-    for (const [key, entries] of byBoard) {
-      await cache.zreplace(key, entries, period.ttlMs ? { ttlMs: period.ttlMs } : {})
-      boards += 1
-      members += entries.length
-    }
-  }
-
-  await cache.set(BOARDS_READY_KEY, new Date(now).toISOString(), { ttlMs: READY_TTL_MS })
-  log.info('leaderboards rebuilt', { periods: periods.length, boards, members })
-  return { periods: periods.length, boards, members }
 }
 
 /** A person's XP in each of the current periods, from the log. */
@@ -191,8 +127,8 @@ export async function refreshUserBoards(db: Db, cache: Cache, userId: string, pr
 }
 
 /** What the nightly job runs. */
-export async function runReconcileJob(): Promise<RebuildResult> {
-  const { prisma } = await import('@/lib/prisma')
+export async function runReconcileJob() {
+  const [{ prisma }, { rebuildBoards }] = await Promise.all([import('@/lib/prisma'), import('@/lib/leaderboard-rebuild')])
   return rebuildBoards(prisma)
 }
 

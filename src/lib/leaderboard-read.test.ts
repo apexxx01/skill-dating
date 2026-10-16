@@ -304,7 +304,12 @@ describe('readLeaderboard', () => {
   it('builds boards that were never built, with the in-process cache, before answering', async () => {
     const cold = new MemoryCache()
     const db = {
-      $queryRaw: vi.fn(async () => [{ userId: 'a', score: 40, countryCode: null, cityKey: null, campusKey: null }]),
+      // The rebuild asks the log three things: totals up to a cutoff, who earned since, and where they stand now.
+      $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join('?')
+        if (text.includes('"cityKey"') && text.includes('GROUP BY')) return [{ userId: 'a', score: 40, countryCode: null, cityKey: null, campusKey: null }]
+        return []
+      }),
       profile: { findUnique: vi.fn(async () => null) },
       season: { findFirst: vi.fn(async () => null) },
       user: { findMany: vi.fn(async () => [{ id: 'a', name: 'a', username: 'a', image: null, headline: null, builderRole: null, xp: 0 }]) },

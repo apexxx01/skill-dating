@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { MemoryCache } from './infra/cache.memory'
-import { BOARDS_READY_KEY, loadMembership, rebuildBoards, recordBoardXp, refreshUserBoards } from './leaderboard-write'
+import { loadMembership, recordBoardXp, refreshUserBoards } from './leaderboard-write'
 import { boardKey, periodsAt } from './leaderboard-boards'
 
 const now = new Date('2026-10-16T12:00:00Z')
@@ -116,62 +116,6 @@ describe('recordBoardXp', () => {
     await recordBoardXp(fakeDb({ profile: { countryCode: 'IN', cityKey: 'pune', campusKey: 'coep' } }) as never, cache, { userId: 'u1', amount: 10, at: now, seasonId: 'season-1' })
     expect(spy).toHaveBeenCalledTimes(1)
     expect(spy.mock.calls[0][0]).toHaveLength(4 * 4)
-  })
-})
-
-describe('rebuildBoards', () => {
-  const row = (userId: string, score: number, place: { countryCode?: string; cityKey?: string; campusKey?: string } = {}) => ({
-    userId,
-    score,
-    countryCode: place.countryCode ?? null,
-    cityKey: place.cityKey ?? null,
-    campusKey: place.campusKey ?? null,
-  })
-
-  it('writes every board of every period from the log and marks the boards as built', async () => {
-    const cache = new MemoryCache()
-    const same = [row('a', 90, { countryCode: 'IN', cityKey: 'pune' }), row('b', 40, { countryCode: 'IN' }), row('c', 10)]
-    const db = fakeDb({ rows: [same, same, same, same] })
-    const result = await rebuildBoards(db as never, cache, now)
-    expect(result.periods).toBe(4)
-    expect(await score(cache, allTime, 'g', 'a')).toBe(90)
-    expect(await score(cache, allTime, 'c:IN', 'b')).toBe(40)
-    expect(await score(cache, allTime, 'c:IN', 'c')).toBeNull()
-    expect(await score(cache, allTime, 'y:IN:pune', 'a')).toBe(90)
-    expect(await score(cache, allTime, 'y:IN:pune', 'b')).toBeNull()
-    expect(await cache.zcard(boardKey(allTime, 'g'))).toBe(3)
-    expect(await cache.get(BOARDS_READY_KEY)).toBe(now.toISOString())
-  })
-
-  it('replaces a board whole: what was in the cache and is not in the log goes', async () => {
-    const cache = new MemoryCache()
-    await cache.zadd(boardKey(allTime, 'g'), 'stale', 999)
-    await cache.zadd(boardKey(allTime, 'g'), 'a', 1)
-    await rebuildBoards(fakeDb({ rows: [[], [], [], [row('a', 50)]] }) as never, cache, now)
-    expect(await score(cache, allTime, 'g', 'stale')).toBeNull()
-    expect(await score(cache, allTime, 'g', 'a')).toBe(50)
-  })
-
-  it('empties a global board when nobody has earned in the period', async () => {
-    const cache = new MemoryCache()
-    await cache.zadd(boardKey(weekly, 'g'), 'old', 5)
-    await rebuildBoards(fakeDb({ rows: [[], [], [], []] }) as never, cache, now)
-    expect(await cache.zcard(boardKey(weekly, 'g'))).toBe(0)
-  })
-
-  it('skips the season board between seasons', async () => {
-    const cache = new MemoryCache()
-    const result = await rebuildBoards(fakeDb({ season: null, rows: [[], [], []] }) as never, cache, now)
-    expect(result.periods).toBe(3)
-  })
-
-  it('gives each period its own expiry', async () => {
-    const clock = { now: now.getTime() }
-    const cache = new MemoryCache(1000, () => clock.now)
-    await rebuildBoards(fakeDb({ rows: [[row('a', 1)], [row('a', 1)], [row('a', 1)], [row('a', 1)]] }) as never, cache, now)
-    clock.now += 100 * 24 * 60 * 60 * 1000
-    expect(await score(cache, weekly, 'g', 'a')).toBeNull()
-    expect(await score(cache, allTime, 'g', 'a')).toBe(1)
   })
 })
 
