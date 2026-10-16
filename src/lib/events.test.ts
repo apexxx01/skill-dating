@@ -32,6 +32,7 @@ describe('event names', () => {
         'EVIDENCE_ENDORSED',
         'HACKATHON_JOINED',
         'HACKATHON_WON',
+        'MESSAGE_REPLIED',
         'MESSAGE_SENT_FIRST_IN_CONNECTION',
         'MILESTONE_COMPLETED',
         'PROJECT_CREATED',

@@ -1,6 +1,7 @@
-import { bus, type DomainEventName, type EmitResult, type EventBus, type TransactionalContext } from '@/lib/events'
-import { grantAchievement } from '@/lib/achievements'
+import { bus, DOMAIN_EVENT_NAMES, type DomainEventName, type EmitResult, type EventBus, type TransactionalContext } from '@/lib/events'
+import { advanceProgress, usersInvolved } from '@/lib/achievement-progress'
 import { track } from '@/lib/infra/analytics'
+import { lockProgress } from '@/lib/metrics'
 import { grant } from '@/lib/rewards'
 import { applicantRewardEligible, EVENT_REWARDS } from '@/lib/rewards-config'
 import { endorsementRewardAllowed } from '@/lib/skill-evidence'
@@ -15,19 +16,26 @@ type AnyEventReward = {
     description: (payload: never) => string
     recipients?: (payload: never) => string[]
   }
-  achievement?: Parameters<typeof grantAchievement>[2]
 }
 
 /**
- * The rewards engine's subscriber: pays what EVENT_REWARDS says for the event,
- * on the emitter's transaction. Returns whether anything new was paid.
+ * The rewards engine's subscriber, for every event: pays what EVENT_REWARDS says on the emitter's
+ * transaction, then counts the event (metrics.ts) and unlocks what the counts reach
+ * (achievement-progress.ts). Returns whether anything new was paid or unlocked.
+ *
+ * Only an award that actually paid is counted, so the daily caps, the once-per-source rule and the
+ * gates below limit achievements and quests exactly as they limit XP.
  */
 export async function payForEvent(context: TransactionalContext<DomainEventName>): Promise<EmitResult> {
   const reward = EVENT_REWARDS[context.name] as AnyEventReward
   const userId = (context.payload as { userId: string }).userId
   let rewarded = false
 
-  // Endorsements pay the owner, XP and achievement alike, only when the endorsement rules allow it.
+  // Everyone the event touches is locked before any of them is written, in one fixed order, so two
+  // requests that involve the same people cannot wait on each other.
+  await lockProgress(context.tx, usersInvolved(context.name, context.payload))
+
+  // Endorsements pay the owner, XP and progress alike, only when the endorsement rules allow it.
   if (context.name === 'EVIDENCE_ENDORSED') {
     const { endorserId } = context.payload as { endorserId: string }
     if (!(await endorsementRewardAllowed(context.tx as Parameters<typeof endorsementRewardAllowed>[0], userId, endorserId))) {
@@ -35,12 +43,13 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     }
   }
 
-  // Accepted applications pay the applicant, XP and achievement alike, only when the account passes the age and email checks.
+  // Accepted applications pay the applicant, XP and progress alike, only when the account passes the age and email checks.
   if (context.name === 'TEAM_APPLICATION_ACCEPTED') {
     const applicant = await context.tx.user.findUnique({ where: { id: userId }, select: { createdAt: true, isEmailVerified: true } })
     if (!applicant || !applicantRewardEligible(applicant)) return { rewarded: false }
   }
 
+  const paid = new Set<string>()
   if (reward.xp) {
     const payload = context.payload as never
     const source = reward.xp.source(payload)
@@ -51,21 +60,22 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     for (const recipient of recipients) {
       // Of the people a connection pays, only the one who accepted acted; the other just received it.
       const result = await grant(context.tx, recipient, reward.xp.action, { ...source, description, actor: recipient === userId })
-      if (result.granted) rewarded = true
+      if (result.granted) {
+        rewarded = true
+        paid.add(recipient)
+      }
     }
   }
 
-  if (reward.achievement && (await grantAchievement(context.tx, userId, reward.achievement)).granted) rewarded = true
+  const { unlocked } = await advanceProgress(context.tx, context.name, context.payload, paid)
+  if (unlocked > 0) rewarded = true
 
   return { rewarded }
 }
 
 export function registerSubscribers(target: EventBus = bus) {
-  for (const name of Object.keys(EVENT_REWARDS) as DomainEventName[]) {
-    const reward = EVENT_REWARDS[name] as AnyEventReward
-    if (reward.xp || reward.achievement) {
-      target.onTransactional(name, (context) => payForEvent(context as TransactionalContext<DomainEventName>))
-    }
+  for (const name of DOMAIN_EVENT_NAMES) {
+    target.onTransactional(name, (context) => payForEvent(context as TransactionalContext<DomainEventName>))
   }
 
   // After commit only: a rolled-back action is not counted.

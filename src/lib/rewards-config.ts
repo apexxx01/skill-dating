@@ -1,5 +1,4 @@
 import type { DomainEventName, DomainEvents } from '@/lib/events'
-import type { AchievementSlug } from '@/lib/achievement-definitions'
 
 // Everything that decides how much XP an action is worth and how often it can be
 // earned, in one table, so the amounts can be tuned without touching a route.
@@ -19,6 +18,7 @@ export type RewardAction =
   | 'CONNECTION_ACCEPTED'
   | 'MESSAGE_SENT_FIRST_IN_CONNECTION'
   | 'TEAM_APPLICATION_ACCEPTED'
+  | 'QUEST_COMPLETED'
 
 /** What an award is attached to. Together with the action it decides what counts as "the same award". */
 export type RewardSourceType =
@@ -32,6 +32,7 @@ export type RewardSourceType =
   | 'CONNECTION'
   | 'CONVERSATION'
   | 'TEAM_APPLICATION'
+  | 'QUEST'
 
 export interface RewardRule {
   /** XP per award. Null when the source carries it (an achievement defines its own xpReward). */
@@ -80,6 +81,9 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   // Paid to the applicant, once per application, at most 3 a day. Only for an account old enough and with a
   // verified email (see applicantRewardEligible): two throwaway accounts could otherwise apply to and accept each other.
   TEAM_APPLICATION_ACCEPTED: { amount: 50, sourceType: 'TEAM_APPLICATION', oncePer: 'source', dailyCap: 3, streak: false },
+  // Once per quest and period (the source is the UserQuest). The amount is the quest's own xpReward, and
+  // a person has at most three daily and three weekly quests at a time, which is the cap.
+  QUEST_COMPLETED: { amount: null, sourceType: 'QUEST', oncePer: 'source', dailyCap: null, streak: false },
 }
 
 /** An account younger than this earns nothing from having a team application accepted. */
@@ -121,7 +125,6 @@ interface EventReward<N extends DomainEventName> {
     /** Who is paid. Absent: the event's `userId`. */
     recipients?: (payload: DomainEvents[N]) => string[]
   }
-  achievement?: AchievementSlug
 }
 
 /** What each domain event pays out. An event that is absent here, or empty, is announced but pays nothing. */
@@ -132,7 +135,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'PROJECT', sourceId: p.projectId }),
       description: (p) => `Created project "${p.projectName}"`,
     },
-    achievement: 'first-project',
   },
   PROJECT_SHIPPED: {
     xp: {
@@ -140,7 +142,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'PROJECT', sourceId: p.projectId }),
       description: (p) => `Shipped project "${p.projectName}"`,
     },
-    achievement: 'first-ship',
   },
   PROJECT_UPDATE_POSTED: {
     xp: {
@@ -148,7 +149,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'PROJECT_UPDATE', sourceId: p.updateId }),
       description: () => 'Posted a project update',
     },
-    achievement: 'first-update',
   },
   MILESTONE_COMPLETED: {
     xp: {
@@ -156,7 +156,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'MILESTONE', sourceId: p.milestoneId }),
       description: () => 'Completed a project milestone',
     },
-    achievement: 'first-milestone',
   },
   HACKATHON_JOINED: {
     xp: {
@@ -164,7 +163,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'HACKATHON', sourceId: p.hackathonId }),
       description: (p) => `Joined hackathon "${p.hackathonName}"`,
     },
-    achievement: 'first-hackathon',
   },
   HACKATHON_WON: {
     xp: {
@@ -172,7 +170,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'HACKATHON', sourceId: p.hackathonId }),
       description: (p) => `Won "${p.hackathonName}"`,
     },
-    achievement: 'hackathon-winner',
   },
   TEAM_FORMED: {
     xp: {
@@ -180,7 +177,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'HACKATHON', sourceId: p.hackathonId }),
       description: (p) => `Formed team for "${p.hackathonName}"`,
     },
-    achievement: 'team-builder',
   },
   TEAM_APPLICATION_ACCEPTED: {
     xp: {
@@ -188,7 +184,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'TEAM_APPLICATION', sourceId: p.applicationId }),
       description: () => 'Had a team application accepted',
     },
-    achievement: 'team-player',
   },
   EVIDENCE_ADDED: {
     xp: {
@@ -196,7 +191,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'EVIDENCE', sourceId: p.evidenceId }),
       description: () => 'Added evidence to a skill',
     },
-    achievement: 'first-evidence',
   },
   // Gated by the endorsement rules in src/lib/skill-evidence.ts before it pays, XP and achievement alike.
   EVIDENCE_ENDORSED: {
@@ -205,7 +199,6 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       source: (p) => ({ sourceType: 'ENDORSEMENT', sourceId: `${p.evidenceId}:${p.endorserId}` }),
       description: () => 'Had evidence endorsed',
     },
-    achievement: 'endorsed',
   },
   CONNECTION_ACCEPTED: {
     xp: {
@@ -225,6 +218,7 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   // Announced by the rewards engine itself. They pay nothing of their own; achievements and quests listen.
   STREAK_EXTENDED: {},
   USER_COMEBACK: {},
+  MESSAGE_REPLIED: {},
 }
 
 /**

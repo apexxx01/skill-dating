@@ -97,6 +97,16 @@ export default async function setup() {
     stdio: 'ignore',
   })
 
+  // Quests pay small, random-looking amounts of XP (which ones a user has depends on their id), and most of this
+  // suite asserts exact XP totals. They are paused for the suite with the same flag an operator would use, and
+  // tests/integration/quests.test.ts switches them back on for its own run.
+  const setup = new PrismaClient({ datasources: { db: { url: TEST_DATABASE_URL } } })
+  try {
+    await setup.featureFlag.update({ where: { key: 'quests' }, data: { enabled: false } })
+  } finally {
+    await setup.$disconnect()
+  }
+
   // Spawned directly via `next dev`, not `npm run dev` - npm's own wrapper
   // process doesn't reliably propagate a kill signal down to the actual
   // next-server child it launches (confirmed the hard way earlier in this

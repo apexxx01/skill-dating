@@ -46,6 +46,8 @@ export interface DomainEvents {
   STREAK_EXTENDED: { userId: string; current: number; longest: number; freezeUsedInRun: boolean }
   /** The user earned from an action of their own after `idleDays` (30 or more) days of earning nothing. */
   USER_COMEBACK: { userId: string; idleDays: number }
+  /** `userId` answered a message in a direct conversation that had been waiting on them from `repliedToUserId`. */
+  MESSAGE_REPLIED: { userId: string; conversationId: string; messageId: string; repliedToUserId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -65,6 +67,7 @@ export const DOMAIN_EVENT_NAMES = [
   'MESSAGE_SENT_FIRST_IN_CONNECTION',
   'STREAK_EXTENDED',
   'USER_COMEBACK',
+  'MESSAGE_REPLIED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient

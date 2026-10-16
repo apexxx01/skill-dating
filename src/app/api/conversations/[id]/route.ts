@@ -205,6 +205,20 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     })
 
     const recipient = direct?.members.find((member) => member.userId !== user.id)
+
+    // Answering somebody who was waiting on you: the message before this one, in a direct conversation,
+    // came from the other person.
+    if (recipient) {
+      const previous = await tx.message.findFirst({
+        where: { conversationId: id, id: { not: created.id }, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: { senderId: true },
+      })
+      if (previous && previous.senderId !== user.id) {
+        await emit(tx, 'MESSAGE_REPLIED', { userId: user.id, conversationId: id, messageId: created.id, repliedToUserId: previous.senderId })
+      }
+    }
+
     if (recipient && (await tx.message.count({ where: { conversationId: id } })) === 1) {
       const connected = await tx.connection.findFirst({
         where: {

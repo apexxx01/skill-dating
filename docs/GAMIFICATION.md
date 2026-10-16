@@ -303,7 +303,7 @@ A fourth project in a day, or a repeated action that already paid:
 Inside the same transaction, the engine creates a `Notification` (type `ACHIEVEMENT`, with
 `metadata.kind` of `LEVEL_UP`, `TIER_UP` or `ACHIEVEMENT_UNLOCKED`) for a level-up, a
 tier change and an unlocked achievement. After the transaction commits it records the
-product events `level_up`, `tier_up` and `achievement_earned` (no personal data in
+product events `level_up`, `tier_up`, `achievement_earned`, `quest_completed` and `streak_extended` (no personal data in
 their properties; see [ARCHITECTURE.md](ARCHITECTURE.md#analytics)).
 
 ## Reading XP

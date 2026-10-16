@@ -1,4 +1,4 @@
-import { ACHIEVEMENT_DEFINITIONS, type AchievementSlug } from './achievement-definitions'
+import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition, type AchievementSlug } from './achievement-definitions'
 import { afterCommit, recordReward, type Db } from './events'
 import { track } from './infra/analytics'
 import { recordActivity } from './activity'
@@ -24,9 +24,12 @@ import { emptyEnvelope, type EnvelopeDraft } from './rewards-envelope'
 export async function grantAchievement(
   tx: Db,
   userId: string,
-  slug: AchievementSlug
+  slug: AchievementSlug,
+  /** Where the counter stood, stored with the unlock. Defaults to the target met exactly. */
+  progress?: { current: number; target: number }
 ): Promise<{ granted: boolean; envelope?: EnvelopeDraft }> {
-  const def = ACHIEVEMENT_DEFINITIONS[slug]
+  const def: AchievementDefinition = ACHIEVEMENT_DEFINITIONS[slug]
+  const target = def.criteria.target
 
   const achievement = await tx.achievement.upsert({
     where: { slug },
@@ -40,7 +43,7 @@ export async function grantAchievement(
   // check, after which one fails on the constraint and aborts its whole
   // enclosing transaction (the project, update or milestone it belongs to).
   const inserted = await tx.userAchievement.createMany({
-    data: [{ userId, achievementId: achievement.id }],
+    data: [{ userId, achievementId: achievement.id, progress: progress ?? { current: target, target } }],
     skipDuplicates: true,
   })
   if (inserted.count === 0) {

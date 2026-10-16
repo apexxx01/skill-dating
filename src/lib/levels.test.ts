@@ -12,12 +12,12 @@ describe('xpForLevel', () => {
     for (let level = 1; level <= POWER_LAW_LAST_LEVEL; level++) expect(xpForLevel(level)).toBe(powerLaw(level))
   })
 
-  it('grows in a straight line from level 56: 3600, then 50 more for every level', () => {
-    expect(xpForLevel(56)).toBe(3600)
-    expect(xpForLevel(57)).toBe(3650)
-    expect(xpForLevel(80)).toBe(4800)
-    expect(xpForLevel(99)).toBe(5750)
-    expect(xpForLevel(100)).toBe(5800)
+  it('grows in a straight line from level 56: 4100, then 50 more for every level', () => {
+    expect(xpForLevel(56)).toBe(4100)
+    expect(xpForLevel(57)).toBe(4150)
+    expect(xpForLevel(80)).toBe(5300)
+    expect(xpForLevel(99)).toBe(6250)
+    expect(xpForLevel(100)).toBe(6300)
     for (let level = POWER_LAW_LAST_LEVEL + 1; level < MAX_LEVEL; level++) expect(xpForLevel(level + 1) - xpForLevel(level)).toBe(50)
   })
 

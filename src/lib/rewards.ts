@@ -159,6 +159,7 @@ export async function grant(tx: Db, userId: string, action: RewardAction, option
   // Announced after the award is recorded, so whatever the streak unlocks is merged in after it.
   if (step && !step.alreadyCounted) {
     if (step.extended) {
+      afterCommit(tx, () => track(userId, 'streak_extended', { current: step.state.current }))
       await emit(tx, 'STREAK_EXTENDED', {
         userId,
         current: step.state.current,

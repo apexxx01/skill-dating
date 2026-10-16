@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { applicantRewardEligible, canAwardShipXp, dedupeKeyFor, EVENT_REWARDS, MIN_ACCOUNT_AGE_DAYS_FOR_APPLICATION_REWARD, REWARD_ACTIONS, REWARD_RULES } from './rewards-config'
 import { DOMAIN_EVENT_NAMES } from './events'
-import { ACHIEVEMENT_DEFINITIONS } from './achievement-definitions'
 
 describe('canAwardShipXp', () => {
   it('allows the award on first ship', () => {
@@ -51,8 +50,9 @@ describe('REWARD_RULES', () => {
     }
   })
 
-  it('takes an achievement amount from the achievement, not the table', () => {
+  it('takes an achievement amount from the achievement and a quest amount from the quest, not the table', () => {
     expect(REWARD_RULES.ACHIEVEMENT_EARNED.amount).toBeNull()
+    expect(REWARD_RULES.QUEST_COMPLETED.amount).toBeNull()
   })
 
   it('caps project creation at 3 a day and leaves one-off actions uncapped', () => {
@@ -88,37 +88,6 @@ describe('EVENT_REWARDS', () => {
     expect(Object.keys(EVENT_REWARDS).sort()).toEqual([...DOMAIN_EVENT_NAMES].sort())
   })
 
-  it('only names achievements that exist', () => {
-    for (const reward of Object.values(EVENT_REWARDS) as { achievement?: string }[]) {
-      if (reward.achievement) expect(ACHIEVEMENT_DEFINITIONS).toHaveProperty(reward.achievement)
-    }
-  })
-
-  it('attaches each XP award to the source type its rule expects', () => {
-    const samples = {
-      userId: 'u1',
-      projectId: 'p1',
-      projectName: 'Alpha',
-      hackathonId: 'h1',
-      hackathonName: 'Hack',
-      updateId: 'up1',
-      milestoneId: 'm1',
-      evidenceId: 'e1',
-      endorserId: 'u2',
-      otherUserId: 'u2',
-      connectionId: 'c1',
-      conversationId: 'cv1',
-      applicationId: 'a1',
-    } as never
-    for (const reward of Object.values(EVENT_REWARDS) as { xp?: { action: keyof typeof REWARD_RULES; source: (p: never) => { sourceType: string; sourceId: string }; description: (p: never) => string } }[]) {
-      if (!reward.xp) continue
-      const source = reward.xp.source(samples)
-      expect(source.sourceType).toBe(REWARD_RULES[reward.xp.action].sourceType)
-      expect(source.sourceId.length).toBeGreaterThan(0)
-      expect(reward.xp.description(samples).length).toBeGreaterThan(0)
-    }
-  })
-
   it('pays XP for every event that has a reward rule, and for nothing else', () => {
     const paying = Object.entries(EVENT_REWARDS)
       .filter(([, reward]) => (reward as { xp?: unknown }).xp)
@@ -142,12 +111,17 @@ describe('EVENT_REWARDS', () => {
     )
   })
 
+  it('says nothing about achievements: those are unlocked by the progress engine, from counts', () => {
+    for (const reward of Object.values(EVENT_REWARDS)) expect(reward).not.toHaveProperty('achievement')
+  })
+
   it('maps every rule to exactly one event that pays it', () => {
     const paid = Object.values(EVENT_REWARDS)
       .map((reward) => (reward as { xp?: { action: string } }).xp?.action)
       .filter(Boolean)
       .sort()
-    expect(paid).toEqual(REWARD_ACTIONS.filter((action) => action !== 'ACHIEVEMENT_EARNED').sort())
+    // Achievements and quests are paid by the progress engine, which names the amount itself.
+    expect(paid).toEqual(REWARD_ACTIONS.filter((action) => action !== 'ACHIEVEMENT_EARNED' && action !== 'QUEST_COMPLETED').sort())
   })
 
   it('pays a connection to both people, and everything else to the one the event is about', () => {

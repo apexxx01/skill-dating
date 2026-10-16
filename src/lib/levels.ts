@@ -4,7 +4,7 @@
 // A level's size is the XP needed to move from that level to the next one:
 //
 //   levels 1 to 55:    xpForLevel(n) = round(5 * n^1.85)      (5 for level 1, 18 for level 2, ...)
-//   levels 56 to 99:   xpForLevel(n) = 3600 + 50 * (n - 56)   (3600 for level 56, 5700 for level 98)
+//   levels 56 to 99:   xpForLevel(n) = 4100 + 50 * (n - 56)   (4100 for level 56, 6200 for level 98)
 //
 // The power law keeps climbing, and left alone it would make level 80 (Mythic) a
 // ten year goal even for someone who plays like a full-time builder. From level 56 the
@@ -43,7 +43,7 @@ export interface LevelInfo {
 
 /** The last level whose size follows the power law. Larger levels follow the straight line. */
 export const POWER_LAW_LAST_LEVEL = 55
-const LINEAR_FIRST_SIZE = 3600
+const LINEAR_FIRST_SIZE = 4100
 const LINEAR_STEP = 50
 
 /** XP needed to get from `level` to `level + 1`. */

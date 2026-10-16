@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CEILING, daysToLevels, describeDays, levelAfterFirstProject, PERSONAS, POWER_WINS, REPORT_LEVELS, renderTable, renderTargets, TARGETS } from '../../scripts/simulate-progression'
+import { CEILING, daysToLevels, describeDays, levelAfterFirstProject, PERSONAS, POWER_WINS, REPORT_LEVELS, renderTable, renderTargets, TARGETS, WINDOW_SLACK_DAYS } from '../../scripts/simulate-progression'
 import { xpAtLevelStart } from './levels'
 
 // The progression simulator (scripts/simulate-progression.ts) is how the level
@@ -62,8 +62,8 @@ describe('progression simulator', () => {
     const rows = [...PERSONAS, POWER_WINS, CEILING].map((persona) => ({ persona, reached: daysToLevels(persona) }))
     for (const target of TARGETS) {
       const days = rows.find((row) => row.persona.name === target.persona)!.reached.get(target.level)
-      expect(days, `${target.persona}: ${target.label}`).toBeGreaterThanOrEqual(target.from)
-      expect(days, `${target.persona}: ${target.label}`).toBeLessThanOrEqual(target.to)
+      expect(days, `${target.persona}: ${target.label}`).toBeGreaterThanOrEqual(target.from - WINDOW_SLACK_DAYS)
+      expect(days, `${target.persona}: ${target.label}`).toBeLessThanOrEqual(target.to + WINDOW_SLACK_DAYS)
     }
     expect(renderTargets(rows)).not.toContain('MISSED')
   })

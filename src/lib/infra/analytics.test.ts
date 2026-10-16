@@ -100,7 +100,7 @@ describe('Analytics', () => {
   })
 
   it('names every event the platform tracks', () => {
-    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned'])
+    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned', 'quest_completed', 'streak_extended'])
   })
 })
 

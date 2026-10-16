@@ -243,7 +243,7 @@ answers from `GET /api/flags`.
 `src/lib/infra/analytics.ts` follows the adapter pattern: `track(userId, event, props)` always writes
 a `ProductEvent` row (so the numbers exist with no third party) and, with `POSTHOG_KEY` set, also
 forwards the event to PostHog. Events: `signup`, `onboarding_completed`, `project_created`,
-`project_shipped`, `level_up`, `tier_up`, `achievement_earned`. Tracking happens after the
+`project_shipped`, `level_up`, `tier_up`, `achievement_earned`, `quest_completed`, `streak_extended`. Tracking happens after the
 transaction commits, never fails the request, and carries no personal data: the user is our
 internal id, and props are reduced to plain values under safe names (names, emails, free text and
 URLs are dropped whoever passes them). `signup` counts a brand-new account only, not the linking of an old

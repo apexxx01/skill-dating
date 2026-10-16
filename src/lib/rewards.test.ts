@@ -314,8 +314,10 @@ describe('grant', () => {
         insideTransaction = track.mock.calls.length
       })
       expect(insideTransaction).toBe(0)
-      expect(track.mock.calls.map((call) => call[1])).toEqual(['level_up', 'tier_up'])
+      // The first action of the user's own also starts a streak.
+      expect(track.mock.calls.map((call) => call[1])).toEqual(['level_up', 'tier_up', 'streak_extended'])
       expect(track.mock.calls[1]).toEqual(['u1', 'tier_up', { tier: 'SILVER', level: 10 }])
+      expect(track.mock.calls[2]).toEqual(['u1', 'streak_extended', { current: 1 }])
     })
 
     it('tracks nothing when the transaction fails', async () => {
