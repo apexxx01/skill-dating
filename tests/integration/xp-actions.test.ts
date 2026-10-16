@@ -23,7 +23,8 @@ describe('XP for progress and community actions', () => {
   // A user with no sign-in: for the other side of an interaction the test does not drive.
   const ghost = (label: string) => {
     const name = `xag${label}${suffix}${n++}`
-    return testPrisma.user.create({ data: { email: `${name}@test.dev`, username: name, name } })
+    // An account other people's rewards can rest on: a week old, verified (see src/lib/trust.ts).
+    return testPrisma.user.create({ data: { email: `${name}@test.dev`, username: name, name, createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), isEmailVerified: true } })
   }
 
   const rows = (userId: string, type: string) => testPrisma.xPEvent.findMany({ where: { userId, type }, orderBy: { createdAt: 'asc' } })

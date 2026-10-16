@@ -51,25 +51,39 @@ route ──emit──▶ domain event ──▶ payForEvent (src/lib/subscriber
 | `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | 3 a day | no |
 
 Who is **not** paid: the milestone update post that completing a milestone creates is not an
-update the user posted, so it pays nothing as one; nobody is paid for endorsing their own
-evidence or across a block (the route refuses both, and the reward check refuses them
-again); declined connections and rejected applications pay nothing; a second message in a
-conversation is not a first message.
+update the user posted, so it pays nothing as one; declined connections and rejected applications
+pay nothing; a second message in a conversation is not a first message.
 
-**Accepted applications** are a reward someone else decides, so they are gated
-(`applicantRewardEligible` in `src/lib/rewards-config.ts`, applied in `src/lib/subscribers.ts`): an
-applicant whose account is younger than 7 days, or whose email is not verified, is accepted
-onto the team as usual but is paid nothing, XP, progress and the `team-player` achievement alike. Together
-with the 3-a-day cap this makes two throwaway accounts that apply to and accept each other worth
-very little.
+### Rewards other people trigger: the trusted-counterparty gate
 
-**Endorsements** are the other reward other people can trigger, so they are gated
-before they pay, XP and progress alike (`endorsementRewardAllowed` in
-`src/lib/skill-evidence.ts`): not for yourself or across a block, the endorser must
-have a verified account, and one endorser can trigger at most 10 rewards per rolling
-day. How much one owner can earn per day is the rule's own cap (10 payments, so 100
-XP), enforced by the engine like every other cap. The endorsement itself always
-counts toward the evidence.
+Some rewards exist because somebody else acted: an endorsement, an accepted application or invitation, an
+accepted connection, a first message, a reply. Those are what two accounts made for the purpose would farm from
+each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by the rewards subscriber in
+`src/lib/subscribers.ts`). A reward is paid to a person only when the *other* person in the interaction, the
+**counterparty**, is trusted:
+
+- their account is **at least 7 days old** (to the millisecond);
+- their **email is verified**;
+- **neither has blocked the other**, and they are not the same account.
+
+| Event | Paid to (the subject) | Counterparty that must be trusted |
+| --- | --- | --- |
+| `EVIDENCE_ENDORSED` | the owner of the evidence | the endorser |
+| `TEAM_APPLICATION_ACCEPTED` | the applicant, or the invitee who accepted | whoever reviewed the application, or sent the invitation (and the applicant's own account must pass too) |
+| `CONNECTION_ACCEPTED` | each of the two people | the other one |
+| `MESSAGE_SENT_FIRST_IN_CONNECTION` | the sender | the recipient |
+| `MESSAGE_REPLIED` (pays no XP) | the person who replied | the person who was waiting for the reply |
+
+When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
+and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
+endorsement shows on the evidence). The achievements and quests that these actions count toward need no gate of their own: a count
+is only recorded for an XP award that was paid, and the replies, which pay no XP, are checked directly. In a connection each person is
+judged on the other, so a new account connecting with an established one is paid nothing for it while the established one is paid.
+
+A new person therefore earns nothing from other people for their first week, and earns it all after: the XP for what they do
+themselves (projects, milestones, evidence, updates) is unaffected. Endorsements keep two further rules of their own
+(`endorsementRewardAllowed`): the endorser has a verified login, and one endorser can trigger at most 10 rewards per rolling day. How
+much one owner can earn per day is the rule's own cap (10 payments, so 100 XP), enforced by the engine like every other cap.
 
 ## How "the same award" is decided
 
