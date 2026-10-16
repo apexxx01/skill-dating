@@ -659,6 +659,31 @@ export interface StreakStatus {
   freezeUsed: boolean
 }
 
+/** One local day of the heatmap. */
+export interface HeatmapDay {
+  /** The local date in the profile owner's time zone, "YYYY-MM-DD". */
+  date: string
+  /** XP earned that day, achievement and quest XP included. */
+  xp: number
+  /** Things the person did that day that paid XP (not counting the achievements and quests they led to). */
+  actions: number
+}
+
+/**
+ * GET /api/users/{id}/heatmap?days=365 (1 to 365). Only days with activity are listed, oldest
+ * first; draw the rest as empty. Days are the profile OWNER's local days (`timezone`).
+ */
+export interface HeatmapResponse {
+  timezone: string
+  days: number
+  /** First and last local date covered, inclusive. */
+  from: string
+  to: string
+  /** true: the owner has switched "show activity" off and `items` is empty. Never true for your own. */
+  hidden: boolean
+  items: HeatmapDay[]
+}
+
 /** A mutation response that also reports what it earned. */
 export type WithRewards<T> = T & { rewards: RewardsEnvelope }
 

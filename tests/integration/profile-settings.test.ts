@@ -5,7 +5,7 @@ import { cleanupTestUsers, testPrisma } from './db'
 describe('profile settings: time zone, place and privacy', () => {
   const suffix = uniqueSuffix()
   let n = 0
-  afterAll(() => cleanupTestUsers(suffix))
+  afterAll(() => cleanupTestUsers(suffix), 180_000)
   const user = () => {
     const name = `ps${suffix}${n++}`
     return registerAndLogin(`${name}@test.dev`, name)
