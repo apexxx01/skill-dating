@@ -140,6 +140,25 @@ describe('inngestFunctions', () => {
   })
 })
 
+describe('scheduled jobs', () => {
+  const registry = {
+    'area/tick': defineJob({ schema: z.object({}).default({}), schedule: '0 3 * * *', handler: async () => ({ ran: true }) }),
+    'area/manual': defineJob({ schema: z.object({ id: z.string() }), handler: async () => ({}) }),
+  }
+
+  it('triggers a scheduled job by its cron as well as by its event, and an unscheduled one by its event only', () => {
+    const client = new Inngest({ id: 'test', isDev: true })
+    const [tick, manual] = inngestFunctions(client, registry).map((fn) => fn.opts as { triggers: object[] })
+    expect(tick.triggers).toEqual([{ event: 'area/tick' }, { cron: '0 3 * * *' }])
+    expect(manual.triggers).toEqual([{ event: 'area/manual' }])
+  })
+
+  it('runs a scheduled job with an empty payload', async () => {
+    expect(await runJob(registry, 'area/tick', {})).toEqual({ ran: true })
+    expect(await runJob(registry, 'area/tick', undefined)).toEqual({ ran: true })
+  })
+})
+
 describe('createJobQueue', () => {
   const saved = { ...process.env }
   afterEach(() => {

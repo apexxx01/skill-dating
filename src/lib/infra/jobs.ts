@@ -18,6 +18,12 @@ export interface JobDefinition<S extends z.ZodTypeAny = z.ZodTypeAny> {
   schema: S
   /** Extra attempts after the first failure. Default 3. */
   retries?: number
+  /**
+   * A cron expression (UTC), for a job that runs on its own: Inngest triggers it on the schedule
+   * as well as on its event. The payload of a scheduled run is empty, so the schema must accept `{}`.
+   * The in-process queue never schedules; call it directly (see POST /api/admin/jobs/{name}).
+   */
+  schedule?: string
   // Method syntax on purpose: it keeps JobDefinition<SpecificSchema> assignable to the registry's JobDefinition.
   handler(context: { data: z.output<S> }): Promise<unknown>
 }
@@ -122,10 +128,10 @@ export function inngestFunctions(client: Inngest = getInngest(), registry: JobRe
       {
         // Function ids are slugs; the event name keeps its slash.
         id: name.replace(/[^a-zA-Z0-9]+/g, '-'),
-        triggers: [{ event: name }],
+        triggers: [{ event: name }, ...(definition.schedule ? [{ cron: definition.schedule }] : [])],
         retries: (definition.retries ?? DEFAULT_RETRIES) as InngestRetries,
       },
-      async ({ event }) => runJob(registry, name, event.data)
+      async ({ event }) => runJob(registry, name, event.data ?? {})
     )
   )
 }
