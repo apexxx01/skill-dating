@@ -43,6 +43,7 @@ describe('player card', () => {
       tier: 'BRONZE',
       progress: { xpIntoLevel: 0, xpForNextLevel: 5, fraction: 0 },
       ranks: { global: null, country: null, city: null },
+      equipped: { title: null, frame: null, banner: null },
       streak: { current: 0, longest: 0, freezes: 0, lastDay: null },
       topAchievements: [],
       counts: { shipped: 0, hackathons: 0, wins: 0, endorsementsReceived: 0, crews: 0, milestones: 0 },
@@ -59,9 +60,12 @@ describe('player card', () => {
     expect(res.data).toMatchObject({ level: levelFor(375).level, tier: 'BRONZE', counts: { shipped: 1 } })
     expect(res.data.progress.xpIntoLevel + 0).toBe(levelFor(375).xpIntoLevel)
     expect(res.data.streak).toMatchObject({ current: 1, longest: 1 })
-    // With no rarity computed yet, the bigger reward comes first.
-    expect(res.data.topAchievements.map((item: { slug: string }) => item.slug)).toEqual(['first-ship', 'first-project'])
-    expect(res.data.topAchievements[0]).toMatchObject({ name: 'Shipped It', rarity: null })
+    // The rarest first. (Whether the nightly job has run yet depends on what ran before; unknown rarities sort last.)
+    const top = res.data.topAchievements as { slug: string; name: string; rarity: number | null }[]
+    expect(top.map((item) => item.slug).sort()).toEqual(['first-project', 'first-ship'])
+    const known = top.map((item) => item.rarity ?? 2)
+    expect(known).toEqual([...known].sort((a, b) => a - b))
+    expect(top.find((item) => item.slug === 'first-ship')).toMatchObject({ name: 'Shipped It' })
   })
 
   it('puts the rarest achievements first once the nightly job has computed rarity, three at most', async () => {
