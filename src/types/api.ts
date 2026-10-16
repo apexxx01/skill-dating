@@ -140,6 +140,37 @@ export interface AchievementDefinition {
   isSecret: boolean
 }
 
+/**
+ * One achievement as GET /api/achievements and GET /api/users/{id}/achievements list it: the whole
+ * catalog, in `order`, with this user's standing in each. A secret achievement the user has not earned
+ * is `masked`: its text, icon, reward, progress and rarity are null and its `slug` is a placeholder
+ * (`secret-<order>`), so nothing gives the rule away. Once earned it is listed like any other.
+ */
+export interface AchievementItem {
+  slug: string
+  name: string
+  description: string
+  icon: string | null
+  category: 'BUILDING' | 'HACKATHON' | 'TEAM' | 'REPUTATION' | 'STREAK' | 'SECRET'
+  /** XP unlocking it pays. Null while it is masked. */
+  xpReward: number | null
+  secret: boolean
+  masked: boolean
+  earned: boolean
+  earnedAt: IsoDate | null
+  /** How far along: `current` counts up to `target`. Full once earned. Null while masked. */
+  progress: { current: number; target: number } | null
+  /** The share of users active in the last 30 days who have it, 0 to 1 (smaller is rarer). Null until the nightly job has run, and while masked. */
+  rarity: number | null
+  order: number
+}
+
+export interface AchievementsResponse {
+  achievements: AchievementItem[]
+  earned: number
+  total: number
+}
+
 export interface EarnedAchievement {
   id: string
   earnedAt: IsoDate
@@ -657,6 +688,46 @@ export interface StreakStatus {
   extended: boolean
   /** A banked freeze covered a missed day to keep the streak alive. */
   freezeUsed: boolean
+}
+
+/** One quest as GET /api/quests lists it. */
+export interface QuestItem {
+  slug: string
+  name: string
+  description: string
+  type: 'DAILY' | 'WEEKLY'
+  /** XP completing it pays (once). */
+  xpReward: number
+  /** How many times the action must be done in the period. */
+  target: number
+  /** How many times it has been done so far this period, up to `target`. */
+  current: number
+  completed: boolean
+  completedAt: IsoDate | null
+}
+
+/** One set of quests: this local day's, or this local week's. */
+export interface QuestGroup {
+  /** The local date ("2026-10-16") or ISO week ("2026-W42"). */
+  periodKey: string
+  startsAt: IsoDate
+  /** When these quests reset and a new set begins: the first instant of the next local day or week. */
+  resetsAt: IsoDate
+  quests: QuestItem[]
+}
+
+/**
+ * GET /api/quests: three daily and three weekly quests. They are the same for the whole period and
+ * the same on every device (they follow from the user and the period), and every one is a useful
+ * action: nothing rewards opening the app.
+ */
+export interface QuestsResponse {
+  /** false while an operator has paused quests (the "quests" flag): both lists are then empty and nothing counts. */
+  enabled: boolean
+  /** The zone the day and week are measured in (UTC until the user sets one). */
+  timezone: string
+  daily: QuestGroup
+  weekly: QuestGroup
 }
 
 /** One local day of the heatmap. */

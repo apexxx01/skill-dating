@@ -50,6 +50,14 @@ export const jobs = {
     retries: 2,
     handler: async () => (await import('@/lib/seasons')).runSeasonRollover(),
   }),
+  // Recomputes every achievement's rarity: the share of users active in the last 30 days who have it
+  // (src/lib/achievement-rarity.ts). Nightly.
+  'achievements/rarity': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '30 3 * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/achievement-rarity')).runRarityJob(),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs
