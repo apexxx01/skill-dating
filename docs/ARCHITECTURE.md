@@ -390,7 +390,7 @@ and the integration suite against a Postgres service container.
   twice, so ticks older than a couple of weeks are only history (the week-based secret achievements look back at most
   seven days); pruning them is not built.
 - Migrations and counters use `gen_random_uuid()`, which is built into PostgreSQL 13 and later.
-- A season is closed by an hourly job, so it can run past its end by up to an hour; seasons pay no rewards yet.
+- A season is closed by an hourly job, so it can run past its end by up to an hour; a closed season's cosmetics are granted by the same job (and by `npm run postdeploy`), and a season that could not be granted is retried every hour.
 - A blocked person is left out of a viewer's leaderboard but keeps their rank, so a rank is the same number on every
   leaderboard and on the player card; a viewer's page can skip ranks.
 - `npm audit --omit=dev` still reports Next's bundled PostCSS (fixable only by Next 16); see

@@ -468,7 +468,10 @@ do not need to: the response already says what completed.
 | My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner? }` (**write**) |
 | Settings: where I am, privacy | `GET`/`PATCH /api/users/me/profile` `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }` (**write**) |
 
-Cosmetics are only earned: there is nothing to buy and no "unlock" button, only `requirement` text on the locked ones. A
+Cosmetics are only earned: there is nothing to buy and no "unlock" button, only `requirement` text on the locked ones. A finished season
+adds a few for everyone who played or placed (`Season N Top 100` title, `Season N Top 1%` and `Season N Top 10%` frames, a `Season N Participant`
+badge): they appear in `cosmetics` once owned, with the badge as `type: "AVATAR_PART"`, `slot: null` (show it, do not offer to wear it). Equipping a
+slot-less one is `400 COSMETIC_WRONG_SLOT`. Placings cost no XP and do not appear in a `rewards` envelope; they arrive as a `COSMETIC_UNLOCKED` notification. A
 cosmetic earned by a secret achievement is `masked` until owned (show a mystery tile). Equipping something you do not own is
 `403 COSMETIC_NOT_OWNED`, so disable the control for locked items. Tell the user why a rank is missing: `hideFromLeaderboards`,
 no XP yet, or no country/city set.

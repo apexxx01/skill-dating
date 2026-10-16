@@ -70,7 +70,7 @@ describe('background jobs on demand, and the season rollover', () => {
       await endNow(season.id, new Date(Date.now() + 5 * DAY_MS))
       const res = await run('seasons/rollover')
       expect(res.status).toBe(200)
-      expect(res.data.result).toEqual({ closed: false })
+      expect(res.data.result).toMatchObject({ closed: false })
       expect((await active()).id).toBe(season.id)
     })
 
@@ -136,7 +136,7 @@ describe('background jobs on demand, and the season rollover', () => {
       const standings = await testPrisma.seasonStanding.findMany({ where: { seasonId: season.id } })
       expect(new Set(standings.map((row) => row.userId)).size).toBe(standings.length)
       expect(await testPrisma.season.count({ where: { active: true } })).toBe(1)
-      expect((await run('seasons/rollover')).data.result).toEqual({ closed: false })
+      expect((await run('seasons/rollover')).data.result).toMatchObject({ closed: false })
     })
 
     it('opens the next season from now when the job was down for longer than a season', async () => {

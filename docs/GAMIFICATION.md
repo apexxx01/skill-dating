@@ -429,12 +429,12 @@ activity private (`showActivity: false`) shows no streak to others.
 
 ## Cosmetics
 
-Titles, frames and banners for a profile, **earned only**: the catalog is below, each has an unlock rule, and `src/lib/cosmetics.ts` is the
+Titles, frames and banners for a profile, **earned only**: the catalog is below (plus a set for every finished [season](#seasons)), each has an unlock rule, and `src/lib/cosmetics.ts` is the
 only code that gives anyone one. A tier reached (`TIER_REACHED`, which also fires for Bronze with a person's first XP), an achievement
 unlocked (`ACHIEVEMENT_UNLOCKED`) or a streak extended (`STREAK_EXTENDED`) are announced by the rewards engine and the cosmetics subscriber
 grants what matches. A tier or a streak also grants every lower one, so nobody misses a title by skipping a tier. There is no price, no
 purchase and no route that grants one; `src/lib/cosmetics.test.ts` scans the code base for any write to the inventory outside the module,
-any route that calls the unlock functions, any shop-like route, and any price column, and checks that the only things a client can do are
+any route that calls the unlock or season-reward functions, any shop-like route, and any price column, and checks that the only things a client can do are
 `GET /api/users/me/cosmetics` and `PATCH /api/users/me/equipped`.
 
 `PATCH /api/users/me/equipped` body `{ title?, frame?, banner? }` (a slug or `null`) chooses what to wear: each slug must be one the user
@@ -472,8 +472,31 @@ A **season** is a fixed stretch of eight weeks with its own leaderboard. `Season
 the log (and the season board reads it). The job `seasons/rollover` runs hourly: when the active season's time is up it writes the **final
 standings** once into `SeasonStanding` (rank, score; the same order as the live board, leaving out people who opted out of leaderboards and
 deleted accounts), deactivates it, and opens the next season (starting where the last one ended, or now if the job was down for longer than
-a season) in the same transaction under a lock, so running it twice, or at once, closes a season once. **Nothing is paid for a placing yet**;
-`SeasonStanding` is the record rewards will be paid from. A season runs over its end by at most the hour between runs.
+a season) in the same transaction under a lock, so running it twice, or at once, closes a season once. A season runs over its end by at most
+the hour between runs.
+
+### Season rewards: cosmetics only, never XP
+
+A season pays **cosmetics and nothing else**: no XP, no level, no progress, no achievement. A placing is not something a person *did*, so it
+does not go through the rewards engine at all (`grant()` is not called, and nothing is written to `XPEvent`). After closing a season the same job grants
+(`grantSeasonRewards` in `src/lib/seasons.ts`, which calls `grantSeasonCosmetics` in `src/lib/cosmetics.ts`, the only code that writes the inventory), from the
+final standings:
+
+| Cosmetic | Type | Who gets it | Rarity |
+| --- | --- | --- | --- |
+| `Season N Top 100` | title | ranks 1 to 100 (everyone, in a season with fewer than 100 ranked) | epic |
+| `Season N Top 1%` | frame | ranks 1 to ⌈1% of the people ranked⌉ | legendary |
+| `Season N Top 10%` | frame | ranks 1 to ⌈10% of the people ranked⌉ | rare |
+| `Season N Participant` | badge (an avatar part: it has no slot to wear, it is just shown as owned) | **everyone who earned XP in the season**, ranked or not | common |
+
+Every season has its own set (slugs `season-N-top-100`, `season-N-top-1-percent`, `season-N-top-10-percent`, `season-N-participant`), created the first time the
+season's rewards are granted, so a person who places in several seasons collects a title and frames for each. Percentages round up, so the
+winner of even a tiny season is in the top 1%; and because the ranks come from the standings, a person who switched leaderboards off has no placing
+(they still get the badge, since they played), and deleted accounts get nothing. The people who get a cosmetic are notified (`COSMETIC_UNLOCKED`), once.
+
+It is **idempotent three ways**: the season is marked done (`Season.rewardsGrantedAt`) and skipped from then on; a lock stops two runs doing
+it at once; and a cosmetic somebody already has is never granted again (nor announced again), so even losing the marker changes nothing. A season that
+closed but could not be granted (the database went away) keeps a null marker, and the next hourly run, or `npm run postdeploy`, grants it.
 
 ## How long it takes: the progression simulation
 
@@ -646,7 +669,7 @@ by `grant()`. The `/api/users/{id}` rank, and the leaderboards' source of truth,
 
 | Job | Runs | What it does |
 | --- | --- | --- |
-| `seasons/rollover` | hourly | closes the active season when its time is up: standings, next season |
+| `seasons/rollover` | hourly | closes the active season when its time is up (standings, next season) and grants the cosmetics of every closed season that is owed them |
 | `achievements/rarity` | nightly, 03:30 UTC | recomputes every achievement's rarity |
 | `leaderboards/reconcile` | nightly, 04:00 UTC | rebuilds all current boards from the XP log |
 | `leaderboards/refresh-user` | on demand | moves one person's entries after a place or privacy change |
