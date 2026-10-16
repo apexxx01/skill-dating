@@ -376,6 +376,10 @@ and the integration suite against a Postgres service container.
   can show a stale score for up to a day, and XP arriving during a rebuild can be counted twice or missed until the
   next one. The rebuild reads the whole `XPEvent` table (indexed by time and by season); at tens of millions of
   rows it should become incremental.
+- `ProgressTick` gets a row per counted action. Once an action has paid, its XP award is what stops it counting
+  twice, so ticks older than a couple of weeks are only history (the week-based secret achievements look back at most
+  seven days); pruning them is not built.
+- Migrations and counters use `gen_random_uuid()`, which is built into PostgreSQL 13 and later.
 - A season is closed by an hourly job, so it can run past its end by up to an hour; seasons pay no rewards yet.
 - Quests and the player card are the same for everyone only per request: the card's ranks are absolute, the
   leaderboard's are per viewer (blocks).

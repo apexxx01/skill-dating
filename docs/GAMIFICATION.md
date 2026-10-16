@@ -293,6 +293,10 @@ quest's XP is paid as `QUEST_COMPLETED` through `grant()`, with the `UserQuest` 
 response's `rewards.questsCompleted` lists it. `GET /api/quests` returns the current six with their progress and when they reset;
 it writes nothing, and looking at quests earns nothing.
 
+Replies (`MESSAGE_REPLIED`: answering a direct message that was waiting on you) are the one counted action that pays no XP of its own,
+so nothing caps them but the quests: two accounts answering each other can complete the reply quests, which is worth a few XP once per
+period (at most three daily and three weekly quests are open at a time), and nothing more.
+
 Quest XP is small next to the action behind it (an update that completes a daily quest already paid 15), because the point is to
 point people at useful work and not to be the reason to do it. The `quests` **feature flag** is a kill switch: while it is off for
 a user nothing counts toward their quests and `GET /api/quests` says `enabled: false` with empty lists. It starts on for everybody.
