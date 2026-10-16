@@ -179,9 +179,15 @@ describe('XP for progress and community actions', () => {
       const connection = await testPrisma.connection.create({ data: { senderId: sender.id, receiverId: receiver.userId, status: 'PENDING' } })
       senders.push({ sender, connection })
     }
+    const gains: number[] = []
     for (const { connection } of senders) {
-      expect((await req(receiver.jar, 'PATCH', `/api/connections/${connection.id}`, { status: 'ACCEPTED' })).status).toBe(200)
+      const accepted = await req(receiver.jar, 'PATCH', `/api/connections/${connection.id}`, { status: 'ACCEPTED' })
+      expect(accepted.status).toBe(200)
+      // The accepted connection is still the body; the accepter's own rewards ride along.
+      expect(accepted.data).toMatchObject({ id: connection.id, status: 'ACCEPTED' })
+      gains.push(accepted.data.rewards.xpGained)
     }
+    expect(gains).toEqual([10, 10, 10, 10, 10, 0])
 
     // The accepter hit the cap on the sixth; every sender was paid for their one.
     const paid = await rows(receiver.userId, 'CONNECTION_ACCEPTED')
@@ -205,7 +211,9 @@ describe('XP for progress and community actions', () => {
     const receiver = await user('dr')
     const sender = await ghost('ds')
     const connection = await testPrisma.connection.create({ data: { senderId: sender.id, receiverId: receiver.userId, status: 'PENDING' } })
-    expect((await req(receiver.jar, 'PATCH', `/api/connections/${connection.id}`, { status: 'DECLINED' })).status).toBe(200)
+    const declined = await req(receiver.jar, 'PATCH', `/api/connections/${connection.id}`, { status: 'DECLINED' })
+    expect(declined.status).toBe(200)
+    expect(declined.data.rewards).toMatchObject({ xpGained: 0, leveledUp: false, achievements: [] })
     expect(await rows(receiver.userId, 'CONNECTION_ACCEPTED')).toHaveLength(0)
     expect(await rows(sender.id, 'CONNECTION_ACCEPTED')).toHaveLength(0)
   })
@@ -223,13 +231,22 @@ describe('XP for progress and community actions', () => {
     }
     const send = (id: string, content: string) => req(sender.jar, 'POST', `/api/conversations/${id}`, { content })
 
-    for (const { id } of conversations) expect((await send(id, 'Hello!')).status).toBe(201)
+    const gains: number[] = []
+    for (const { id } of conversations) {
+      const sent = await send(id, 'Hello!')
+      expect(sent.status).toBe(201)
+      expect(sent.data).toMatchObject({ conversationId: id, content: 'Hello!' })
+      gains.push(sent.data.rewards.xpGained)
+    }
+    expect(gains).toEqual([5, 5, 5, 5, 5, 0, 0])
     const paid = await rows(sender.userId, 'MESSAGE_SENT_FIRST_IN_CONNECTION')
     expect(paid).toHaveLength(5)
     expect(paid[0]).toMatchObject({ amount: 5, sourceType: 'CONVERSATION', sourceId: conversations[0].id, dedupeKey: `conversation:${conversations[0].id}` })
 
     // A second message in a conversation is not a first message.
-    expect((await send(conversations[0].id, 'Following up')).status).toBe(201)
+    const followUp = await send(conversations[0].id, 'Following up')
+    expect(followUp.status).toBe(201)
+    expect(followUp.data.rewards.xpGained).toBe(0)
     expect(await rows(sender.userId, 'MESSAGE_SENT_FIRST_IN_CONNECTION')).toHaveLength(5)
     // Only the sender is paid.
     for (const { peer } of conversations) expect(await rows(peer, 'MESSAGE_SENT_FIRST_IN_CONNECTION')).toHaveLength(0)

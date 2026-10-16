@@ -258,7 +258,7 @@ The caller's own connections (sent + received, or filtered). Query: `page, curso
 ### `PATCH /api/connections/[id]`
 **Auth:** the connection's `receiverId` only — not the sender.
 **Body:** `{ status: 'ACCEPTED' | 'DECLINED' }`
-On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (10 XP to both people, once per connection, at most 5 a day each; the response has no `rewards`). `400` if not currently `PENDING`.
+On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (10 XP to both people, once per connection, at most 5 a day each). **Response:** the connection plus the accepter's own `rewards` (the sender is told by notification). `400` if not currently `PENDING`.
 
 ---
 
@@ -278,7 +278,7 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 **Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, cursor, limit(≤100), before (ISO datetime)`. The response's `nextCursor` leads to the next **older** page. Marks exactly the messages returned as read for the caller.
 
 ### `POST /api/conversations/[id]`
-**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (5 XP to the sender, once per conversation, at most 5 a day; the response has no `rewards`). Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
+**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (5 XP to the sender, once per conversation, at most 5 a day). **Response:** the message plus the sender's `rewards`. Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
 **Body:** `{ content, type?, replyToId?, metadata? }`
 
 ### `POST /api/conversations/[id]/read`

@@ -49,7 +49,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   // Status flip, the DM conversation it unlocks, and the acceptance
   // notification all commit atomically - a failure partway through must
   // never leave an ACCEPTED connection with no shared conversation.
-  const { value: updated } = await transactWithEvents(prisma, async (tx) => {
+  const { value: updated, scope } = await transactWithEvents(prisma, async (tx) => {
     const result = await tx.connection.update({
       where: { id },
       data: { status: nextStatus },
@@ -105,5 +105,6 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     return result
   })
 
-  return createApiResponse(updated)
+  // The receiver is the one who accepted, so the rewards are theirs (the sender's are in their own envelope next time).
+  return createApiResponse({ ...updated, rewards: await scope.rewardsFor(prisma, user.id) })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'connections:review' } })

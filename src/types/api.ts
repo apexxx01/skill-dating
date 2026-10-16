@@ -349,6 +349,18 @@ export interface MessagePreview {
   sender: { id: string; name: string | null; username: string | null }
 }
 
+/** POST /api/conversations/[id]: the message just sent plus the sender's rewards (5 XP for a first message to a connection). */
+export type SendMessageResponse = WithRewards<{
+  id: string
+  conversationId: string
+  senderId: string
+  content: string
+  type: string
+  replyToId: string | null
+  createdAt: IsoDate
+  sender: UserSummary
+}>
+
 export interface ConversationListItem {
   id: string
   type: ConversationType
@@ -529,6 +541,9 @@ export interface ConnectionItem {
   sender: UserWithHeadline
   receiver: UserWithHeadline
 }
+
+/** PATCH /api/connections/[id]: the updated connection plus the caller's own rewards (10 XP when they accepted). */
+export type ReviewConnectionResponse = WithRewards<ConnectionItem>
 
 export interface ConnectionsResponse {
   connections: ConnectionItem[]
