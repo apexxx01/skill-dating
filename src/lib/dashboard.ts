@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
-import { calculateSkillCompatibility } from '@/lib/scoring'
+import { recommendationsFor } from '@/lib/matching/recommend'
 import { blockedUserIds } from '@/lib/blocks'
 
 const userSummary = { id: true, name: true, username: true, image: true } as const
@@ -140,19 +140,16 @@ export async function getDashboardData(prisma: PrismaClient, userId: string) {
     }),
   ])
 
-  // Same scoring function every other surface uses (src/lib/scoring.ts).
-  const userSkillRefs = userSkills.map((s) => ({ skillId: s.skillId, level: s.level, category: s.skill.category }))
-  const skillNameById = new Map(userSkills.map((s) => [s.skillId, s.skill.name]))
-
+  // The matching engine's score (src/lib/matching/score.ts), the same one the daily drops use. The shape of each builder is unchanged:
+  // `compatibility` is 0-100 and `commonSkills` the names of up to three skills both have.
+  const recommendations = await recommendationsFor(prisma, userId, recommendedBuilders.map((builder) => builder.id))
   const buildersWithCompatibility = recommendedBuilders
     .map((builder) => {
-      const builderSkillRefs = builder.skills.map((s) => ({ skillId: s.skillId, level: s.level, category: s.skill.category }))
-      for (const s of builder.skills) skillNameById.set(s.skillId, s.skill.name)
-      const { score, commonSkillIds } = calculateSkillCompatibility(userSkillRefs, builderSkillRefs)
+      const recommendation = recommendations.get(builder.id)
       return {
         ...builder,
-        compatibility: score,
-        commonSkills: commonSkillIds.slice(0, 3).map((id) => skillNameById.get(id)).filter(Boolean),
+        compatibility: recommendation?.score ?? 0,
+        commonSkills: recommendation?.commonSkills ?? [],
       }
     })
     .sort((a, b) => b.compatibility - a.compatibility)
