@@ -22,6 +22,12 @@ gamification stage (leaderboards, cosmetics, seasons) see [GAMIFICATION.md](GAMI
    deploy is **not finished**.
 4. **Check** (below).
 
+**The matching engine** (see [MATCHING.md](MATCHING.md)) needs nothing extra after a deploy: its migrations are additive (the enum `MatchType`, `MatchingProfile`, `Drop`, `Spark`, `Match`,
+`User.birthDate`, a `closedAt` on `Conversation`, new indexes), its three jobs (`drops/generate` hourly, `drops/expire` hourly, `drops/second-look` Mondays) are registered with the job queue like the others and
+are safe to repeat, and no new setting is required. The first hourly run after a deploy gives every person whose chosen drop time has already passed today their drops (catch-up), so expect one larger run. Run
+`POST /api/admin/jobs/drops/generate` with `{ "data": { "userIds": [...] } }` to regenerate for particular people. One migration (`utc_database_default`) sets the database's default time zone to UTC and, where the role may not
+change the database, only prints a notice; applications connecting through a pooler (`pgbouncer=true`) rely on that default, because poolers refuse session settings.
+
 ## What `npm run postdeploy` does
 
 In this order, stopping at the first failure:
