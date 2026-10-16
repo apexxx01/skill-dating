@@ -13,8 +13,8 @@ import { effectiveStreak, streakDay, streakFromColumns } from '@/lib/streaks'
 import { STATS_TTL_MS, statsCacheKey } from '@/lib/xp-views'
 
 // The player card: everything a profile header shows about someone's progress, in one call. It is the same
-// for every viewer (rank here is the absolute place on the all-time board, not the place among the people one
-// viewer can see, which is what the leaderboard shows), so it is cached for 60 seconds as a whole and thrown
+// for every viewer (rank here is the place on the all-time board, the same number the leaderboard shows for
+// that person to every viewer), so it is cached for 60 seconds as a whole and thrown
 // away whenever the person earns anything. What a particular viewer may see of it (the streak, when the
 // person keeps their activity private) is decided after the cache, in forViewer().
 

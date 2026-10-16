@@ -4,7 +4,7 @@ import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// The leaderboards through the real routes: periods and scopes, ranks that are consecutive for the person looking
+// The leaderboards through the real routes: periods and scopes, ranks that are absolute (blocked people are left out, never renumbered)
 // (blocks), rank cursors, the viewer's standing and the people around them, privacy, and the rebuild from the log.
 describe('leaderboards v2', () => {
   const suffix = uniqueSuffix().toLowerCase()
@@ -203,7 +203,7 @@ describe('leaderboards v2', () => {
   })
 
   describe('blocks', () => {
-    it('hide each of two people from the other, and keep the ranks consecutive for the one looking', async () => {
+    it('hide each of two people from the other, and leave every rank where it is: the same number for everybody', async () => {
       const a = await user()
       const b = await user()
       const c = await user()
@@ -221,15 +221,23 @@ describe('leaderboards v2', () => {
       expect(ids(asA)).not.toContain(b.userId)
       const asB = await board(b, '?limit=100')
       expect(ids(asB)).not.toContain(a.userId)
-      for (const res of [asA, asB]) {
-        const ranks = res.data.entries.map((entry: { rank: number }) => entry.rank)
-        expect(ranks).toEqual(ranks.map((_: number, index: number) => index + 1))
-      }
-      // A third person is unaffected.
+      const rankOf = (res: { data: { entries: { rank: number; user: { id: string } }[] } }, id: string) => res.data.entries.find((entry) => entry.user.id === id)?.rank
+      const everyone = await board(c, '?limit=100')
+      // Nobody moves up because somebody was blocked: A and C have the rank they have for everybody else.
+      expect(rankOf(asA, a.userId)).toBe(rankOf(everyone, a.userId))
+      expect(rankOf(asA, c.userId)).toBe(rankOf(everyone, c.userId))
+      expect(rankOf(asB, b.userId)).toBe(rankOf(everyone, b.userId))
+      expect(rankOf(asB, c.userId)).toBe(rankOf(everyone, c.userId))
+      // So A's list has a gap where B was.
+      expect(rankOf(asA, c.userId)! - rankOf(asA, a.userId)!).toBe(2)
+      // A third person is unaffected, and A's own rank is the same number everywhere.
       expect((await board(c, '?limit=100')).data.me.rank).toBe(rankBefore)
-      // B was behind A: for A, C is one place higher than before; and the blocked person is not among the people around them.
+      expect(asA.data.me.rank).toBe(rankOf(everyone, a.userId))
       expect(asA.data.around.map((entry: { user: { id: string } }) => entry.user.id)).not.toContain(b.userId)
-      expect(asA.data.pagination.total).toBe(before.data.pagination.total - 1)
+      expect(asA.data.pagination.total).toBe(before.data.pagination.total)
+      // The player card shows that same number.
+      const card = await req(a.jar, 'GET', `/api/users/${c.userId}/stats`)
+      expect(card.data.ranks.global).toBe(rankOf(asA, c.userId))
     })
   })
 

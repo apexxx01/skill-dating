@@ -245,7 +245,7 @@ describe('blocking', () => {
     expect(afterOwnerBlocks.data.candidates.map((c: any) => c.id)).not.toContain(candidate.userId)
   })
 
-  it('hides each user from the other on the leaderboard and ranks among visible users', async () => {
+  it('hides each user from the other on the leaderboard without renumbering anybody', async () => {
     const { a, b } = await pair()
     await req(a.jar, 'POST', '/api/projects', { name: `Blk Lb ${nextName('p')}` })
     await req(b.jar, 'POST', '/api/projects', { name: `Blk Lb ${nextName('p')}` })
@@ -259,12 +259,14 @@ describe('blocking', () => {
 
     const asBlocker = await req(a.jar, 'GET', '/api/leaderboard?limit=100')
     expect(asBlocker.data.entries.map((e: any) => e.user.id)).not.toContain(b.userId)
-    expect(asBlocker.data.pagination.total).toBeLessThan(before.data.pagination.total)
+    expect(asBlocker.data.pagination.total).toBe(before.data.pagination.total)
     const asBlocked = await req(b.jar, 'GET', '/api/leaderboard?limit=100')
     expect(asBlocked.data.entries.map((e: any) => e.user.id)).not.toContain(a.userId)
-    // Ranks are consecutive over what the viewer can see.
+    // Ranks are absolute: everybody who is still listed has the rank they had before, and they are in order.
+    const rankBefore = new Map<string, number>(before.data.entries.map((e: any) => [e.user.id, e.rank]))
+    for (const e of asBlocker.data.entries) expect(e.rank).toBe(rankBefore.get(e.user.id))
     const ranks = asBlocker.data.entries.map((e: any) => e.rank)
-    expect(ranks).toEqual(ranks.map((_: number, i: number) => i + 1))
+    expect(ranks).toEqual([...ranks].sort((x: number, y: number) => x - y))
   })
 
   it('makes a blocker\'s profile look nonexistent to the blocked user, and flags blockedByMe to the blocker', async () => {

@@ -381,8 +381,8 @@ and the integration suite against a Postgres service container.
   seven days); pruning them is not built.
 - Migrations and counters use `gen_random_uuid()`, which is built into PostgreSQL 13 and later.
 - A season is closed by an hourly job, so it can run past its end by up to an hour; seasons pay no rewards yet.
-- Quests and the player card are the same for everyone only per request: the card's ranks are absolute, the
-  leaderboard's are per viewer (blocks).
+- A blocked person is left out of a viewer's leaderboard but keeps their rank, so a rank is the same number on every
+  leaderboard and on the player card; a viewer's page can skip ranks.
 - `npm audit --omit=dev` still reports Next's bundled PostCSS (fixable only by Next 16); see
   [Dependency advisories](#dependency-advisories).
 - Dependencies are installed with `--legacy-peer-deps` when they change: `inngest` has an optional

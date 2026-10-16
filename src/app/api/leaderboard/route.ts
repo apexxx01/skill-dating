@@ -19,8 +19,8 @@ const querySchema = z.object({
 
 // Ranks come from sorted sets in the cache (src/lib/leaderboard-write.ts keeps them current, a nightly job
 // rebuilds them from the XP log), not from summing the log per request. Blocked people, in either direction, are
-// left out and ranks are counted over who is left, so the page is consecutive for this viewer. People
-// who switched leaderboards off are on no board. The period and scope are chosen with `period` and `scope`.
+// left out of the viewer's list but keep their place: a rank is the same number for every viewer, so a page can skip
+// one. People who switched leaderboards off are on no board. The period and scope are chosen with `period` and `scope`.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const query = validateQuery(querySchema)(request)
   if (query instanceof Response) return query

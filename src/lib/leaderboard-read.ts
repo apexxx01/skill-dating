@@ -8,9 +8,10 @@ import { BOARDS_READY_KEY, currentPeriods, loadMembership, rebuildBoards } from 
 import { levelFor } from '@/lib/levels'
 import { log } from '@/lib/log'
 
-// Reading a leaderboard. A board is a ranked list; what the viewer sees is that list minus the people
-// they have blocked (or who have blocked them), RE-NUMBERED so ranks are consecutive over what they can see.
-// A rank is therefore a property of (board, viewer): the same person can be 5th for one viewer and 6th for another.
+// Reading a leaderboard. A board is a ranked list, and a rank is a property of the board alone: the same
+// person has the same rank for every viewer, and the same rank on their player card. What the viewer sees is
+// that list minus the people they have blocked (or who have blocked them), who are simply left out, so the ranks
+// on a viewer's page can have gaps (4th, then 6th) and a page can hold fewer than `limit` people.
 //
 // Both kinds of board are read through the same small interface (`Ranked`): a sorted set in the cache for the
 // big boards, and a plain list for a crew, which is summed from the log when it is asked for.
@@ -46,76 +47,40 @@ export function listRanked(entries: ScoredMember[]): Ranked {
   }
 }
 
-/** Most blocked people whose positions are looked up per read. More than this and ranks may be off by a few. */
-export const MAX_BLOCKED_ADJUSTMENTS = 200
-
 export interface RankedRow {
   member: string
   score: number
-  /** The rank the viewer sees: 1 is first, and blocked people do not count. */
+  /** The member's rank on the board: 1 is first. The same for every viewer. */
   rank: number
 }
 
-export interface Window {
-  rows: RankedRow[]
-  /** Members the viewer can see. */
-  visibleTotal: number
-  /** Positions (zero-based, absolute) of the blocked people who are on this board, ascending. */
-  blockedPositions: number[]
-}
-
-export async function blockedPositions(source: Ranked, blocked: readonly string[]): Promise<number[]> {
-  const positions = await Promise.all(blocked.slice(0, MAX_BLOCKED_ADJUSTMENTS).map((member) => source.indexOf(member)))
-  return positions.filter((position): position is number => position !== null).sort((a, b) => a - b)
-}
-
-/** The absolute position of the `visible`-th (zero-based) member the viewer can see. */
-export function absolutePosition(visible: number, blockedAt: readonly number[]): number {
-  let position = visible
-  for (const blockedPosition of blockedAt) {
-    if (blockedPosition <= position) position += 1
-    else break
-  }
-  return position
-}
-
-/** The rank (1 is first) a member at absolute position `position` has for a viewer with these people hidden. */
-export function visibleRank(position: number, blockedAt: readonly number[]): number {
-  return position - blockedAt.filter((blockedPosition) => blockedPosition < position).length + 1
-}
-
 /**
- * `limit` members the viewer can see, starting at their `start`-th (zero-based). Asks for enough rows to
- * step over the blocked ones that fall inside the window, and numbers what is left consecutively.
+ * The members at ranks `from + 1` to `from + count`, minus the hidden ones. Hidden people keep their place:
+ * the rows after them are not renumbered, and the window is not extended to make up the count.
  */
-export async function readWindow(source: Ranked, blocked: readonly string[], start: number, limit: number): Promise<Window> {
-  const hiddenAt = await blockedPositions(source, blocked)
-  const hidden = new Set(blocked)
-  const [size, raw] = await Promise.all([source.size(), source.slice(absolutePosition(start, hiddenAt), limit + hiddenAt.length)])
-  const rows = raw
-    .filter((row) => !hidden.has(row.member))
-    .slice(0, limit)
-    .map((row, index) => ({ member: row.member, score: row.score, rank: start + index + 1 }))
-  return { rows, visibleTotal: Math.max(size - hiddenAt.length, 0), blockedPositions: hiddenAt }
+export async function readWindow(source: Ranked, hidden: ReadonlySet<string>, from: number, count: number): Promise<{ rows: RankedRow[]; scanned: ScoredMember[] }> {
+  const scanned = await source.slice(from, count)
+  const rows = scanned.map((row, index) => ({ member: row.member, score: row.score, rank: from + index + 1 })).filter((row) => !hidden.has(row.member))
+  return { rows, scanned }
 }
 
-/** Where a member stands for the viewer: their rank and score, or null when they are not on the board. */
-export async function standing(source: Ranked, member: string, hiddenAt: readonly number[]): Promise<{ rank: number; score: number } | null> {
+/** Where a member stands: their rank and score, or null when they are not on the board. */
+export async function standing(source: Ranked, member: string): Promise<{ rank: number; score: number } | null> {
   const position = await source.indexOf(member)
   if (position === null) return null
-  return { rank: visibleRank(position, hiddenAt), score: (await source.score(member)) ?? 0 }
+  return { rank: position + 1, score: (await source.score(member)) ?? 0 }
 }
 
 /**
- * Where a page starts (zero-based visible position). A rank cursor names the last row of the previous
- * page: if that person is still on the board the page starts right after where they are NOW, otherwise
- * after the rank they had.
+ * Where a page starts (zero-based position on the board). A rank cursor names the last row the previous
+ * page covered: if that person is still on the board the page starts right after where they are NOW,
+ * otherwise after the rank they had.
  */
-export async function startOf(source: Ranked, hiddenAt: readonly number[], position: { rank: number; member?: string } | null, page: number, limit: number): Promise<number> {
+export async function startOf(source: Ranked, position: { rank: number; member?: string } | null, page: number, limit: number): Promise<number> {
   if (!position) return (page - 1) * limit
   if (position.member) {
     const at = await source.indexOf(position.member)
-    if (at !== null) return visibleRank(at, hiddenAt)
+    if (at !== null) return at + 1
   }
   return position.rank
 }
@@ -229,16 +194,17 @@ async function readOnce(db: Db, query: LeaderboardQuery, cache: Cache, cleanups:
     source = cachedKey ? redisRanked(cache, cachedKey) : listRanked([])
   }
 
-  const hiddenAt = await blockedPositions(source, query.blocked)
-  const start = await startOf(source, hiddenAt, position, query.page, query.limit)
-  const window = await readWindow(source, query.blocked, start, query.limit + 1)
-  const hasMore = window.rows.length > query.limit
-  const pageRows = window.rows.slice(0, query.limit)
+  const hidden = new Set(query.blocked)
+  const start = await startOf(source, position, query.page, query.limit)
+  const [size, page] = await Promise.all([source.size(), readWindow(source, hidden, start, query.limit)])
+  const pageRows = page.rows
+  const lastScanned = page.scanned[page.scanned.length - 1]
+  const hasMore = start + page.scanned.length < size
 
-  const me = mine.hidden ? null : await standing(source, query.viewerId, window.blockedPositions)
-  const aroundStart = me ? Math.max(me.rank - 1 - 2, 0) : 0
+  const me = mine.hidden ? null : await standing(source, query.viewerId)
   // Two above and two below: fewer at the edges, where there is nobody further up or down to show.
-  const aroundWindow = me ? await readWindow(source, query.blocked, aroundStart, me.rank - 1 - aroundStart + 3) : null
+  const aroundStart = me ? Math.max(me.rank - 1 - 2, 0) : 0
+  const aroundWindow = me ? await readWindow(source, hidden, aroundStart, me.rank - 1 - aroundStart + 3) : null
 
   // Hydrate the people on the page and around the viewer in one query.
   const ids = [...new Set([...pageRows.map((row) => row.member), ...(aroundWindow?.rows ?? []).map((row) => row.member)])]
@@ -270,7 +236,6 @@ async function readOnce(db: Db, query: LeaderboardQuery, cache: Cache, cleanups:
   }
 
   const entries = pageRows.map(entry).filter((item): item is LeaderboardEntry => item !== null)
-  const last = pageRows[pageRows.length - 1]
   const data: LeaderboardResponse = {
     period: query.period,
     scope: { type: query.scope, id: query.scope === 'global' ? null : scopeId },
@@ -279,10 +244,11 @@ async function readOnce(db: Db, query: LeaderboardQuery, cache: Cache, cleanups:
     me: { rank: me?.rank ?? null, score: me?.score ?? 0, xp: me?.score ?? 0, hidden: mine.hidden },
     around: (aroundWindow?.rows ?? []).map(entry).filter((item): item is LeaderboardEntry => item !== null),
     myScopes,
-    nextCursor: hasMore && last ? encodeRankCursor({ rank: last.rank, member: last.member }) : null,
+    // The cursor stands for the last place the page covered, which can be a blocked person's: then it names only the rank.
+    nextCursor: hasMore && lastScanned ? encodeRankCursor({ rank: start + page.scanned.length, ...(hidden.has(lastScanned.member) ? {} : { member: lastScanned.member }) }) : null,
     // A page-numbered request keeps the counts it always had; a cursor request runs no count.
     ...(query.cursor === undefined
-      ? { pagination: { page: query.page, limit: query.limit, total: window.visibleTotal, totalPages: Math.ceil(window.visibleTotal / query.limit) } }
+      ? { pagination: { page: query.page, limit: query.limit, total: size, totalPages: Math.ceil(size / query.limit) } }
       : {}),
   }
   return { kind: 'ok', data }

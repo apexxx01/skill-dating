@@ -451,7 +451,7 @@ export interface MarkReadResponse {
 
 /** One row of a leaderboard. */
 export interface LeaderboardEntry {
-  /** 1 is first, counted over the people YOU can see: blocked people are left out and do not take a rank. */
+  /** 1 is first. The person's place on the board, the same for every viewer and the same as on their player card. Blocked people are left out of the list, so ranks can skip. */
   rank: number
   /** XP earned in the board's period. */
   score: number

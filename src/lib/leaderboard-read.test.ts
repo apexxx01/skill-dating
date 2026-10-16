@@ -3,78 +3,64 @@ import { MemoryCache } from './infra/cache.memory'
 import { BOARDS_READY_KEY } from './leaderboard-write'
 import { boardKey, periodsAt } from './leaderboard-boards'
 import { decodeRankCursor, encodeRankCursor } from './api/pagination'
-import { absolutePosition, blockedPositions, listRanked, readLeaderboard, readWindow, redisRanked, standing, startOf, visibleRank, type LeaderboardQuery } from './leaderboard-read'
+import { listRanked, readLeaderboard, readWindow, redisRanked, standing, startOf, type LeaderboardQuery } from './leaderboard-read'
 
 // Ten people, best first: p1 has 100, p2 90, ... p10 10.
 const people = Array.from({ length: 10 }, (_, index) => ({ member: `p${index + 1}`, score: 100 - index * 10 }))
 
-describe('absolutePosition and visibleRank', () => {
-  it('step over the people who are hidden from the viewer', () => {
-    // p3 (position 2) and p5 (position 4) are blocked.
-    const hidden = [2, 4]
-    expect([0, 1, 2, 3, 4, 5].map((visible) => absolutePosition(visible, hidden))).toEqual([0, 1, 3, 5, 6, 7])
-    expect([0, 1, 3, 5, 6, 7].map((position) => visibleRank(position, hidden))).toEqual([1, 2, 3, 4, 5, 6])
-  })
-
-  it('are the identity when nobody is hidden', () => {
-    expect(absolutePosition(7, [])).toBe(7)
-    expect(visibleRank(7, [])).toBe(8)
-  })
-
-  it('handle a blocked person right at the start', () => {
-    expect(absolutePosition(0, [0])).toBe(1)
-    expect(absolutePosition(0, [0, 1])).toBe(2)
-    expect(visibleRank(2, [0, 1])).toBe(1)
-  })
-})
+const none = new Set<string>()
+const hide = (...members: string[]) => new Set(members)
 
 describe('readWindow', () => {
-  it('reads a page with consecutive ranks', async () => {
-    const window = await readWindow(listRanked(people), [], 0, 3)
+  it('reads a page of ranks', async () => {
+    const window = await readWindow(listRanked(people), none, 0, 3)
     expect(window.rows).toEqual([
       { member: 'p1', score: 100, rank: 1 },
       { member: 'p2', score: 90, rank: 2 },
       { member: 'p3', score: 80, rank: 3 },
     ])
-    expect(window.visibleTotal).toBe(10)
   })
 
-  it('leaves out blocked people and numbers the rest consecutively', async () => {
-    const window = await readWindow(listRanked(people), ['p2', 'p4'], 0, 4)
-    expect(window.rows.map((row) => [row.member, row.rank])).toEqual([['p1', 1], ['p3', 2], ['p5', 3], ['p6', 4]])
-    expect(window.visibleTotal).toBe(8)
+  it('leaves out hidden people and does not renumber the rest: ranks have gaps', async () => {
+    const window = await readWindow(listRanked(people), hide('p2', 'p4'), 0, 4)
+    expect(window.rows.map((row) => [row.member, row.rank])).toEqual([['p1', 1], ['p3', 3]])
+    // The window still covers four places; the cursor needs to know that.
+    expect(window.scanned).toHaveLength(4)
   })
 
-  it('pages across blocked people without repeating or skipping anyone', async () => {
+  it('gives the same person the same rank whoever is looking', async () => {
     const source = listRanked(people)
-    const blocked = ['p2', 'p3', 'p6']
-    const seen: string[] = []
-    for (let start = 0; start < 10; start += 2) {
-      const window = await readWindow(source, blocked, start, 2)
-      for (const row of window.rows) {
-        expect(row.rank).toBe(seen.length + 1)
-        seen.push(row.member)
-      }
-    }
-    expect(seen).toEqual(['p1', 'p4', 'p5', 'p7', 'p8', 'p9', 'p10'])
+    const plain = await readWindow(source, none, 4, 3)
+    const withBlocks = await readWindow(source, hide('p1', 'p2', 'p3'), 4, 3)
+    expect(withBlocks.rows).toEqual(plain.rows)
+    expect(plain.rows.map((row) => row.rank)).toEqual([5, 6, 7])
   })
 
-  it('ignores blocked people who are not on the board', async () => {
-    const window = await readWindow(listRanked(people), ['somebody-else'], 0, 2)
+  it('pages across hidden people without repeating or skipping anyone, and every rank is the absolute one', async () => {
+    const source = listRanked(people)
+    const blocked = hide('p2', 'p3', 'p6')
+    const seen: [string, number][] = []
+    for (let start = 0; start < 10; start += 2) {
+      for (const row of (await readWindow(source, blocked, start, 2)).rows) seen.push([row.member, row.rank])
+    }
+    expect(seen).toEqual([['p1', 1], ['p4', 4], ['p5', 5], ['p7', 7], ['p8', 8], ['p9', 9], ['p10', 10]])
+  })
+
+  it('ignores hidden people who are not on the board', async () => {
+    const window = await readWindow(listRanked(people), hide('somebody-else'), 0, 2)
     expect(window.rows.map((row) => row.member)).toEqual(['p1', 'p2'])
-    expect(window.visibleTotal).toBe(10)
   })
 
   it('is empty past the end, and for an empty board', async () => {
-    expect((await readWindow(listRanked(people), [], 10, 5)).rows).toEqual([])
-    expect((await readWindow(listRanked([]), [], 0, 5)).rows).toEqual([])
+    expect((await readWindow(listRanked(people), none, 10, 5)).rows).toEqual([])
+    expect((await readWindow(listRanked([]), none, 0, 5)).rows).toEqual([])
   })
 
   it('reads a Redis board the same way a list is read', async () => {
     const cache = new MemoryCache()
     for (const { member, score } of people) await cache.zadd('board', member, score)
-    const fromCache = await readWindow(redisRanked(cache, 'board'), ['p2'], 1, 3)
-    const fromList = await readWindow(listRanked(people), ['p2'], 1, 3)
+    const fromCache = await readWindow(redisRanked(cache, 'board'), hide('p2'), 1, 3)
+    const fromList = await readWindow(listRanked(people), hide('p2'), 1, 3)
     expect(fromCache).toEqual(fromList)
   })
 
@@ -82,21 +68,18 @@ describe('readWindow', () => {
     const tied = [{ member: 'a', score: 5 }, { member: 'c', score: 5 }, { member: 'b', score: 5 }, { member: 'z', score: 9 }]
     const cache = new MemoryCache()
     for (const { member, score } of tied) await cache.zadd('t', member, score)
-    expect((await readWindow(listRanked(tied), [], 0, 4)).rows.map((row) => row.member)).toEqual(['z', 'c', 'b', 'a'])
-    expect((await readWindow(redisRanked(cache, 't'), [], 0, 4)).rows.map((row) => row.member)).toEqual(['z', 'c', 'b', 'a'])
+    expect((await readWindow(listRanked(tied), none, 0, 4)).rows.map((row) => row.member)).toEqual(['z', 'c', 'b', 'a'])
+    expect((await readWindow(redisRanked(cache, 't'), none, 0, 4)).rows.map((row) => row.member)).toEqual(['z', 'c', 'b', 'a'])
   })
 })
 
 describe('standing', () => {
-  it('is the viewer’s rank among the people they can see, and their score', async () => {
-    const source = listRanked(people)
-    const hidden = await blockedPositions(source, ['p1', 'p2'])
-    expect(await standing(source, 'p5', hidden)).toEqual({ rank: 3, score: 60 })
-    expect(await standing(source, 'p5', [])).toEqual({ rank: 5, score: 60 })
+  it('is the absolute rank and the score', async () => {
+    expect(await standing(listRanked(people), 'p5')).toEqual({ rank: 5, score: 60 })
   })
 
   it('is null for somebody who is not on the board', async () => {
-    expect(await standing(listRanked(people), 'nobody', [])).toBeNull()
+    expect(await standing(listRanked(people), 'nobody')).toBeNull()
   })
 })
 
@@ -104,24 +87,19 @@ describe('startOf: where a page begins', () => {
   const source = listRanked(people)
 
   it('is the page number when there is no cursor', async () => {
-    expect(await startOf(source, [], null, 1, 20)).toBe(0)
-    expect(await startOf(source, [], null, 3, 20)).toBe(40)
+    expect(await startOf(source, null, 1, 20)).toBe(0)
+    expect(await startOf(source, null, 3, 20)).toBe(40)
   })
 
   it('is right after the last rank when the member of the cursor is gone', async () => {
-    expect(await startOf(source, [], { rank: 4, member: 'departed' }, 1, 2)).toBe(4)
-    expect(await startOf(source, [], { rank: 4 }, 1, 2)).toBe(4)
+    expect(await startOf(source, { rank: 4, member: 'departed' }, 1, 2)).toBe(4)
+    expect(await startOf(source, { rank: 4 }, 1, 2)).toBe(4)
   })
 
   it('follows the member of the cursor if they have moved, so nobody is shown twice', async () => {
     // The last row of the previous page was p4 at rank 4; since then p4 was overtaken and is 6th.
     const moved = listRanked([...people.slice(0, 3), { member: 'p5', score: 55 }, { member: 'p6', score: 54 }, { member: 'p4', score: 53 }, ...people.slice(6)])
-    expect(await startOf(moved, [], { rank: 4, member: 'p4' }, 1, 2)).toBe(6)
-  })
-
-  it('counts the viewer’s blocked people when it follows a member', async () => {
-    const hidden = await blockedPositions(source, ['p1'])
-    expect(await startOf(source, hidden, { rank: 3, member: 'p4' }, 1, 2)).toBe(3)
+    expect(await startOf(moved, { rank: 4, member: 'p4' }, 1, 2)).toBe(6)
   })
 })
 
@@ -209,12 +187,36 @@ describe('readLeaderboard', () => {
     expect((await run({}, { cursor: encodeRankCursor({ rank: 1 }).slice(0, -3) })).outcome).toEqual({ kind: 'invalid-cursor' })
   })
 
-  it('leaves out blocked people and keeps ranks consecutive for the viewer', async () => {
-    const { outcome } = await run({ boards: { [globalWeek]: board(['a', 90], ['b', 80], ['c', 70], ['me', 60], ['d', 50]) } }, { blocked: ['b'], limit: 10 })
+  it('leaves out blocked people and keeps every rank where it is, so the viewer’s list has gaps', async () => {
+    const boards = { [globalWeek]: board(['a', 90], ['b', 80], ['c', 70], ['me', 60], ['d', 50]) }
+    const { outcome } = await run({ boards }, { blocked: ['b'], limit: 10 })
     if (outcome.kind !== 'ok') throw new Error('expected ok')
-    expect(outcome.data.entries.map((entry) => [entry.rank, entry.user.id])).toEqual([[1, 'a'], [2, 'c'], [3, 'me'], [4, 'd']])
-    expect(outcome.data.me.rank).toBe(3)
-    expect(outcome.data.pagination?.total).toBe(4)
+    expect(outcome.data.entries.map((entry) => [entry.rank, entry.user.id])).toEqual([[1, 'a'], [3, 'c'], [4, 'me'], [5, 'd']])
+    expect(outcome.data.me.rank).toBe(4)
+    expect(outcome.data.around.map((entry) => [entry.rank, entry.user.id])).toEqual([[3, 'c'], [4, 'me'], [5, 'd']])
+    expect(outcome.data.pagination?.total).toBe(5)
+    // Somebody who blocked nobody sees the same ranks for the same people.
+    const open = await run({ boards }, { limit: 10 })
+    if (open.outcome.kind !== 'ok') throw new Error('expected ok')
+    expect(open.outcome.data.entries.filter((entry) => entry.user.id !== 'b').map((entry) => [entry.user.id, entry.rank])).toEqual(outcome.data.entries.map((entry) => [entry.user.id, entry.rank]))
+    expect(open.outcome.data.me.rank).toBe(outcome.data.me.rank)
+  })
+
+  it('pages through a board with blocked people in the way: each page covers its own ranks, and the cursor passes a blocked last place', async () => {
+    const boards = { [globalWeek]: board(['a', 90], ['b', 80], ['c', 70], ['d', 60], ['e', 50], ['f', 40]) }
+    const users = ['a', 'b', 'c', 'd', 'e', 'f', 'me']
+    const first = await run({ boards, users }, { limit: 2, blocked: ['b', 'c'] })
+    if (first.outcome.kind !== 'ok') throw new Error('expected ok')
+    expect(first.outcome.data.entries.map((entry) => [entry.rank, entry.user.id])).toEqual([[1, 'a']])
+    // The page ended on a blocked person: the cursor holds the rank, not their id.
+    expect(decodeRankCursor(first.outcome.data.nextCursor!)).toEqual({ rank: 2 })
+    const second = await run({ boards, users }, { limit: 2, blocked: ['b', 'c'], cursor: first.outcome.data.nextCursor! })
+    if (second.outcome.kind !== 'ok') throw new Error('expected ok')
+    expect(second.outcome.data.entries.map((entry) => [entry.rank, entry.user.id])).toEqual([[4, 'd']])
+    const third = await run({ boards, users }, { limit: 2, blocked: ['b', 'c'], cursor: second.outcome.data.nextCursor! })
+    if (third.outcome.kind !== 'ok') throw new Error('expected ok')
+    expect(third.outcome.data.entries.map((entry) => [entry.rank, entry.user.id])).toEqual([[5, 'e'], [6, 'f']])
+    expect(third.outcome.data.nextCursor).toBeNull()
   })
 
   it('takes a member whose account is gone off the board, so there is no hole in the ranks', async () => {

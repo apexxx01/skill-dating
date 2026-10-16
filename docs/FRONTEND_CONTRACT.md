@@ -485,8 +485,9 @@ no XP yet, or no country/city set.
 | Infinite scroll | send `nextCursor` back as `cursor` until it is `null`. Ranks keep continuing even if scores move. Do not store cursors |
 | "You" row | `me.rank` (`null`: not on this board) and `around`; pin them under the list |
 
-Ranks are consecutive over the people **you** can see (blocked people are left out), so two viewers can see different ranks
-for the same person, and the player card's `ranks` (absolute) can differ from a board's. People who turned leaderboards off
+A rank is the person's place on the board, the same number for every viewer and the same as the player card's `ranks`. Blocked people
+are simply left out of **your** list, so ranks can skip (1, 3, 4) and a page can have fewer than `limit` rows: do not renumber, do not
+assume row `i` has rank `i + 1`, and keep following `nextCursor` while it is not `null`. People who turned leaderboards off
 are on no board. Weekly and monthly boards reset at UTC midnight on Monday and on the 1st.
 
 ### Quests (`/quests`)

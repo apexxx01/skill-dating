@@ -385,8 +385,9 @@ normalised, control characters removed, whitespace collapsed, 80 characters) and
 Boards that were never built (a restart of the in-process cache, a new Redis) are built on the first read with the in-process cache,
 and by queueing `leaderboards/reconcile` with Redis. Run the job once after deploying (`POST /api/admin/jobs/leaderboards/reconcile`).
 
-**What the viewer sees.** A rank belongs to the board *and the viewer*: people they have blocked (or who blocked them) are left out and
-ranks are counted over who is left, so a page is consecutive for them. People who switched leaderboards off
+**What the viewer sees.** A rank belongs to the board alone: it is the same for every viewer and the same as the rank on the player card. People the viewer has blocked
+(or who blocked them) are left out of their list and nobody is renumbered, so a viewer's page can skip ranks and hold fewer than `limit`
+people. People who switched leaderboards off
 (`Profile.hideFromLeaderboards`) are on no board and in no rank; so are deleted accounts (a board is cleaned of any it still holds
 as it is read). Ties are broken by user id, descending, the order Redis keeps. `me` is the viewer's `{ rank, score, hidden }`
 (`rank` is `null` with no XP in the period, or when hidden), and `around` is the viewer and the two above and two below.
