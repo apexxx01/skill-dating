@@ -33,6 +33,8 @@ describe('event names', () => {
         'EVIDENCE_ENDORSED',
         'HACKATHON_JOINED',
         'HACKATHON_WON',
+        'MATCH_CREATED',
+        'MATCH_TEAM_FORMED',
         'MESSAGE_REPLIED',
         'MESSAGE_SENT_FIRST_IN_CONNECTION',
         'MILESTONE_COMPLETED',
@@ -300,9 +302,9 @@ describe('the transaction of an event', () => {
       })
     const emitters = walk(SRC).filter((file) => /\bemit\(\s*tx\b/.test(fs.readFileSync(file, 'utf-8')))
     expect(emitters.length).toBeGreaterThanOrEqual(10)
-    // The rewards engine and the achievement grant run on the transaction their caller opened (always with
+    // The rewards engine, the achievement grant and the match-to-team detector run on the transaction their caller opened (always with
     // transactWithEvents); they open none themselves.
-    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts')])
+    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts'), path.join(SRC, 'lib', 'matching', 'team-match.ts')])
     const without = emitters
       .filter((file) => !borrowsItsTransaction.has(file))
       .filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8')))

@@ -208,6 +208,9 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   MESSAGE_REPLIED: {},
   ACHIEVEMENT_UNLOCKED: {},
   TIER_REACHED: {},
+  // Sparks and matches pay no XP, on purpose: nothing about starting conversations is worth farming.
+  MATCH_CREATED: {},
+  MATCH_TEAM_FORMED: {},
 }
 
 /**

@@ -975,3 +975,61 @@ export interface TodayDrops {
   /** When the next drops arrive, to the hour (they are made by an hourly job). Null while paused or without a profile. */
   nextDropAt: IsoDate | null
 }
+
+/** A spark the caller sent. */
+export interface SparkSent {
+  id: string
+  toId: string
+  /** The caller's side of the relationship. */
+  connectionType: MatchTypeName
+  opener: string
+  status: 'PENDING' | 'MATCHED'
+  createdAt: IsoDate
+}
+
+/** One match, from the caller's side. */
+export interface MatchItem {
+  id: string
+  /** The relationship, named the same from both sides (a mentor and a mentee are a `MENTOR` match). */
+  connectionType: MatchTypeName
+  yourRole: MatchTypeName
+  theirRole: MatchTypeName
+  createdAt: IsoDate
+  /** The conversation both are in. Its `closedAt` says whether it can still be posted in. */
+  conversationId: string | null
+  other: MatchPerson
+}
+
+/** POST /api/sparks: the spark, and the match when the other person had already sparked back (otherwise null). */
+export interface SendSparkResponse {
+  spark: SparkSent
+  match: MatchItem | null
+}
+
+/** GET /api/matches. Only open matches. */
+export interface MatchesResponse {
+  matches: MatchItem[]
+  nextCursor: string | null
+  total: number
+}
+
+/** One spark the caller received and has not answered. */
+export interface ReceivedSparkItem {
+  id: string
+  /** The sender's side of the relationship: answer with a spark of the counterpart type (a MENTOR spark is answered as MENTEE). */
+  connectionType: MatchTypeName
+  opener: string
+  createdAt: IsoDate
+  from: MatchPerson
+}
+
+/**
+ * GET /api/sparks/received. Who sparked and what they wrote is a paid feature (`SEE_WHO_SPARKED`): without it `canSee` is false, `sparks`
+ * is empty and only `count` is returned.
+ */
+export interface ReceivedSparks {
+  canSee: boolean
+  count: number
+  sparks: ReceivedSparkItem[]
+  nextCursor: string | null
+}

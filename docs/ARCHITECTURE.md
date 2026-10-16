@@ -258,10 +258,20 @@ writes the inventory. Quests can be paused with the `quests` feature flag.
 Which three daily and three weekly quests a person has is not stored: it is a seeded shuffle of the pool by
 `(user, period)` (`src/lib/quests.ts`), so there is no midnight job and no state to get out of step.
 
+## Matching
+
+The matching engine (profile, compatibility score, daily drops, sparks, matches) is described in [MATCHING.md](MATCHING.md). It follows the
+platform patterns: the pure scorer is in `src/lib/matching/score.ts`; the hourly jobs `drops/generate` and `drops/expire` are in the job
+registry; a spark that completes a pair writes the match, its conversation and its notifications in one `transactWithEvents`
+transaction under a per-pair advisory lock and announces `MATCH_CREATED`, which pays no XP and only counts toward three achievements;
+realtime pushes (`match.created`, `match.ended` on the `user:{id}` channel) and analytics (`drop_viewed`, `spark_sent`, `match_created`,
+`unmatch`) happen after the commit. The platform's own conversation lines (a match's icebreaker) are sent by a tombstone-style system
+account (`src/lib/matching/system-user.ts`) that every list leaves out because it is marked deleted.
+
 ## Entitlements and feature flags
 
 `src/lib/entitlements.ts` holds one table of what each plan (`FREE`, `PRO`, `CREW_PRO`, `ORG`) gets:
-counted limits (`DAILY_DROPS`, `BUILD_DATES_PER_WEEK`) and switches (`SEE_WHO_SPARKED`,
+counted limits (`DAILY_DROPS`, `DAILY_SPARKS`, `BUILD_DATES_PER_WEEK`) and switches (`SEE_WHO_SPARKED`,
 `ADVANCED_FILTERS`, `PROFILE_ANALYTICS`, `CUSTOM_DOMAIN`). Code asks `can(subject, feature)` or
 `limit(subject, feature)`, never for a plan name. The plan comes from the user's `Subscription` row
 (`subjectFor`): none, expired, or lapsed means `FREE`. A paywall is therefore a config change:

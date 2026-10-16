@@ -421,6 +421,36 @@ export const ACHIEVEMENT_DEFINITIONS = {
     isSecret: true,
     order: 40,
   },
+
+  // --- Matching ---------------------------------------------------------------------
+  // Matches pay no XP, so neither do these: they are recognition, and a match cannot be farmed for points.
+  'first-match': {
+    name: 'First Match',
+    description: 'Matched with another builder.',
+    icon: 'handshake',
+    category: 'TEAM',
+    xpReward: 0,
+    criteria: { metric: 'matches', target: 1 },
+    order: 41,
+  },
+  'matches-10': {
+    name: 'Well Matched',
+    description: 'Matched with 10 builders.',
+    icon: 'users',
+    category: 'TEAM',
+    xpReward: 0,
+    criteria: { metric: 'matches', target: 10 },
+    order: 42,
+  },
+  'match-teamed': {
+    name: 'Better Together',
+    description: 'Formed a team with someone you matched with.',
+    icon: 'link',
+    category: 'TEAM',
+    xpReward: 0,
+    criteria: { metric: 'match_teams', target: 1 },
+    order: 43,
+  },
 } satisfies Record<string, AchievementDefinition>
 
 export type AchievementSlug = keyof typeof ACHIEVEMENT_DEFINITIONS

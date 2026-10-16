@@ -26,6 +26,8 @@ export const METRICS = [
   'connections',
   'first_messages',
   'replies',
+  'matches',
+  'match_teams',
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -73,6 +75,10 @@ export const EVENT_TICKS: { [N in DomainEventName]?: TickRule<N> } = {
   MESSAGE_SENT_FIRST_IN_CONNECTION: own('first_messages', (p) => p.conversationId),
   // Replying pays no XP of its own, so it counts without being paid.
   MESSAGE_REPLIED: (p) => [{ userId: p.userId, metric: 'replies', dedupeKey: p.messageId }],
+  // A match pays no XP, so `paid` here means "counted for": each person whose counterparty is a trusted account (src/lib/subscribers.ts).
+  MATCH_CREATED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'matches' as const, dedupeKey: p.matchId })),
+  // Once per match however many teams the two share.
+  MATCH_TEAM_FORMED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'match_teams' as const, dedupeKey: p.matchId })),
 }
 
 export function ticksFor<N extends DomainEventName>(name: N, payload: DomainEvents[N], paid: ReadonlySet<string>): Tick[] {

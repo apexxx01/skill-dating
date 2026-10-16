@@ -110,6 +110,7 @@ enum NotificationType {
   MENTION
   APPLICATION_RESPONSE
   SYSTEM
+  MATCH
 }
 
 enum ReportReason {
@@ -227,6 +228,10 @@ model User {
   matchingProfile     MatchingProfile?
   drops               Drop[]                 @relation("DropsReceived")
   dropsShown          Drop[]                 @relation("DropsShown")
+  sparksSent          Spark[]                @relation("SparksSent")
+  sparksReceived      Spark[]                @relation("SparksReceived")
+  matchesAsA          Match[]                @relation("MatchesAsA")
+  matchesAsB          Match[]                @relation("MatchesAsB")
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -835,18 +840,22 @@ model Connection {
 }
 
 model Conversation {
-  id          String   @id @default(cuid())
-  type        String   @default("DIRECT") // DIRECT, GROUP, PROJECT, TEAM, HACKATHON
-  name        String?
-  projectId   String?  @unique
-  teamId      String?  @unique
-  hackathonId String?  @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(cuid())
+  type         String    @default("DIRECT") // DIRECT, GROUP, PROJECT, TEAM, HACKATHON
+  name         String?
+  projectId    String?   @unique
+  teamId       String?   @unique
+  hackathonId  String?   @unique
+  // Set when the conversation was closed for good (a match was ended): nobody can post in it any more, and it stays readable.
+  closedAt     DateTime?
+  closedReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   members   ConversationMember[]
   messages  Message[]
   chats     Chat[]
+  match     Match?
   project   Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
   team      Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   hackathon Hackathon?           @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
@@ -1267,8 +1276,9 @@ model Drop {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  user      User @relation("DropsReceived", fields: [userId], references: [id], onDelete: Cascade)
-  candidate User @relation("DropsShown", fields: [candidateId], references: [id], onDelete: Cascade)
+  user      User    @relation("DropsReceived", fields: [userId], references: [id], onDelete: Cascade)
+  candidate User    @relation("DropsShown", fields: [candidateId], references: [id], onDelete: Cascade)
+  sparks    Spark[]
 
   @@unique([userId, candidateId, localDate])
   // Today's drops, and "was this person shown or passed lately" for one viewer.
@@ -1278,4 +1288,69 @@ model Drop {
   @@index([candidateId, createdAt])
   // The expiry job.
   @@index([status, expiresAt])
+}
+
+enum SparkStatus {
+  PENDING
+  MATCHED
+}
+
+// "I'd like to work with you", with a reason. Two sparks that answer each other (the second one's type is the counterpart of the first's) make a
+// Match. `connectionType` is the SENDER's side of the relationship. Sparks pay no XP.
+model Spark {
+  id             String      @id @default(cuid())
+  fromId         String
+  toId           String
+  dropId         String?
+  connectionType MatchType
+  // 20 to 280 characters the sender wrote; what the receiver sees (if their plan shows it).
+  opener         String
+  // A fingerprint of the opener's words, to notice the same message going to many people.
+  openerHash     String
+  status         SparkStatus @default(PENDING)
+  createdAt      DateTime    @default(now())
+
+  from User  @relation("SparksSent", fields: [fromId], references: [id], onDelete: Cascade)
+  to   User  @relation("SparksReceived", fields: [toId], references: [id], onDelete: Cascade)
+  drop Drop? @relation(fields: [dropId], references: [id], onDelete: SetNull)
+
+  // One spark from a person to another per type of relationship.
+  @@unique([fromId, toId, connectionType])
+  // The received list, newest first.
+  @@index([toId, status, createdAt])
+  // How many a person sent today, and their recent openers.
+  @@index([fromId, createdAt])
+  // The same opener sent again.
+  @@index([openerHash, createdAt])
+}
+
+enum MatchEndReason {
+  UNMATCHED
+  REPORTED
+  BLOCKED
+}
+
+// Two people who sparked each other. userAId is always the smaller id, so a pair is one row whichever of them sparked first (the check constraint
+// in the migration keeps it so); connectionType names the relationship the same from both sides (a mentor and a mentee are a MENTOR match).
+model Match {
+  id             String          @id @default(cuid())
+  userAId        String
+  userBId        String
+  userARole      MatchType
+  userBRole      MatchType
+  connectionType MatchType
+  conversationId String?         @unique
+  createdAt      DateTime        @default(now())
+  // Unmatching is final: once set, the pair is never matched, dropped to each other or sparked again.
+  endedAt        DateTime?
+  endedById      String?
+  endReason      MatchEndReason?
+
+  userA        User          @relation("MatchesAsA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB        User          @relation("MatchesAsB", fields: [userBId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([userAId, userBId, connectionType])
+  @@index([userBId, endedAt])
+  @@index([userAId, endedAt])
 }

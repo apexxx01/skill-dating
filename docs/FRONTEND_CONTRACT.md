@@ -546,6 +546,38 @@ shown this person for (a MENTEE is shown mentors as `MENTEE`). Show at most one 
 for "your next drops arrive in…" (it is to the hour). `status` is `NEW` until the user acts: grey out `PASSED` and `SPARKED`, hide `EXPIRED`.
 The old `compatibility` number on `/api/discover` and the dashboard keeps its shape.
 
+### Sparks (`/sparks`, and the Spark button on a drop or a profile)
+
+| Need | Call |
+| --- | --- |
+| Spark someone | `POST /api/sparks { toId, connectionType, opener, dropId? }` (**write**, send an `Idempotency-Key`) → `{ spark, match }` |
+| Who sparked me | `GET /api/sparks/received?limit=&cursor=` → `{ canSee, count, sparks, nextCursor }` |
+
+The **opener** is required: 20 to 280 characters, a real reason to talk. Show the counter while typing and the refusal's `error.details.message` (an English
+default; branch on `details.reason`: `TOO_SHORT`, `TOO_LONG`, `TOO_FEW_WORDS`, `LOW_EFFORT`, `LINK`, `CONTACT_DETAILS`, `REPEATED_CHARACTERS`, `DUPLICATE`) when it is
+refused. Do not offer "paste a link or a number": they are refused until the two have matched. `connectionType` is the user's own side: on a drop send the drop's
+`connectionType`; to answer a received spark send the **counterpart** of its `connectionType` (`MENTOR`↔`MENTEE`, every other type the same). When the other person had already
+sparked (the received list shows it) the response carries a `match`: go straight to the match screen, there is no second step. `429 SPARK_LIMIT_REACHED`
+(`error.params.limit`) means today's sparks are used (more arrive tomorrow; show the paid plan's number); `429 SPARK_THROTTLED` (`params.retryAfter`) means slow down.
+A person who is not available (`404 SPARK_TARGET_UNAVAILABLE`) is shown as "not available"; never explain why.
+
+`canSee: false` in the received list means the plan does not show who sparked: show `count` ("3 people sparked you") with an upgrade prompt and no names. Sparks and
+matches never earn XP, so there is no `rewards` envelope to show on these calls.
+
+### Matches (`/matches`)
+
+| Need | Call |
+| --- | --- |
+| My matches | `GET /api/matches?limit=&cursor=` → `{ matches, nextCursor, total }` |
+| Open the chat | `GET /api/conversations/{match.conversationId}` and `POST /api/conversations/{id}` (as any direct conversation) |
+| Unmatch | `DELETE /api/matches/{id}` (**write**) → `{ id, endedAt }` |
+| Unmatch and report | `POST /api/matches/{id}/report { reason, description? }` (**write**) |
+
+A match opens a conversation that already holds a `SYSTEM` message (the icebreaker: render it as a banner, its sender is the platform) followed by both openers. Show
+`yourRole` / `theirRole` for mentoring matches. **Unmatching is final and shuts the chat for both**: ask for confirmation, and afterwards the conversation answers `closedAt`
+with a timestamp and `POST` to it is `409 CONVERSATION_CLOSED` (show it read-only). A realtime `match.created` on `user:{id}` means a new match (refresh the list and show the
+banner); `match.ended` means the other person ended one. Blocking someone also ends the matches with them (`endedMatches` on the block response).
+
 ## Backend gaps closed for these pages
 
 | Gap | Fix |

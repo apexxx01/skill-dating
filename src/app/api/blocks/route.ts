@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
 import { cursorParam, paginate } from '@/lib/api/pagination'
+import { endMatchesBetween } from '@/lib/matching/matches'
 
 const createBlockSchema = z.object({
   userId: z.string().min(1).max(64),
@@ -39,7 +40,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       include: { blocked: { select: userSummarySelect } },
     })
     if (existing) {
-      return { block: existing, created: false, severedConnections: 0, withdrawnApplications: 0 }
+      return { block: existing, created: false, severedConnections: 0, withdrawnApplications: 0, endedMatches: 0 }
     }
 
     const block = await tx.block.create({
@@ -71,7 +72,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       data: { status: 'WITHDRAWN' },
     })
 
-    return { block, created: true, severedConnections: severed.count, withdrawnApplications: withdrawn.count }
+    // A match with someone the caller blocks is over, and its conversation closes for both: no surface keeps the two connected.
+    const endedMatches = await endMatchesBetween(tx, user.id, targetId)
+
+    return { block, created: true, severedConnections: severed.count, withdrawnApplications: withdrawn.count, endedMatches }
   })
 
   return createApiResponse(
@@ -84,6 +88,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       },
       severedConnections: result.severedConnections,
       withdrawnApplications: result.withdrawnApplications,
+      endedMatches: result.endedMatches,
     },
     result.created ? 201 : 200
   )

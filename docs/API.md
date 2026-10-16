@@ -385,7 +385,7 @@ There is no season route: the active season rides in `GET /api/leaderboard?perio
 ### `POST /api/blocks`
 Blocks a user. One transaction: creates the block, deletes any connection between the pair, and withdraws pending team applications and invitations between them. Idempotent: blocking again returns `200` with the existing block.
 **Body:** `{ userId: string, reason?: string(≤500) }`
-**Response `201`** (`200` if it already existed): `{ block: { id, createdAt, reason, user }, severedConnections, withdrawnApplications }`
+**Response `201`** (`200` if it already existed): `{ block: { id, createdAt, reason, user }, severedConnections, withdrawnApplications, endedMatches }`
 **Errors:** `400` blocking yourself, `404` user not found.
 
 ### `GET /api/blocks`
@@ -497,6 +497,24 @@ The caller's daily drops for their own current date: `{ date, drops, hasProfile,
 
 ### `POST /api/drops/{id}/pass`
 Passes on a drop: the person is not shown to the caller again for 30 days. **Response:** `{ id, status: "PASSED" }`; passing twice returns the same. `404 DROP_NOT_FOUND` for a drop that does not exist or is not the caller's; `409 DROP_NOT_PENDING` for one already sparked or expired.
+
+### `POST /api/sparks`
+Sends a spark. Honours `Idempotency-Key`. **Body:** `{ toId, connectionType, opener, dropId? }`: `connectionType` is the caller's side (`MENTEE` to spark a mentor); `opener` is 20 to 280 characters (judged by the opener rules, so the refusal says why); `dropId`, when sparking from a drop, must be the caller's own open drop for that person. Unknown keys are refused. **Response `201`:** `{ spark: { id, toId, connectionType, opener, status, createdAt }, match: MatchItem | null }`; `match` is set when the person had already sparked the caller with the counterpart type (the two are matched in the same request, with a conversation, notifications and a realtime push). Sparks and matches pay no XP. **Errors:** `400 CANNOT_SPARK_SELF`, `400 MATCHING_PROFILE_REQUIRED`, `400 SPARK_TYPE_NOT_CHOSEN`, `400 SPARK_OPENER_REJECTED` (`details: { reason, message }`), `403 DATING_BIRTH_DATE_REQUIRED` / `DATING_UNDERAGE` / `DATING_VERIFICATION_REQUIRED` for a dating spark, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`, `404 SPARK_TARGET_UNAVAILABLE`, `404 DROP_NOT_FOUND`, `409 DROP_NOT_PENDING`, `409 SPARK_ALREADY_SENT`, `409 MATCH_EXISTS`, `409 MATCH_ENDED`, `429 SPARK_LIMIT_REACHED` (`params.limit`), `429 SPARK_THROTTLED` (`params.retryAfter`).
+
+### `GET /api/sparks/received`
+**Query:** `limit` (1 to 50, default 20), `cursor`. The caller's unanswered sparks, newest first: `{ canSee, count, sparks: [{ id, connectionType, opener, createdAt, from: MatchPerson }], nextCursor }`. `connectionType` is the sender's side; answer with a spark of the counterpart type. Who sparked and what they wrote needs the `SEE_WHO_SPARKED` entitlement: without it `canSee` is `false`, `sparks` is `[]` and only `count` is returned. Senders blocked either way, or gone, are not counted. `400 INVALID_CURSOR`.
+
+### `GET /api/matches`
+**Query:** `limit` (1 to 50, default 20), `cursor`. The caller's open matches, newest first: `{ matches: [{ id, connectionType, yourRole, theirRole, createdAt, conversationId, other: MatchPerson }], nextCursor, total }`. A match that ended, or is with someone blocked either way or gone, is not listed.
+
+### `DELETE /api/matches/{id}`
+Unmatches. Final: the conversation is closed for both people (readable, but posting it is `409 CONVERSATION_CLOSED`) and the pair can never be matched, dropped to each other or sparked again. Either person can do it; doing it twice answers the same. **Response:** `{ id, endedAt }`. `404 MATCH_NOT_FOUND` for a match that does not exist or is not the caller's. The other person gets a realtime `match.ended` on their `user:{id}` channel.
+
+### `POST /api/matches/{id}/report`
+Unmatch and report in one call. Honours `Idempotency-Key`. **Body:** `{ reason: SPAM|HARASSMENT|INAPPROPRIATE_CONTENT|FAKE_PROFILE|SCAM|COPYRIGHT|OTHER, description? (≤5000) }`. The match ends as for `DELETE`, and a report against the other person is filed in the same queue as `POST /api/reports` (`metadata: { source: "MATCH", matchId }`). If the caller already has a pending report against them it is kept: `alreadyReported: true`. **Response `201`:** `{ matchId, endedAt, report: { id }, alreadyReported }`.
+
+### Realtime and notifications
+A new match sends the notification type `MATCH` (`metadata: { kind: "MATCH_CREATED", matchId, conversationId, connectionType }`) to both people and publishes `match.created` `{ matchId, conversationId, connectionType }` on each `user:{id}` channel. An ended match publishes `match.ended` `{ matchId }` to the other person. `POST /api/blocks` also ends the open matches between the two and answers `endedMatches`.
 
 ### Jobs
 `drops/generate` (hourly; payload `{ userIds?: string[] }` generates for exactly those people, whether or not they are due) and `drops/expire` (hourly) are run on demand with `POST /api/admin/jobs/drops/generate` and `/expire`. A payload the job's own schema refuses is `400 VALIDATION_FAILED`.
@@ -678,6 +696,18 @@ and a unit test fails if a code is missing here.
 | `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
 | `DROP_NOT_FOUND` | 404 | Drop not found |
 | `DROP_NOT_PENDING` | 409 | This drop has already been answered or has expired |
+| `CANNOT_SPARK_SELF` | 400 | You cannot spark yourself |
+| `MATCHING_PROFILE_REQUIRED` | 400 | Set up your matching profile first |
+| `SPARK_TYPE_NOT_CHOSEN` | 400 | You have not chosen this type of connection in your matching profile |
+| `SPARK_TARGET_UNAVAILABLE` | 404 | This person is not available to spark |
+| `SPARK_ALREADY_SENT` | 409 | You have already sparked this person for this type of connection |
+| `SPARK_OPENER_REJECTED` | 400 | That opener cannot be sent |
+| `SPARK_LIMIT_REACHED` | 429 | You have used all {limit} of your sparks for today. More arrive tomorrow |
+| `SPARK_THROTTLED` | 429 | You are sending sparks too fast. Try again in a little while |
+| `MATCH_NOT_FOUND` | 404 | Match not found |
+| `MATCH_EXISTS` | 409 | You are already matched with this person |
+| `MATCH_ENDED` | 409 | This match has ended and cannot be started again |
+| `CONVERSATION_CLOSED` | 409 | This conversation has been closed |
 
 ---
 

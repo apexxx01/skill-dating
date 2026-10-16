@@ -15,6 +15,7 @@ import { counterpartType, type MatchType } from './types'
 //     - a trusted account: email verified and at least 7 days old, the same rule as the trusted-counterparty gate;
 //     - for DATING only: dating-eligible (verified, 18 or older);
 //     - not blocked either way (Block, both directions);
+//     - not already matched with the viewer (open or ended: unmatching is final) and not already sparked by them;
 //     - not shown to this viewer lately, and not passed in the last 30 days (Drop (userId, candidateId, createdAt));
 //     - not already shown to enough people today (Drop (candidateId, createdAt)): the fairness cap;
 //     - the "only my city" wish of either side.
@@ -77,6 +78,12 @@ export async function findCandidateIds(db: Db, viewer: Viewer, type: MatchType, 
         AND NOT EXISTS (
           SELECT 1 FROM "Block" b
           WHERE (b."blockerId" = ${viewer.userId} AND b."blockedId" = u."id") OR (b."blockerId" = u."id" AND b."blockedId" = ${viewer.userId})
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "Match" m WHERE m."userAId" = LEAST(${viewer.userId}, u."id") AND m."userBId" = GREATEST(${viewer.userId}, u."id")
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "Spark" sp WHERE sp."fromId" = ${viewer.userId} AND sp."toId" = u."id"
         )
         AND NOT EXISTS (
           SELECT 1 FROM "Drop" d

@@ -183,7 +183,8 @@ describe('payForEvent: replies, which pay no XP but count toward achievements an
   it('counts a reply to a trusted counterparty', async () => {
     await payForEvent(reply(tx({ replier: tooNew, waiting: established })))
     expect(grant).not.toHaveBeenCalled()
-    expect(advanceProgress).toHaveBeenCalledWith(expect.anything(), 'MESSAGE_REPLIED', expect.anything(), new Set())
+    // A reply pays no XP, so the person it counts for (the one who answered) is the one "paid".
+    expect(advanceProgress).toHaveBeenCalledWith(expect.anything(), 'MESSAGE_REPLIED', expect.anything(), new Set(['replier']))
   })
 
   for (const [what, waiting] of [['under seven days old', tooNew], ['without a verified email', unverified]] as const) {

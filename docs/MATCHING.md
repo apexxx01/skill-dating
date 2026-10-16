@@ -131,3 +131,65 @@ admin run during the hourly one) cannot give anybody more than their allowance.
 were blocked since, or whose account is gone, are left out. The first read of a new drop stamps `viewedAt` and counts one `drop_viewed` (once per drop, even
 under concurrent reads). `POST /api/drops/{id}/pass` marks a `NEW` drop `PASSED` and stores a snapshot of the person's tier and verified evidence (for the second look);
 passing twice is fine; someone else's drop is `404`; a sparked or expired one is `409`.
+
+## Sparks and matches
+
+A **spark** says "I would like to work with you", with an **opener** of 20 to 280 characters that gives a reason. `POST /api/sparks`
+`{ toId, connectionType, opener, dropId? }` (it honours `Idempotency-Key`); `connectionType` is the *sender's* side (a mentee sparks a
+mentor as `MENTEE`). One spark per person per type. When the person had already sparked the sender with the **counterpart type** they are
+**matched**, in the same request:
+
+- a **Match** (`userAId` is always the smaller id, so a pair is one row whichever of them sparked first; unique on the pair and the
+  relationship; a database check keeps the order);
+- a **conversation**: the direct one the two already had if it is still open, otherwise a new one, holding the platform's **icebreaker**
+  (what the two share: skills, technologies, intents; a first question for the type; for dating only intents), then the two openers in the
+  order they were written. These are written directly, so they pay nothing and raise no "first message" event;
+- a **notification** (`MATCH`) for each, a **realtime push** `match.created` on each `user:{id}` channel, and the event `MATCH_CREATED`;
+- both sparks `MATCHED`, and any still-open drop between the two `SPARKED`.
+
+**Concurrency.** The pair is locked (a transaction-scoped advisory lock) for the writes, and the second spark re-reads under it, so two people
+sparking each other at the same moment make exactly one match, one conversation and three messages (a test repeats it). The unique keys on
+the spark and the match are the backstop.
+
+**Unmatching is final.** `DELETE /api/matches/{id}` (either person) ends the match, **closes the conversation for both** (it stays readable;
+posting is `409 CONVERSATION_CLOSED`), and the pair can never be matched, shown to each other in drops or sparked again (`409 MATCH_ENDED`).
+`POST /api/matches/{id}/report` does the same and files a report against the other person in the ordinary `Report` queue (with
+`metadata: { source: "MATCH", matchId }` and an audit event); a pending report of the caller's against them is kept rather than duplicated.
+Blocking someone ends every open match with them and closes the conversations; a match with a blocked person is hidden even if it were not.
+
+**Received sparks.** `GET /api/sparks/received` returns the sparks the caller has not answered. Who sent them, and what they wrote, needs the
+`SEE_WHO_SPARKED` entitlement; without it the response is `{ canSee: false, count, sparks: [] }` (the number only). Senders who are blocked
+either way or gone are not counted.
+
+### Safety
+
+- **Dating** needs both people eligible (see "The dating gate"); a minor is refused with `403 DATING_UNDERAGE` and can neither send nor
+  receive a dating spark, appear in a dating drop, or be matched for dating. Dating and the other types never mix: a spark of one type cannot
+  be answered with another, a `DATING`-only person is not available for any other type and the other way round.
+- **Trust.** The person sparked must be a trusted account (verified email, at least 7 days old) and must have chosen the counterpart type and not
+  be paused; every way of being unavailable looks the same (`404 SPARK_TARGET_UNAVAILABLE`), so none can be probed. A person blocked by the sender is
+  told so plainly; a person who blocked the sender gets `404 USER_NOT_FOUND`.
+- **Blocks** are checked on every surface: sparks, the received list, the matches list, drops and the candidate pool, and a block ends open matches.
+- **No contact details in an opener** (links, e-mail addresses, phone numbers, "message me on WhatsApp"): they can be shared once matched.
+
+### Anti-spam
+
+Checked, in order, before anything is written (`src/lib/matching/opener.ts` and `sparks.ts`), each with its own error:
+
+1. **Opener quality** (`400 SPARK_OPENER_REJECTED`, `details: { reason, message }`): 20 to 280 characters; at least five words; not a stock message
+   ("hey how are you", "let's connect", "love your profile", "would love to pick your brain", "I think we would be a great match"), judged by what is left once
+   greetings, stock phrases and filler are removed; no links; no e-mail addresses, phone numbers or invitations to talk elsewhere; no characters or words
+   repeated to fill space. `reason` is one of `TOO_SHORT`, `TOO_LONG`, `TOO_FEW_WORDS`, `LOW_EFFORT`, `LINK`, `CONTACT_DETAILS`, `REPEATED_CHARACTERS`, `DUPLICATE`.
+2. **The same opener to many** (`DUPLICATE`): an opener with the same words as, or at least 80% of the words of, any of the sender's last 50 openers in the
+   last 30 days is refused, whatever its case and punctuation. A different sender may use the same words; an old repeat is forgotten.
+3. **Daily limit** (`429 SPARK_LIMIT_REACHED`, `params.limit`): `DAILY_SPARKS` from the entitlements table (5 on FREE, 25 on PRO/CREW_PRO/ORG when
+   `ENTITLEMENTS_ENFORCED=true`; the hard ceiling of 40 when off), counted in the **sender's own local day**.
+4. **Burst throttle** (`429 SPARK_THROTTLED`, `params.retryAfter`): at most 8 sparks in any hour, whatever the plan.
+5. **Rate limit**: 20 requests a minute per user on `POST /api/sparks`, like any route.
+
+### XP and achievements
+
+**Sparks and matches pay no XP.** The event `MATCH_CREATED` is announced and counts a metric, nothing more. Three achievements recognise matching and
+pay nothing themselves: `first-match`, `matches-10` and `match-teamed` ("Better Together": a team with someone you matched with). See
+[GAMIFICATION.md](GAMIFICATION.md#achievements). Analytics events: `drop_viewed`, `spark_sent` (`matched` says whether it completed a pair),
+`match_created` (one per person) and `unmatch`.

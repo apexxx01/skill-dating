@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SLUGS, achievementSeries, isSecretAchievement, type AchievementDefinition } from './achievement-definitions'
 import { METRICS } from './metrics'
 
+const MATCH_ACHIEVEMENTS: string[] = ['first-match', 'matches-10', 'match-teamed']
 const defs = ACHIEVEMENT_SLUGS.map((slug) => ({ slug, def: ACHIEVEMENT_DEFINITIONS[slug] as AchievementDefinition }))
 
 describe('the achievement catalog', () => {
-  it('has 40 achievements, 6 of them secret', () => {
-    expect(defs).toHaveLength(40)
+  it('has 43 achievements, 6 of them secret', () => {
+    expect(defs).toHaveLength(43)
     expect(defs.filter(({ def }) => def.isSecret)).toHaveLength(6)
     expect(ACHIEVEMENT_SLUGS.filter(isSecretAchievement)).toHaveLength(6)
   })
@@ -24,11 +25,12 @@ describe('the achievement catalog', () => {
       expect(def.description.endsWith('.'), slug).toBe(true)
       expect(def.icon, slug).toMatch(/^[a-z0-9-]+$/)
       expect(['BUILDING', 'HACKATHON', 'TEAM', 'REPUTATION', 'STREAK', 'SECRET']).toContain(def.category)
-      expect(Number.isInteger(def.xpReward) && def.xpReward > 0, slug).toBe(true)
+      // Everything pays XP except the match achievements, which are recognition only (matches are never an XP source).
+      expect(Number.isInteger(def.xpReward) && (MATCH_ACHIEVEMENTS.includes(slug) ? def.xpReward === 0 : def.xpReward > 0), slug).toBe(true)
       orders.add(def.order)
     }
-    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 40 }, (_, index) => index + 1))
-    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(40)
+    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 43 }, (_, index) => index + 1))
+    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(43)
   })
 
   it('files every secret achievement under SECRET and nothing else there', () => {
@@ -49,6 +51,13 @@ describe('the achievement catalog', () => {
   describe('tiered series', () => {
     const targets = (metric: Parameters<typeof achievementSeries>[0]) => achievementSeries(metric).map((entry) => entry.target)
 
+    it('matches 1 / 10, and the first match that became a team once', () => {
+      expect(targets('matches')).toEqual([1, 10])
+      expect(targets('match_teams')).toEqual([1])
+    })
+    it('pays no XP for a match, ever', () => {
+      for (const slug of MATCH_ACHIEVEMENTS) expect((ACHIEVEMENT_DEFINITIONS as Record<string, AchievementDefinition>)[slug].xpReward, slug).toBe(0)
+    })
     it('ships 1 / 5 / 25 / 100', () => expect(targets('ships')).toEqual([1, 5, 25, 100]))
     it('hackathon wins 1 / 3 / 10', () => expect(targets('hackathon_wins')).toEqual([1, 3, 10]))
     it('endorsements given 1 / 10 / 50', () => expect(targets('endorsements_given')).toEqual([1, 10, 50]))
@@ -66,6 +75,7 @@ describe('the achievement catalog', () => {
 
     it('never pays less for a higher tier than for the one before, and pays more at the top than at the start', () => {
       for (const metric of [...METRICS, 'streak_days' as const]) {
+        if (metric === 'matches') continue // recognition only: every tier pays 0
         const xp = achievementSeries(metric).map((entry) => (ACHIEVEMENT_DEFINITIONS[entry.slug] as AchievementDefinition).xpReward)
         for (let index = 1; index < xp.length; index++) expect(xp[index], metric).toBeGreaterThanOrEqual(xp[index - 1])
         if (xp.length > 1) expect(xp[xp.length - 1], metric).toBeGreaterThan(xp[0])

@@ -31,6 +31,8 @@ const everyone = <T>(value: T): PlanValues<T> => ({ FREE: value, PRO: value, CRE
 export const ENTITLEMENTS = {
   // Profiles shown to the user per day.
   DAILY_DROPS: { kind: 'limit', plans: { FREE: 3, PRO: 10, CREW_PRO: 10, ORG: 10 }, hardLimit: 50 },
+  // Sparks a user can send per local day. The hard ceiling is what stops one account messaging the whole network.
+  DAILY_SPARKS: { kind: 'limit', plans: { FREE: 5, PRO: 25, CREW_PRO: 25, ORG: 25 }, hardLimit: 40 },
   // Build dates a user can set up per week.
   BUILD_DATES_PER_WEEK: { kind: 'limit', plans: { FREE: 2, PRO: 10, CREW_PRO: 10, ORG: 10 }, hardLimit: 50 },
   SEE_WHO_SPARKED: { kind: 'switch', plans: { FREE: false, PRO: true, CREW_PRO: true, ORG: true } },

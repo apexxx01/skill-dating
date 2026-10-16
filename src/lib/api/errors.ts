@@ -132,6 +132,18 @@ export const ERROR_CATALOG = {
   BIRTH_DATE_LOCKED: { status: 409, message: 'Your date of birth is already set and cannot be changed' },
   DROP_NOT_FOUND: { status: 404, message: 'Drop not found' },
   DROP_NOT_PENDING: { status: 409, message: 'This drop has already been answered or has expired' },
+  CANNOT_SPARK_SELF: { status: 400, message: 'You cannot spark yourself' },
+  MATCHING_PROFILE_REQUIRED: { status: 400, message: 'Set up your matching profile first' },
+  SPARK_TYPE_NOT_CHOSEN: { status: 400, message: 'You have not chosen this type of connection in your matching profile' },
+  SPARK_TARGET_UNAVAILABLE: { status: 404, message: 'This person is not available to spark' },
+  SPARK_ALREADY_SENT: { status: 409, message: 'You have already sparked this person for this type of connection' },
+  SPARK_OPENER_REJECTED: { status: 400, message: 'That opener cannot be sent' },
+  SPARK_LIMIT_REACHED: { status: 429, message: 'You have used all {limit} of your sparks for today. More arrive tomorrow' },
+  SPARK_THROTTLED: { status: 429, message: 'You are sending sparks too fast. Try again in a little while' },
+  MATCH_NOT_FOUND: { status: 404, message: 'Match not found' },
+  MATCH_EXISTS: { status: 409, message: 'You are already matched with this person' },
+  MATCH_ENDED: { status: 409, message: 'This match has ended and cannot be started again' },
+  CONVERSATION_CLOSED: { status: 409, message: 'This conversation has been closed' },
 
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },

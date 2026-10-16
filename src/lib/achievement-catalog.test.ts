@@ -34,8 +34,8 @@ const find = (items: Awaited<ReturnType<typeof loadAchievementItems>>, slug: str
 describe('loadAchievementItems', () => {
   it('lists the whole catalog in order', async () => {
     const items = await loadAchievementItems(fakeDb(), 'u1')
-    expect(items).toHaveLength(40)
-    expect(items.map((item) => item.order)).toEqual(Array.from({ length: 40 }, (_, index) => index + 1))
+    expect(items).toHaveLength(43)
+    expect(items.map((item) => item.order)).toEqual(Array.from({ length: 43 }, (_, index) => index + 1))
   })
 
   it('masks the six secret achievements for somebody who has not earned them, and gives nothing away', async () => {

@@ -9,7 +9,7 @@ be tuned without touching a route:
 | `src/lib/levels.ts` | The level curve and the tiers (pure functions) |
 | `src/lib/streaks.ts` | The streak rules (pure functions) |
 | `src/lib/metrics.ts` | What is counted per user, and which event counts what |
-| `src/lib/achievement-definitions.ts` | The 40 achievements, their XP and what unlocks them |
+| `src/lib/achievement-definitions.ts` | The 43 achievements, their XP and what unlocks them |
 | `src/lib/quest-definitions.ts`, `src/lib/quests.ts` | The quest pool and the daily and weekly rotation |
 | `src/lib/cosmetic-definitions.ts` | The cosmetics and the rules that unlock them |
 | `src/lib/leaderboard-boards.ts` | The boards: periods, scopes, and what each is called in the cache |
@@ -73,6 +73,8 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `CONNECTION_ACCEPTED` | each of the two people | the other one |
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the sender | the recipient |
 | `MESSAGE_REPLIED` (pays no XP) | the person who replied | the person who was waiting for the reply |
+| `MATCH_CREATED` (pays no XP) | each of the two people | the other one |
+| `MATCH_TEAM_FORMED` (pays no XP) | each of the two people | the other one |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
@@ -222,7 +224,7 @@ owner's `showActivity` switch.
 
 ## Achievements
 
-There are **40**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
+There are **43**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
 slug it had before there were tiers.
 
 **How they work.** A domain event is turned into *ticks* (`EVENT_TICKS` in `src/lib/metrics.ts`): "this user shipped
@@ -272,6 +274,16 @@ nobody starts at zero; an achievement whose target a counter already meets unloc
 | `streak-30` | Month of Momentum | 120 | 30 day streak |
 | `streak-100` | Hundred Days | 400 | 100 day streak |
 | `streak-365` | Year of Building | 1500 | 365 day streak |
+| `first-match` | First Match | 0 | 1 match |
+| `matches-10` | Well Matched | 0 | 10 matches |
+| `match-teamed` | Better Together | 0 | formed a team with someone you matched with (once per match) |
+
+**Matches pay no XP, so the three match achievements pay none either** (`xpReward: 0`): sparks and matches are never an XP source, so
+that starting conversations cannot be farmed. They are recognition only. A match counts for a person only when the other person is a
+trusted account (the counterparty gate above), so two throwaway accounts that match each other earn nothing from it. A match counts when it
+is made (`MATCH_CREATED`, the metric `matches`); *Better Together* counts when somebody joins a team that has a member they have an open
+match with (`MATCH_TEAM_FORMED`, the metric `match_teams`, detected on `TEAM_APPLICATION_ACCEPTED` in `src/lib/matching/team-match.ts`), so
+the match must be older than the team and not ended.
 
 ### Secret achievements
 
@@ -300,7 +312,7 @@ endorsement the owner receives from somebody at level 20 or above.
 people who left. The job `achievements/rarity` recomputes all of them in one statement every night at 03:30 UTC (and creates
 the rows of achievements nobody has earned, at 0). It is `null` until the job has run once.
 
-`GET /api/achievements` (yours) and `GET /api/users/{id}/achievements` (anyone's) list all 40 in order with `earned`,
+`GET /api/achievements` (yours) and `GET /api/users/{id}/achievements` (anyone's) list all 43 in order with `earned`,
 `earnedAt`, `progress: { current, target }`, `rarity` and the masking above.
 
 ## Quests

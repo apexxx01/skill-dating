@@ -55,6 +55,13 @@ export interface DomainEvents {
   ACHIEVEMENT_UNLOCKED: { userId: string; slug: string }
   /** The user reached a tier: a new one, or Bronze with their first XP (emitted by the rewards engine). Cosmetics listen. */
   TIER_REACHED: { userId: string; tier: Tier; level: number }
+  /**
+   * Two people sparked each other. `userId` is the one whose spark completed the pair, `otherUserId` the one who sparked first. Pays NO XP (sparks and
+   * matches are never an XP source); it only counts toward the match achievements, for each person whose counterparty is a trusted account.
+   */
+  MATCH_CREATED: { userId: string; otherUserId: string; matchId: string; connectionType: string; conversationId: string | null }
+  /** A person joined a team that has a member they matched with earlier. Pays no XP; counts toward the match-to-team achievement. */
+  MATCH_TEAM_FORMED: { userId: string; otherUserId: string; matchId: string; teamId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -77,6 +84,8 @@ export const DOMAIN_EVENT_NAMES = [
   'MESSAGE_REPLIED',
   'ACHIEVEMENT_UNLOCKED',
   'TIER_REACHED',
+  'MATCH_CREATED',
+  'MATCH_TEAM_FORMED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient
