@@ -650,6 +650,26 @@ export interface RewardsEnvelope {
 export type WithRewards<T> = T & { rewards: RewardsEnvelope }
 
 // ---------------------------------------------------------------------------
+// Profile settings
+// ---------------------------------------------------------------------------
+
+/** GET and PATCH /api/users/me/profile: where the signed-in user is, and what others can see. */
+export interface ProfileSettings {
+  /** IANA name such as "Asia/Kolkata". Days, streaks, quests and daily caps follow it; UTC when null. */
+  timezone: string | null
+  /** ISO 3166-1 alpha-2, upper case. Puts the user on the country board. */
+  countryCode: string | null
+  /** Tidied free text. Puts the user on that city's board (within their country). */
+  city: string | null
+  /** Tidied free text. Puts the user on that campus's board. */
+  campus: string | null
+  /** Removes the user from every leaderboard and from every rank other people can see. */
+  hideFromLeaderboards: boolean
+  /** false: other people get an empty heatmap for this user. */
+  showActivity: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Platform
 // ---------------------------------------------------------------------------
 

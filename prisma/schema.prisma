@@ -259,8 +259,24 @@ model Profile {
   showEmail        Boolean  @default(false)
   showLocation     Boolean  @default(true)
   showAvailability Boolean  @default(true)
+  // Where the person is, for the country, city and campus leaderboards (see src/lib/places.ts).
+  // countryCode is ISO 3166-1 alpha-2. city and campus hold tidied free text; the *Key columns
+  // hold the comparable form ("São Paulo" -> "sao-paulo"), and are what the boards group by.
+  countryCode      String?
+  city             String?
+  cityKey          String?
+  campus           String?
+  campusKey        String?
+  // Privacy. Opting out of leaderboards removes the person from every board and from every rank
+  // others can see; hiding activity keeps the contribution heatmap to themselves.
+  hideFromLeaderboards Boolean @default(false)
+  showActivity     Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([countryCode])
+  @@index([countryCode, cityKey])
+  @@index([campusKey])
 }
 
 model Skill {
