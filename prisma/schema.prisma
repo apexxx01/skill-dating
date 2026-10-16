@@ -151,6 +151,15 @@ model User {
   rank                 Int               @default(0)
   reputationScore      Int               @default(0)
   lastActiveAt         DateTime          @default(now())
+  // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their
+  // own that local day. lastStreakDay is that local date, "YYYY-MM-DD", in the user's time zone then.
+  currentStreak        Int               @default(0)
+  longestStreak        Int               @default(0)
+  lastStreakDay        String?
+  // Banked freezes, at most 2: a single missed day spends one instead of ending the streak.
+  streakFreezes        Int               @default(0)
+  // A freeze was spent during the current run (reset when a run starts over).
+  streakFreezeUsed     Boolean           @default(false)
   // Set when the Clerk account is deleted. The row is kept and anonymised so
   // the content other people depend on survives (see docs/AUTH_MIGRATION.md).
   deletedAt            DateTime?
