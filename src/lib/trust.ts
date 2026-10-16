@@ -33,11 +33,20 @@ export function accountDistrust(account: AccountFacts | null | undefined, now: D
   return null
 }
 
-/** `subjectId` is the person a reward would be paid to; `counterpartyId` is the person whose action earns it. */
+/**
+ * `subjectId` is the person a reward would be paid to; `counterpartyId` is the person whose action earns it.
+ *
+ * The gate is counterparty-only on purpose: farming needs a cheap payer, so it is the payer who has to be established, and
+ * judging the person paid too would only make a real newcomer wait for the first thing somebody does for them.
+ */
 export interface PeerPair {
   subjectId: string
   counterpartyId: string
-  /** Also require the subject's own account to pass (an applicant accepted onto a team). */
+  /**
+   * Also require the subject's own account to pass. Only for an applicant accepted onto a team: the accept is one click by whoever
+   * runs the team, pays the most of these rewards and is not capped per recipient, so a single aged account could mint XP for any
+   * number of fresh ones. See "Why the gate judges the counterparty" in docs/GAMIFICATION.md.
+   */
   subjectMustBeTrusted?: boolean
 }
 

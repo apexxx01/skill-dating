@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { DOMAIN_EVENT_NAMES, type DomainEventName } from './events'
-import { accountDistrust, isTrustedCounterparty, MIN_TRUSTED_ACCOUNT_AGE_DAYS, pairDistrust, PEER_PAIRS, peerPairsOf, withheldSubjects } from './trust'
+import { accountDistrust, isTrustedCounterparty, MIN_TRUSTED_ACCOUNT_AGE_DAYS, pairDistrust, PEER_PAIRS, peerPairsOf, withheldSubjects, type PeerPair } from './trust'
 
 const now = new Date('2026-06-15T12:00:00Z')
 const DAY = 24 * 60 * 60 * 1000
@@ -105,6 +105,18 @@ describe('PEER_PAIRS: which events another person can earn you', () => {
     const peer: DomainEventName[] = ['EVIDENCE_ENDORSED', 'TEAM_APPLICATION_ACCEPTED', 'CONNECTION_ACCEPTED', 'MESSAGE_SENT_FIRST_IN_CONNECTION', 'MESSAGE_REPLIED']
     expect(Object.keys(PEER_PAIRS).sort()).toEqual([...peer].sort())
     for (const name of DOMAIN_EVENT_NAMES.filter((candidate) => !peer.includes(candidate))) expect(PEER_PAIRS[name], name).toBeUndefined()
+  })
+
+  it('judges the person paid as well only for an applicant accepted onto a team', () => {
+    const samples: Record<string, PeerPair[]> = {
+      EVIDENCE_ENDORSED: peerPairsOf('EVIDENCE_ENDORSED', { userId: 'o', endorserId: 'e', evidenceId: 'x' }),
+      TEAM_APPLICATION_ACCEPTED: peerPairsOf('TEAM_APPLICATION_ACCEPTED', { userId: 'a', teamId: 't', applicationId: 'ap', counterpartyId: 'l' }),
+      CONNECTION_ACCEPTED: peerPairsOf('CONNECTION_ACCEPTED', { userId: 'a', otherUserId: 'b', connectionId: 'c' }),
+      MESSAGE_SENT_FIRST_IN_CONNECTION: peerPairsOf('MESSAGE_SENT_FIRST_IN_CONNECTION', { userId: 's', recipientId: 'r', conversationId: 'c', messageId: 'm' }),
+      MESSAGE_REPLIED: peerPairsOf('MESSAGE_REPLIED', { userId: 'a', conversationId: 'c', messageId: 'm', repliedToUserId: 'b' }),
+    }
+    const strict = Object.entries(samples).filter(([, pairs]) => pairs.some((candidate) => candidate.subjectMustBeTrusted))
+    expect(strict.map(([name]) => name)).toEqual(['TEAM_APPLICATION_ACCEPTED'])
   })
 
   it('has no pairs for an event that is not peer-driven', () => {
