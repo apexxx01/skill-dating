@@ -151,6 +151,8 @@ model User {
   rank                 Int               @default(0)
   reputationScore      Int               @default(0)
   lastActiveAt         DateTime          @default(now())
+  // What the user wears: { title, frame, banner }, each the slug of a cosmetic they own (or absent).
+  equipped             Json              @default("{}")
   // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their
   // own that local day. lastStreakDay is that local date, "YYYY-MM-DD", in the user's time zone then.
   currentStreak        Int               @default(0)
@@ -207,6 +209,7 @@ model User {
   seasonStandings     SeasonStanding[]
   counters            UserCounter[]
   progressTicks       ProgressTick[]
+  cosmetics           UserCosmetic[]
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -655,6 +658,58 @@ model ProgressTick {
 
   @@unique([userId, metric, dedupeKey])
   @@index([userId, metric, createdAt])
+}
+
+enum CosmeticType {
+  TITLE
+  FRAME
+  BANNER
+  AVATAR_PART
+}
+
+enum CosmeticRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+// Something a person shows on their profile: a title, a frame, a banner, a piece of avatar. They are only
+// ever EARNED, by a rule in unlockRule (a tier, an achievement, a streak): nothing here has a price and no
+// route grants one. The catalog is in src/lib/cosmetic-definitions.ts and rows are created from it on first
+// use, like achievements. src/lib/cosmetics.ts is the only code that writes a UserCosmetic.
+model Cosmetic {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  type        CosmeticType
+  name        String
+  description String         @db.Text
+  rarity      CosmeticRarity @default(COMMON)
+  // What unlocks it, e.g. { "type": "TIER", "tier": "GOLD" } or { "type": "ACHIEVEMENT", "slug": "ship-100" }.
+  unlockRule  Json
+  order       Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  userCosmetics UserCosmetic[]
+
+  @@index([type])
+}
+
+// A cosmetic a user has earned (their inventory). `source` says which rule unlocked it.
+model UserCosmetic {
+  id         String   @id @default(cuid())
+  userId     String
+  cosmeticId String
+  source     String
+  unlockedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cosmetic Cosmetic @relation(fields: [cosmeticId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cosmeticId])
+  @@index([userId])
 }
 
 model XPEvent {
