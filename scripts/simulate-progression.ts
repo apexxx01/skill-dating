@@ -87,8 +87,8 @@ export const PERSONAS: Persona[] = [
 /**
  * Power, plus about four hackathon wins a year (the base Power user wins roughly one): a
  * top competitor. Wins are worth 500 XP each, so they add a few percent, not a multiple, to
- * what a power user earns; the curve's job is to keep this user near the end of the
- * "Mythic in 3-5 years" window and the plain Power user near the start of "5-6 years".
+ * what a power user earns: this user reaches Mythic a little sooner than the plain Power user,
+ * not years sooner.
  */
 export const POWER_WINS: Persona = {
   name: 'Power + wins',
@@ -128,8 +128,9 @@ export const TARGETS: { persona: string; level: number; label: string; from: num
   { persona: 'Casual', level: 10, label: 'Silver in 6-8 weeks', from: 42, to: 56 },
   { persona: 'Active', level: 20, label: 'Gold in 3-4 months', from: 91, to: 122 },
   { persona: 'Power', level: 35, label: 'Platinum in 9-12 months', from: 274, to: 365 },
-  { persona: 'Power', level: 80, label: 'Mythic in 5-6 years', from: 5 * 365, to: 6 * 365 },
-  { persona: 'Power + wins', level: 80, label: 'Mythic in 3-5 years', from: 3 * 365, to: 5 * 365 },
+  { persona: 'Power', level: 55, label: 'Diamond in 2.5-3 years', from: Math.round(2.5 * 365), to: 3 * 365 },
+  { persona: 'Power', level: 80, label: 'Mythic in about 5 years', from: Math.round(4.75 * 365), to: Math.round(5.25 * 365) },
+  { persona: 'Power + wins', level: 80, label: 'Mythic in about 5 years, a little sooner than Power', from: 3 * 365, to: 5 * 365 },
 ]
 
 /** The level a user is on after their first project (50 XP) and its achievement (25 XP): the onboarding moment. */

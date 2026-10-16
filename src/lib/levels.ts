@@ -3,14 +3,17 @@
 //
 // A level's size is the XP needed to move from that level to the next one:
 //
-//   levels 1 to 55:    xpForLevel(n) = round(5 * n^1.85)      (5 for level 1, 18 for level 2, ...)
-//   levels 56 to 99:   xpForLevel(n) = 4100 + 50 * (n - 56)   (4100 for level 56, 6200 for level 98)
+//   levels 1 to 35:    xpForLevel(n) = round(5 * n^1.85)      (5 for level 1, 18 for level 2, ... 3,593 for level 35)
+//   levels 36 to 100:  an eased curve that starts where the power law is (same size, same slope at
+//                      level 35) and levels off, so every level asks for at least as much as the one
+//                      before it and none asks for much more than its neighbours
 //
-// The power law keeps climbing, and left alone it would make level 80 (Mythic) a
-// ten year goal even for someone who plays like a full-time builder. From level 56 the
-// size grows in a straight line instead, which is what puts Mythic at about five years
-// for a power user (see the simulation in docs/GAMIFICATION.md). The sizes up to level 55
-// are untouched, so every threshold up to the start of level 56 is the same as before.
+// The power law keeps climbing, and left alone it would make level 80 (Mythic) a ten year goal even
+// for someone who plays like a full-time builder. From level 36 the growth per level falls in a
+// straight line, from CURVE_START_SLOPE to nothing over CURVE_EASE_LEVELS levels (the size is a
+// parabola), after which every level has the same size. That puts Diamond at about two and a half
+// years and Mythic at about five for a power user (the simulation in docs/GAMIFICATION.md). The sizes
+// up to level 35 are untouched, so every threshold up to the start of level 36 is what it always was.
 //
 // Level 1 starts at 0 XP, so the XP at which a level begins is the sum of the
 // sizes of all the levels before it. The top level (MAX_LEVEL) has no next level.
@@ -41,15 +44,21 @@ export interface LevelInfo {
   progress: number
 }
 
-/** The last level whose size follows the power law. Larger levels follow the straight line. */
-export const POWER_LAW_LAST_LEVEL = 55
-const LINEAR_FIRST_SIZE = 4100
-const LINEAR_STEP = 50
+/** The last level whose size follows the power law. Larger levels follow the eased curve. */
+export const POWER_LAW_LAST_LEVEL = 35
+
+/** How much the size grows by at level 36: what the power law grows by there (about 190). */
+const CURVE_START_SLOPE = 190
+/** Levels the growth takes to fall from CURVE_START_SLOPE to nothing. After these the size stays put. */
+const CURVE_EASE_LEVELS = 22
+
+const powerLaw = (level: number) => Math.round(5 * Math.pow(level, 1.85))
 
 /** XP needed to get from `level` to `level + 1`. */
 export function xpForLevel(level: number): number {
-  if (level <= POWER_LAW_LAST_LEVEL) return Math.round(5 * Math.pow(level, 1.85))
-  return LINEAR_FIRST_SIZE + LINEAR_STEP * (level - POWER_LAW_LAST_LEVEL - 1)
+  if (level <= POWER_LAW_LAST_LEVEL) return powerLaw(level)
+  const steps = Math.min(level - POWER_LAW_LAST_LEVEL, CURVE_EASE_LEVELS)
+  return Math.round(powerLaw(POWER_LAW_LAST_LEVEL) + CURVE_START_SLOPE * steps - (CURVE_START_SLOPE / (2 * CURVE_EASE_LEVELS)) * steps * steps)
 }
 
 // cumulative[n - 1] = XP at which level n begins (cumulative[0] = 0).
