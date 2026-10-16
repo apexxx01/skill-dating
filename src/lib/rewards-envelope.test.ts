@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyEnvelope, envelopeForGain, mergeEnvelopes } from './rewards-envelope'
+import { completeEnvelope, emptyEnvelope, envelopeForGain, mergeEnvelopes, steadyStreak } from './rewards-envelope'
 import { xpAtLevelStart, TIER_START_LEVEL } from './levels'
 
 describe('emptyEnvelope', () => {
@@ -78,5 +78,40 @@ describe('mergeEnvelopes', () => {
     const earned = envelopeForGain(90, 20, [{ slug: 'a', name: 'A' }])
     expect(mergeEnvelopes(emptyEnvelope(90), earned)).toEqual(earned)
     expect(mergeEnvelopes(earned, emptyEnvelope(110))).toEqual(earned)
+  })
+})
+
+describe('the streak in an envelope', () => {
+  const grew = { current: 5, longest: 9, extended: true, freezeUsed: false }
+  const steady = steadyStreak(5, 9)
+
+  it('is unknown until something sets it, and carried by emptyEnvelope and envelopeForGain when given', () => {
+    expect(emptyEnvelope(10).streak).toBeNull()
+    expect(emptyEnvelope(10, steady).streak).toEqual(steady)
+    expect(envelopeForGain(0, 10).streak).toBeNull()
+    expect(envelopeForGain(0, 10, [], grew).streak).toEqual(grew)
+  })
+
+  it('describes a streak that did not move', () => {
+    expect(steady).toEqual({ current: 5, longest: 9, extended: false, freezeUsed: false })
+  })
+
+  it('is filled in for a draft that has none, and never overwrites one that has', () => {
+    expect(completeEnvelope(emptyEnvelope(10), steady).streak).toEqual(steady)
+    expect(completeEnvelope(envelopeForGain(0, 10, [], grew), steadyStreak(0, 0)).streak).toEqual(grew)
+  })
+
+  it('merges to the later numbers, keeping a flag that was raised at any point', () => {
+    const first = envelopeForGain(0, 10, [], { current: 4, longest: 4, extended: true, freezeUsed: true })
+    const second = envelopeForGain(10, 10, [], { current: 4, longest: 4, extended: false, freezeUsed: false })
+    expect(mergeEnvelopes(first, second).streak).toEqual({ current: 4, longest: 4, extended: true, freezeUsed: true })
+  })
+
+  it('does not lose a known streak when merged with an envelope that does not know it', () => {
+    const known = envelopeForGain(0, 10, [], grew)
+    const unknown = envelopeForGain(10, 25, [{ slug: 'a', name: 'A' }])
+    expect(mergeEnvelopes(known, unknown).streak).toEqual(grew)
+    expect(mergeEnvelopes(unknown, known).streak).toEqual(grew)
+    expect(mergeEnvelopes(unknown, unknown).streak).toBeNull()
   })
 })

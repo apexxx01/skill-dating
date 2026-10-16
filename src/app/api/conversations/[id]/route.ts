@@ -165,7 +165,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // first-message check commit together. For a direct conversation the first
   // message is decided under a lock on the conversation, so two messages sent
   // at the same moment cannot both count as the first.
-  const { value: message } = await transactWithEvents(prisma, async (tx) => {
+  const { value: message, scope } = await transactWithEvents(prisma, async (tx) => {
     if (direct) await advisoryLock(tx, `first-message:${id}`)
 
     const created = await tx.message.create({
@@ -205,6 +205,20 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     })
 
     const recipient = direct?.members.find((member) => member.userId !== user.id)
+
+    // Answering somebody who was waiting on you: the message before this one, in a direct conversation,
+    // came from the other person.
+    if (recipient) {
+      const previous = await tx.message.findFirst({
+        where: { conversationId: id, id: { not: created.id }, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: { senderId: true },
+      })
+      if (previous && previous.senderId !== user.id) {
+        await emit(tx, 'MESSAGE_REPLIED', { userId: user.id, conversationId: id, messageId: created.id, repliedToUserId: previous.senderId })
+      }
+    }
+
     if (recipient && (await tx.message.count({ where: { conversationId: id } })) === 1) {
       const connected = await tx.connection.findFirst({
         where: {
@@ -229,5 +243,5 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return created
   })
 
-  return createApiResponse(message, 201)
+  return createApiResponse({ ...message, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:send' } })

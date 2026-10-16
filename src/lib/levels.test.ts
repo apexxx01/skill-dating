@@ -1,19 +1,51 @@
 import { describe, it, expect } from 'vitest'
-import { levelFor, xpForLevel, xpAtLevelStart, tierForLevel, MAX_LEVEL, TIERS, TIER_START_LEVEL } from './levels'
+import { levelFor, xpForLevel, xpAtLevelStart, tierForLevel, MAX_LEVEL, POWER_LAW_LAST_LEVEL, TIERS, TIER_START_LEVEL } from './levels'
 
 describe('xpForLevel', () => {
-  it('is round(5 * n^1.85)', () => {
+  const powerLaw = (level: number) => Math.round(5 * Math.pow(level, 1.85))
+
+  it('is round(5 * n^1.85) up to level 35, exactly as it always was', () => {
     expect(xpForLevel(1)).toBe(5)
     expect(xpForLevel(2)).toBe(18)
     expect(xpForLevel(4)).toBe(65)
     expect(xpForLevel(9)).toBe(291)
-    expect(xpForLevel(100)).toBe(25059)
+    expect(xpForLevel(35)).toBe(3593)
+    for (let level = 1; level <= POWER_LAW_LAST_LEVEL; level++) expect(xpForLevel(level)).toBe(powerLaw(level))
   })
 
-  it('grows with every level', () => {
+  it('never asks for less than the level before it, anywhere from level 1 to the top', () => {
     for (let level = 1; level < MAX_LEVEL; level++) {
-      expect(xpForLevel(level + 1)).toBeGreaterThan(xpForLevel(level))
+      expect(xpForLevel(level + 1), `level ${level + 1} against level ${level}`).toBeGreaterThanOrEqual(xpForLevel(level))
     }
+  })
+
+  it('keeps growing past level 35 until it levels off, and then stays level', () => {
+    expect(xpForLevel(36)).toBeGreaterThan(xpForLevel(35))
+    expect(xpForLevel(45)).toBeGreaterThan(xpForLevel(40))
+    expect(xpForLevel(100)).toBe(xpForLevel(80))
+    expect(xpForLevel(57)).toBe(xpForLevel(100))
+  })
+
+  it('is smooth: no level jumps by more than the power law did at level 35, and the growth only shrinks', () => {
+    const jump = (level: number) => xpForLevel(level + 1) - xpForLevel(level)
+    for (let level = POWER_LAW_LAST_LEVEL; level < MAX_LEVEL; level++) {
+      expect(jump(level)).toBeLessThanOrEqual(jump(POWER_LAW_LAST_LEVEL - 1) + 1)
+      if (level > POWER_LAW_LAST_LEVEL) expect(jump(level)).toBeLessThanOrEqual(jump(level - 1) + 1)
+    }
+  })
+
+  it('asks for less than the power law would have from level 36 on', () => {
+    for (let level = POWER_LAW_LAST_LEVEL + 1; level <= MAX_LEVEL; level++) expect(xpForLevel(level)).toBeLessThan(powerLaw(level))
+  })
+
+  it('leaves every threshold up to the start of level 36 exactly where the power law put it', () => {
+    let total = 0
+    for (let level = 1; level <= POWER_LAW_LAST_LEVEL; level++) {
+      expect(xpAtLevelStart(level)).toBe(total)
+      total += powerLaw(level)
+    }
+    expect(xpAtLevelStart(POWER_LAW_LAST_LEVEL + 1)).toBe(total)
+    expect(total).toBe(45941)
   })
 })
 

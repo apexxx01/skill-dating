@@ -184,6 +184,7 @@ to an empty database it produces exactly the schema `db push` produced.
 | `npm run db:migrate:status` | Show which migrations the database has applied |
 | `npm run db:baseline` | One-off for a database that already has the current schema (created with the old `prisma db push`): mark the baseline migration as applied without running it |
 | `npm run db:studio` | Browse the database in Prisma Studio |
+| `npm run postdeploy` | Run after every deploy: makes sure a season is running, rebuilds the leaderboards, grants the cosmetics already earned, and fails if production has no Upstash Redis. Idempotent; `-- --dry-run` changes nothing. See [docs/DEPLOY.md](docs/DEPLOY.md) |
 | `npm run sim:progression` | Simulate casual, active, power and cap-maximising users against the real XP rules and level curve, and print how many days each takes to reach each level. Its output is in [docs/GAMIFICATION.md](docs/GAMIFICATION.md#how-long-it-takes-the-progression-simulation) |
 
 ## Project layout

@@ -1,4 +1,4 @@
-import type { Cache, ScoredMember, WindowHit } from './cache'
+import type { Cache, ScoredMember, WindowHit, ZStage } from './cache'
 
 // In-process `Cache`. Used by tests, and in development when no Redis is
 // configured. Two properties matter for safety, carried over from the rate
@@ -172,6 +172,62 @@ export class MemoryCache implements Cache {
     }
     if (set.members.size === 0) this.entries.delete(key)
     return removed
+  }
+
+  async zincrMany(operations: { key: string; member: string; by: number; ttlMs?: number }[]) {
+    for (const { key, member, by, ttlMs } of operations) {
+      await this.zincr(key, member, by)
+      if (ttlMs && ttlMs > 0) {
+        const entry = this.zset(key, false)
+        if (entry && entry.expiresAt === null) entry.expiresAt = this.now() + ttlMs
+      }
+    }
+  }
+
+  async zreplace(key: string, entries: ScoredMember[], { ttlMs }: { ttlMs?: number } = {}) {
+    this.live(key)
+    if (entries.length === 0) {
+      this.entries.delete(key)
+      return
+    }
+    this.store(key, {
+      type: 'zset',
+      members: new Map(entries.map(({ member, score }) => [member, score])),
+      expiresAt: ttlMs && ttlMs > 0 ? this.now() + ttlMs : null,
+    })
+  }
+
+  zstage(key: string): ZStage {
+    const staged = new Map<string, number>()
+    let spent = false
+    const assertOpen = () => {
+      if (spent) throw new Error('this stage was already committed or discarded')
+    }
+    return {
+      set: async (entries) => {
+        assertOpen()
+        for (const { member, score } of entries) staged.set(member, score)
+      },
+      remove: async (members) => {
+        assertOpen()
+        for (const member of members) staged.delete(member)
+      },
+      commit: async ({ ttlMs } = {}) => {
+        assertOpen()
+        spent = true
+        await this.zreplace(key, [...staged].map(([member, score]) => ({ member, score })), ttlMs ? { ttlMs } : {})
+      },
+      discard: async () => {
+        assertOpen()
+        spent = true
+        staged.clear()
+      },
+    }
+  }
+
+  async expire(key: string, ttlMs: number) {
+    const entry = this.live(key)
+    if (entry) entry.expiresAt = this.now() + ttlMs
   }
 
   async ping() {}

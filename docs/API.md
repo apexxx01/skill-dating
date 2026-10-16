@@ -22,11 +22,11 @@ Response types for the frontend are exported from `src/types/api.ts`; the page-b
 
 **Request ids.** Every response carries an `X-Request-Id` header, and every log line written while the request ran carries the same id, so a report can be matched to the logs. A plausible `X-Request-Id` sent by the caller or a gateway (8 to 64 letters, digits, `.`, `_`, `-`) is kept; anything else is replaced. An unexpected failure inside a handler answers `500 INTERNAL_ERROR` in the usual error shape, never a bare page, and the cause is logged (and sent to Sentry when `SENTRY_DSN` is set), not returned.
 
-**Pagination.** Every list endpoint takes `limit` and either `page` or `cursor`, and answers with `nextCursor` (`null` on the last page). Send `nextCursor` back as `cursor` to get the next page. Cursors are opaque, so do not build or read them; they are cheap at any depth and are not thrown off by rows added while someone pages. A request with `cursor` runs no count, so its answer has no `pagination` object; a `page` request keeps its `pagination` and also carries `nextCursor`, so a client can start with pages and continue with cursors. A cursor that is not valid is `400 INVALID_CURSOR`. Lists whose order is computed or spans several columns (`/api/discover`, `/api/leaderboard`, `/api/skills`, milestones) use position cursors, which stay valid only while the ordering is unchanged. Two lists answer with a bare array, `GET /api/users/{id}/skills` and `GET /api/teams/{id}/applications`; they take `limit` (default and maximum 100) and `cursor`, and send the next cursor in the `X-Next-Cursor` header. `GET /api/teams/{id}/candidates` is a short ranked recommendation list (top 10) and is never paged.
+**Pagination.** Every list endpoint takes `limit` and either `page` or `cursor`, and answers with `nextCursor` (`null` on the last page). Send `nextCursor` back as `cursor` to get the next page. Cursors are opaque, so do not build or read them; they are cheap at any depth and are not thrown off by rows added while someone pages. A request with `cursor` runs no count, so its answer has no `pagination` object; a `page` request keeps its `pagination` and also carries `nextCursor`, so a client can start with pages and continue with cursors. A cursor that is not valid is `400 INVALID_CURSOR`. Lists whose order is computed or spans several columns (`/api/discover`, `/api/skills`, milestones) use position cursors, which stay valid only while the ordering is unchanged. `/api/leaderboard` uses rank cursors, which remember who held the last rank and so follow them if scores move between pages. Two lists answer with a bare array, `GET /api/users/{id}/skills` and `GET /api/teams/{id}/applications`; they take `limit` (default and maximum 100) and `cursor`, and send the next cursor in the `X-Next-Cursor` header. `GET /api/teams/{id}/candidates` is a short ranked recommendation list (top 10) and is never paged.
 
 **Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags (the admin-only create). A new creating `POST` must opt in with `idempotent: true`; see [ARCHITECTURE.md](ARCHITECTURE.md#api-conventions).
 
-**Rewards.** Routes that can award XP return a `rewards` object next to their normal body (see [GAMIFICATION.md](GAMIFICATION.md)); it is present even when nothing was earned. The type is `RewardsEnvelope` in `src/types/api.ts`.
+**Rewards.** Routes that can award XP return a `rewards` object next to their normal body (see [GAMIFICATION.md](GAMIFICATION.md)); it is present even when nothing was earned, and carries the user's streak and any achievements and quests the request completed. The type is `RewardsEnvelope` in `src/types/api.ts`.
 
 **Requirements.** PostgreSQL 13 or newer (`gen_random_uuid()` is used when marking messages read).
 
@@ -171,7 +171,7 @@ Three distinct authorization paths depending on the request:
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on an owner-sent invitation** (`invitedById` set) — the invitee only.
 - **`{ status: 'ACCEPTED' | 'REJECTED' }` on a self-initiated application** — team `OWNER`/`ADMIN` or platform `ADMIN`.
 
-`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity and emits `TEAM_APPLICATION_ACCEPTED` (50 XP to the applicant, once per application, no daily cap, and `team-player`). The response carries the caller's own `rewards`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
+`ACCEPTED` is race-safe: locks the `Team` row, re-counts members against `maxSize`, and (if the team has a linked project) locks the `Project` row and re-counts `ProjectMember`s against `maxTeamSize` — both checked inside the same transaction that flips status and creates `TeamMember`/`ProjectMember`/`ConversationMember`, records activity and emits `TEAM_APPLICATION_ACCEPTED` (50 XP to the applicant, once per application, at most 3 a day, and `team-player`; nothing is paid, achievement included, unless the person who reviewed the application, or sent the invitation, is a trusted counterparty and so is the applicant: an account at least 7 days old with a verified email, not blocked either way; see [GAMIFICATION.md](GAMIFICATION.md#rewards-other-people-trigger-the-trusted-counterparty-gate)). The response carries the caller's own `rewards`. Returns `400 "Team is full"` / `400 "...max team size..."` on either capacity guard.
 
 ### `POST /api/teams/[id]/invitations`
 **Auth:** team `OWNER`/`ADMIN` or platform `ADMIN`.
@@ -258,7 +258,7 @@ The caller's own connections (sent + received, or filtered). Query: `page, curso
 ### `PATCH /api/connections/[id]`
 **Auth:** the connection's `receiverId` only — not the sender.
 **Body:** `{ status: 'ACCEPTED' | 'DECLINED' }`
-On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (10 XP to both people, once per connection, at most 5 a day each; the response has no `rewards`). `400` if not currently `PENDING`.
+On `ACCEPTED`: atomically finds-or-creates the `DIRECT` conversation between the two users, adds both as members, records activity, notifies the sender and emits `CONNECTION_ACCEPTED` (10 XP to both people, once per connection, at most 5 a day each). **Response:** the connection plus the accepter's own `rewards` (the sender is told by notification). `400` if not currently `PENDING`.
 
 ---
 
@@ -278,7 +278,7 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 **Auth:** conversation member only. Paginated messages (oldest first within the page), deleted messages masked (`content: null, isDeleted: true`) rather than omitted. Query: `page, cursor, limit(≤100), before (ISO datetime)`. The response's `nextCursor` leads to the next **older** page. Marks exactly the messages returned as read for the caller.
 
 ### `POST /api/conversations/[id]`
-**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (5 XP to the sender, once per conversation, at most 5 a day; the response has no `rewards`). Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
+**Auth:** conversation member only. Sends a message and notifies other members; the message, the notifications and the conversation's activity stamp commit together. The first message ever sent in a direct conversation between two connected people emits `MESSAGE_SENT_FIRST_IN_CONNECTION` (5 XP to the sender, once per conversation, at most 5 a day). **Response:** the message plus the sender's `rewards`. Direct conversations are closed once either side blocks the other (`403` for the blocker, `404` for the blocked user); shared team, project and hackathon rooms stay open.
 **Body:** `{ content, type?, replyToId?, metadata? }`
 
 ### `POST /api/conversations/[id]/read`
@@ -336,9 +336,47 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 ## Leaderboard
 
 ### `GET /api/leaderboard`
-Live `SUM(XPEvent.amount)` aggregate per user (not the denormalized `User.xp` cache — that's kept in sync for cheap sort/display elsewhere, but this endpoint computes the real total). Query: `page, cursor, limit`.
-Users blocked in either direction are left out, and ranks are counted among the users the caller can see.
-**Response:** `{ entries: [{ rank, xp, user }], me: { xp, rank }, nextCursor, pagination? }`. People with equal XP keep one order from page to page, and the cursor is a position, so ranks continue across pages. `me.rank` is `null` until the caller has earned XP, and is computed live so it is right even when the caller is off the current page.
+Ranks people by the XP they earned in a **period** on a **scope**. The boards are Redis sorted sets kept current by every award and rebuilt each night from the XP log (see [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); the request does not sum the log.
+**Query:** `period` = `weekly` | `monthly` | `season` | `all-time` (default); `scope` = `global` (default) | `country` | `city` | `campus` | `crew`; `scopeId` (country `IN`, city `IN:bengaluru`, campus `iisc-bangalore`, crew: a team id; for the first three it defaults to the caller's own place, for `crew` it is required); `limit` (1 to 100, default 50); `cursor` (the previous `nextCursor`) or `page`. Weeks and months are UTC.
+Users blocked in either direction are left out of the list but nobody is renumbered: a rank is a person's place on the board, the same for every viewer and the same as `ranks` on their player card, so the caller's list can skip a rank (1, 3, 4) and a page can hold fewer than `limit` entries (a page covers `limit` consecutive ranks). `pagination.total` counts everybody on the board. People who switched leaderboards off (`PATCH /api/users/me/profile`) are on no board.
+**Response:** `{ period, scope: { type, id }, season, entries: [{ rank, score, xp, level, tier, user }], me: { rank, score, xp, hidden }, around: [...], myScopes: { country, city, campus }, nextCursor, pagination? }`. `xp` repeats `score` for older clients. `me.rank` is `null` when the caller is not on the board (no XP in the period, or hidden). `around` is the caller and the two above and two below. `season` describes the season for `period=season` and is `null` otherwise. A `page` request also carries `pagination`. People with equal scores keep one order (by user id, descending).
+**Errors:** `400 VALIDATION_FAILED` for a bad `period`, `scope`, `scopeId` or limit, and for a scope the caller has not set and did not name (`details.scopeId`); `400 INVALID_CURSOR`; `404 TEAM_NOT_FOUND` for a crew that does not exist.
+
+---
+
+## Progression
+
+Streaks, achievements, quests, the player card, cosmetics and seasons. The rules are in [GAMIFICATION.md](GAMIFICATION.md).
+
+### `GET /api/users/me/profile`
+The caller's location and privacy settings: `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }`. Nothing is created by reading; a user who never saved gets the defaults (`timezone`, `countryCode`, `city`, `campus` null; `hideFromLeaderboards` false; `showActivity` true).
+
+### `PATCH /api/users/me/profile`
+**Body (at least one):** `{ timezone?(IANA name or null), countryCode?(ISO 3166-1 alpha-2 or null), city?(≤200, free text or null), campus?(≤200, free text or null), hideFromLeaderboards?, showActivity? }`. Unknown keys are refused. Text is tidied and given a comparable key (see Leaderboards). `timezone` decides which day a streak, a quest and a daily cap use. A change of place or of `hideFromLeaderboards` queues a job that moves the person's entries on the boards; `showActivity: false` hides the heatmap and the streak from everyone else. **Response:** the settings.
+
+### `GET /api/users/[id]/heatmap`
+**Query:** `days` (1 to 365, default 365). XP and actions per **local day of the profile owner**, for days that had any, oldest first: `{ timezone, days, from, to, hidden, items: [{ date, xp, actions }] }`. `actions` counts what the person did; the XP of the achievements and quests it led to adds to `xp` only. Cached 10 minutes and retired by every award. `404 USER_NOT_FOUND` for a missing or deleted user, or one who has blocked the caller (the person who blocked can still open it); `hidden: true` with no items when the owner keeps their activity private (never for your own).
+
+### `GET /api/users/[id]/stats`
+The player card in one call: `{ userId, xp, level, tier, progress, ranks: { global, country, city }, equipped, streak, topAchievements, counts: { shipped, hackathons, wins, endorsementsReceived, crews, milestones } }`. Cached 60 seconds and retired by every award. `ranks` are absolute places on the all-time boards (`null` where the person is not on one). `streak` is `null` on somebody else's card when they keep their activity private. `404 USER_NOT_FOUND` as for the heatmap.
+
+### `GET /api/achievements`
+All 40 achievements in order with the caller's standing: `{ achievements: [{ slug, name, description, icon, category, xpReward, secret, masked, earned, earnedAt, progress: { current, target }, rarity, order }], earned, total }`. Not paged (the catalog is fixed). The six secret achievements are `masked` until earned: placeholder slug `secret-<order>`, no text, reward, progress or rarity. `rarity` is the share of users active in the last 30 days who have it (0 to 1, null until the nightly job has run).
+
+### `GET /api/users/[id]/achievements`
+The same list for another person (earned, and how far along they are in the rest; secret ones masked). `404 USER_NOT_FOUND` for a missing or deleted user or one who has blocked the caller.
+
+### `GET /api/quests`
+The caller's three daily and three weekly quests: `{ enabled, timezone, daily: { periodKey, startsAt, resetsAt, quests }, weekly: { ... } }`, each quest `{ slug, name, description, type, xpReward, target, current, completed, completedAt }`. The quests are the same all period and on every device, and follow from the user and the period. Reading writes nothing and earns nothing; doing the action counts, and the response of that action lists `questsCompleted`. With the `quests` flag off, `enabled` is false and both lists are empty.
+
+### `GET /api/users/me/cosmetics`
+The cosmetic catalog with the caller's inventory: `{ equipped: { title, frame, banner }, cosmetics: [{ slug, type, name, description, rarity, slot, owned, masked, equipped, unlockedAt, requirement, order }], owned, total }`. Read only. Cosmetics are earned and cannot be bought, granted or requested. Those earned by a secret achievement are `masked` until owned. The catalog is the fixed cosmetics plus the ones a finished season gave the caller (`season-N-top-100` title, `season-N-top-1-percent` and `season-N-top-10-percent` frames, `season-N-participant` badge with `type: "AVATAR_PART"` and `slot: null`), so `total` is the fixed catalog plus however many season cosmetics the caller owns.
+
+### `PATCH /api/users/me/equipped`
+**Body (at least one):** `{ title?, frame?, banner? }`, each a cosmetic slug or `null`. Each slug must be owned by the caller and belong in that slot, or the whole request is refused: `403 COSMETIC_NOT_OWNED` (also for an unknown slug), `400 COSMETIC_WRONG_SLOT`. A slot left out is unchanged. **Response:** `{ equipped }`.
+
+### Seasons
+There is no season route: the active season rides in `GET /api/leaderboard?period=season` (`season: { id, number, name, startsAt, endsAt }`). The job `seasons/rollover` closes it and writes `SeasonStanding` rows (run it with `POST /api/admin/jobs/seasons/rollover`).
 
 ---
 
@@ -489,6 +527,9 @@ Every feature flag with its answer for the caller: `{ flags: { "new-feed": true,
 
 A flag is **on for a user** when they are on its `allowUserIds` (even while it is disabled), or it is `enabled` and the user falls inside the rollout: `rolloutPercent` 100 is everyone, a lower value is a stable share of users chosen by a hash of the flag key and the user id. Raising the percentage only adds users. A flag that does not exist is off.
 
+### `POST /api/admin/jobs/{area}/{action}`
+**Auth:** `ADMIN`. Runs one of the background jobs declared in `src/lib/infra/jobs.ts` (for example `seasons/rollover`, whose `result` is `{ closed, ..., rewards: [...] }`: the cosmetics granted for each season that was owed them) right now, inside the request, exactly as the queue would run it: the payload is validated by the job's own schema. **Body (optional):** `{ data?: {...} }`; no body runs the job with its defaults. **Response:** `{ name, durationMs, result }`, where `result` is what the job returned. `404 JOB_NOT_FOUND` for a name that is not in the registry. Limited to 30 a minute and written to the audit log (`JOB_RUN`). This is how an operator triggers a rebuild or a rollover outside its schedule, and how a deployment without the job queue runs them.
+
 ---
 
 ## Errors
@@ -604,6 +645,9 @@ and a unit test fails if a code is missing here.
 | `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
 | `FLAG_NOT_FOUND` | 404 | Feature flag not found |
 | `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
+| `JOB_NOT_FOUND` | 404 | No such job |
+| `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
+| `COSMETIC_WRONG_SLOT` | 400 | This cosmetic does not go in that slot |
 
 ---
 

@@ -104,7 +104,11 @@ Each getter is process-wide and survives dev-server reloads; `setCache`, `setJob
 ### Cache
 
 Strings with optional expiry, counters, fixed windows, and sorted sets (`zadd`, `zincr`, `ztop`,
-`zrevrank`, range by score). `createPresence` and `createLeaderboard` are built on those. The two
+`zrevrank`, range by score). Three operations exist for leaderboards: `zincrMany` (many increments in
+one round trip, a pipeline on Redis, with an expiry that is started and never pushed back), `zreplace`
+(rebuild a board under a scratch key and swap it in with one rename, so nobody sees a half-built board),
+`zstage` (the same, for a board that is built in pieces and corrected while it is built: `set`, `remove`, then
+`commit` or `discard`) and `expire`. `createPresence` and `createLeaderboard` are built on those. The two
 operations that must not race, `incr` and `hit`, are single atomic operations: one Lua script on
 Redis that increments, starts the expiry if the key has none, and reports the time left. A key can
 therefore never outlive its window. The Redis client runs with automatic deserialization off so a
@@ -125,8 +129,21 @@ again when run. `inngestFunctions()` turns the registry into Inngest functions, 
 `MemoryJobQueue` validates, drops repeated ids and retries like the real queue, and runs on
 `drain()` in tests or automatically in development. It is not durable.
 
-`system/ping` is the only job. It exists to check a new environment's Inngest credentials end to
-end. To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
+A job may declare a `schedule` (a UTC cron expression): Inngest then triggers it on that schedule as
+well as on its event. The in-process queue never schedules; any job can be run right away with
+`POST /api/admin/jobs/{name}` (admin only, audited), which is also how a deployment without Inngest runs
+them. Handlers import their module lazily, so the registry stays light.
+
+| Job | Schedule | Module |
+| --- | --- | --- |
+| `system/ping` | none | checks a new environment's Inngest credentials end to end |
+| `seasons/rollover` | hourly | `src/lib/seasons.ts`: close the finished season, write its standings, open the next |
+| `achievements/rarity` | 03:30 daily | `src/lib/achievement-rarity.ts` |
+| `leaderboards/reconcile` | 04:00 daily | `src/lib/leaderboard-rebuild.ts`: rebuild every current board from the XP log: aggregate up to a cutoff, replay what came after, swap |
+| `leaderboards/refresh-user` | event | move one person's entries after a place or privacy change |
+| `cosmetics/backfill` | event, once | `src/lib/cosmetics.ts`: grandfather cosmetics for existing users |
+
+To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
 test the handler through `runJob` or a `MemoryJobQueue`.
 
 ### Realtime
@@ -190,7 +207,9 @@ sequenceDiagram
 
 Events today: `PROJECT_CREATED`, `PROJECT_SHIPPED`, `PROJECT_UPDATE_POSTED`, `MILESTONE_COMPLETED`,
 `HACKATHON_JOINED`, `HACKATHON_WON`, `TEAM_FORMED`, `TEAM_APPLICATION_ACCEPTED`, `EVIDENCE_ADDED`,
-`EVIDENCE_ENDORSED`, `CONNECTION_ACCEPTED`, `MESSAGE_SENT_FIRST_IN_CONNECTION`. A new event is one entry
+`EVIDENCE_ENDORSED`, `CONNECTION_ACCEPTED`, `MESSAGE_SENT_FIRST_IN_CONNECTION`, `MESSAGE_REPLIED`, and four
+that the rewards engine announces itself: `STREAK_EXTENDED`, `USER_COMEBACK`, `ACHIEVEMENT_UNLOCKED`,
+`TIER_REACHED`. A new event is one entry
 in `DomainEvents`, one in `DOMAIN_EVENT_NAMES` and one in `EVENT_REWARDS`
 (`src/lib/rewards-config.ts`), which a unit test keeps in step. Emit it from the route inside
 its transaction; nothing else needs to change.
@@ -212,9 +231,32 @@ per action. The rules, the level curve, the tiers and the response envelope are 
   `RewardsEnvelope` is computed from the before and after totals by pure functions, so level and
   tier changes in it cannot disagree with `levelFor()`.
 
-`seasonId` on `XPEvent` is reserved and unused. Existing rows were migrated safely: the new columns
-are nullable, achievement rows were back-filled with their key, and every other legacy row keeps a
-null key, which the unique index treats as distinct (`20261015000000_xp_event_dedupe`).
+Existing rows were migrated safely: the dedupe columns are nullable, achievement rows were back-filled with
+their key, and every other legacy row keeps a null key, which the unique index treats as distinct
+(`20261015000000_xp_event_dedupe`).
+
+### Progress: streaks, achievements, quests, cosmetics
+
+`grant()` does more than pay. In the same transaction it stamps the award with the active season
+(`XPEvent.seasonId`), moves the user's streak when the award is an action of their own (`src/lib/streaks.ts`;
+the `User` row is locked by the same `UPDATE ... RETURNING` that adds the XP, so concurrent awards cannot
+tear a streak), and announces `STREAK_EXTENDED`, `USER_COMEBACK` and `TIER_REACHED`. After the commit it
+retires the user's cached views and adds the award to the Redis leaderboards (`src/lib/xp-views.ts`);
+a failure there is logged and the nightly rebuild repairs it.
+
+The subscriber for every event (`payForEvent`, `src/lib/subscribers.ts`) then counts what happened.
+`src/lib/metrics.ts` turns an event into **ticks** ("this user shipped this project"), but only for an award
+that actually paid, so the daily caps and the gates limit achievements and quests exactly as they limit XP.
+`recordTick()` inserts the tick (a unique key makes it count once) and raises a counter
+(`ProgressTick`, `UserCounter`); `src/lib/achievement-progress.ts` unlocks the achievements the counter
+reaches through `grantAchievement()` and `src/lib/quest-progress.ts` moves the user's current quests. Everything
+that touches one user's progress takes an advisory lock for that user first, in id order for events that
+involve two people, so concurrent requests serialise and cannot deadlock. Cosmetics are earned by
+`TIER_REACHED`, `ACHIEVEMENT_UNLOCKED` and `STREAK_EXTENDED` through `src/lib/cosmetics.ts`, the only code that
+writes the inventory. Quests can be paused with the `quests` feature flag.
+
+Which three daily and three weekly quests a person has is not stored: it is a seeded shuffle of the pool by
+`(user, period)` (`src/lib/quests.ts`), so there is no midnight job and no state to get out of step.
 
 ## Entitlements and feature flags
 
@@ -243,7 +285,7 @@ answers from `GET /api/flags`.
 `src/lib/infra/analytics.ts` follows the adapter pattern: `track(userId, event, props)` always writes
 a `ProductEvent` row (so the numbers exist with no third party) and, with `POSTHOG_KEY` set, also
 forwards the event to PostHog. Events: `signup`, `onboarding_completed`, `project_created`,
-`project_shipped`, `level_up`, `tier_up`, `achievement_earned`. Tracking happens after the
+`project_shipped`, `level_up`, `tier_up`, `achievement_earned`, `quest_completed`, `streak_extended`. Tracking happens after the
 transaction commits, never fails the request, and carries no personal data: the user is our
 internal id, and props are reduced to plain values under safe names (names, emails, free text and
 URLs are dropped whoever passes them). `signup` counts a brand-new account only, not the linking of an old
@@ -322,6 +364,10 @@ full run is a flake, and re-running clears it. The
 bypass test therefore requests each route once, one at a time, before sending anything in parallel.
 `next start` uses prebuilt manifests and is not affected.
 
+## Deploying
+
+The order of a deploy (migrate, deploy, `npm run postdeploy`) and the post-deploy command are in [`DEPLOY.md`](DEPLOY.md).
+
 ## Continuous integration
 
 Type-check, backend lint (blocking), whole-repo lint (report only), production build, unit tests,
@@ -330,7 +376,23 @@ and the integration suite against a Postgres service container.
 
 ## Known limitations and open items
 
-- Nothing publishes realtime events and the only job is `system/ping`.
+- Nothing publishes realtime events.
+- Leaderboard boards are copies of the XP log in Redis. They are repaired nightly, so a failure to update one
+  can show a stale score for up to a day. XP that arrives during a rebuild is counted exactly once (see
+  [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); the one gap is an award committing between the last replay pass and the
+  rename, which costs that award until the next run. The rebuild aggregates in SQL and holds one batch of 5,000 people in
+  memory, but it still scans each period's slice of the `XPEvent` table (indexed by time and by season) every night;
+  at tens of millions of rows an incremental version is the next step.
+- Raw SQL that compares a bound `Date` with a `DateTime` column goes through `utcTimestamp()` (`src/lib/sql.ts`); written
+  without it the comparison is read in the database's time zone, which is only right when that zone is UTC. The leaderboard
+  queries use it; `heatmap.ts` and `achievement-rarity.ts` still compare directly.
+- `ProgressTick` gets a row per counted action. Once an action has paid, its XP award is what stops it counting
+  twice, so ticks older than a couple of weeks are only history (the week-based secret achievements look back at most
+  seven days); pruning them is not built.
+- Migrations and counters use `gen_random_uuid()`, which is built into PostgreSQL 13 and later.
+- A season is closed by an hourly job, so it can run past its end by up to an hour; a closed season's cosmetics are granted by the same job (and by `npm run postdeploy`), and a season that could not be granted is retried every hour.
+- A blocked person is left out of a viewer's leaderboard but keeps their rank, so a rank is the same number on every
+  leaderboard and on the player card; a viewer's page can skip ranks.
 - `npm audit --omit=dev` still reports Next's bundled PostCSS (fixable only by Next 16); see
   [Dependency advisories](#dependency-advisories).
 - Dependencies are installed with `--legacy-peer-deps` when they change: `inngest` has an optional

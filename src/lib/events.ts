@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
-import type { RewardsEnvelope } from '@/types/api'
+import type { RewardsEnvelope, Tier } from '@/types/api'
 import { log } from '@/lib/log'
-import { emptyEnvelope, mergeEnvelopes } from '@/lib/rewards-envelope'
+import { completeEnvelope, emptyEnvelope, mergeEnvelopes, type EnvelopeDraft } from '@/lib/rewards-envelope'
+import { readUserStreak, steadyStatus } from '@/lib/streak-status'
 
 // Typed in-process domain events.
 //
@@ -29,8 +30,11 @@ export interface DomainEvents {
   /** One event per winning team member. */
   HACKATHON_WON: { userId: string; hackathonId: string; hackathonName: string; hackathonTeamId: string }
   TEAM_FORMED: { userId: string; teamId: string; hackathonId: string; hackathonName: string }
-  /** `userId` is the person whose application was accepted. */
-  TEAM_APPLICATION_ACCEPTED: { userId: string; teamId: string; applicationId: string }
+  /**
+   * `userId` is the person whose application (or accepted invitation) this is, the one who may be rewarded;
+   * `counterpartyId` is the other side: whoever reviewed the application, or sent the invitation.
+   */
+  TEAM_APPLICATION_ACCEPTED: { userId: string; teamId: string; applicationId: string; counterpartyId: string }
   EVIDENCE_ADDED: { userId: string; evidenceId: string; skillId: string }
   /** `userId` is the owner of the evidence, the one who may be rewarded. */
   EVIDENCE_ENDORSED: { userId: string; endorserId: string; evidenceId: string }
@@ -38,6 +42,19 @@ export interface DomainEvents {
   CONNECTION_ACCEPTED: { userId: string; otherUserId: string; connectionId: string }
   /** `userId` is the sender. Emitted once per direct conversation between connected people. */
   MESSAGE_SENT_FIRST_IN_CONNECTION: { userId: string; recipientId: string; conversationId: string; messageId: string }
+  /**
+   * The streak grew because of an action of the user's own (emitted by the rewards engine, once per local day).
+   * `freezeUsedInRun` is whether a freeze was spent anywhere in the current run.
+   */
+  STREAK_EXTENDED: { userId: string; current: number; longest: number; freezeUsedInRun: boolean }
+  /** The user earned from an action of their own after `idleDays` (30 or more) days of earning nothing. */
+  USER_COMEBACK: { userId: string; idleDays: number }
+  /** `userId` answered a message in a direct conversation that had been waiting on them from `repliedToUserId`. */
+  MESSAGE_REPLIED: { userId: string; conversationId: string; messageId: string; repliedToUserId: string }
+  /** An achievement was unlocked (emitted by the rewards engine). Cosmetics listen. */
+  ACHIEVEMENT_UNLOCKED: { userId: string; slug: string }
+  /** The user reached a tier: a new one, or Bronze with their first XP (emitted by the rewards engine). Cosmetics listen. */
+  TIER_REACHED: { userId: string; tier: Tier; level: number }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -55,6 +72,11 @@ export const DOMAIN_EVENT_NAMES = [
   'EVIDENCE_ENDORSED',
   'CONNECTION_ACCEPTED',
   'MESSAGE_SENT_FIRST_IN_CONNECTION',
+  'STREAK_EXTENDED',
+  'USER_COMEBACK',
+  'MESSAGE_REPLIED',
+  'ACHIEVEMENT_UNLOCKED',
+  'TIER_REACHED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient
@@ -96,7 +118,7 @@ type AnyTransactional = (context: TransactionalContext<DomainEventName>) => Prom
 export class EventScope {
   private readonly events: CommittedEvent<DomainEventName>[] = []
   private readonly callbacks: (() => Promise<void> | void)[] = []
-  private readonly envelopes = new Map<string, RewardsEnvelope>()
+  private readonly envelopes = new Map<string, EnvelopeDraft>()
 
   addEvent(event: CommittedEvent<DomainEventName>) {
     this.events.push(event)
@@ -107,17 +129,21 @@ export class EventScope {
   }
 
   /** Adds to what this transaction has earned for the user. */
-  addReward(userId: string, envelope: RewardsEnvelope) {
+  addReward(userId: string, envelope: EnvelopeDraft) {
     const existing = this.envelopes.get(userId)
     this.envelopes.set(userId, existing ? mergeEnvelopes(existing, envelope) : envelope)
   }
 
-  /** What the user earned in this transaction, or a "nothing earned" envelope read from their current XP. */
+  /**
+   * What the user earned in this transaction, or a "nothing earned" envelope read from their
+   * current XP. The streak is whatever the transaction left it at.
+   */
   async rewardsFor(db: Db, userId: string): Promise<RewardsEnvelope> {
     const earned = this.envelopes.get(userId)
-    if (earned) return earned
-    const row = await db.user.findUnique({ where: { id: userId }, select: { xp: true } })
-    return emptyEnvelope(row?.xp ?? 0)
+    if (earned?.streak) return earned as RewardsEnvelope
+    const read = await readUserStreak(db, userId)
+    const steady = read ? steadyStatus(read) : { current: 0, longest: 0, extended: false, freezeUsed: false }
+    return completeEnvelope(earned ?? emptyEnvelope(read?.xp ?? 0), steady)
   }
 
   /** @internal Called by the bus after the transaction has committed. */
@@ -226,7 +252,7 @@ export class EventBus {
   }
 
   /** Records what a user earned, for the response of the request that opened the transaction. */
-  recordReward(db: Db, userId: string, envelope: RewardsEnvelope): void {
+  recordReward(db: Db, userId: string, envelope: EnvelopeDraft): void {
     this.scopes.get(db)?.addReward(userId, envelope)
   }
 

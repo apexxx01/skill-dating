@@ -151,6 +151,17 @@ model User {
   rank                 Int               @default(0)
   reputationScore      Int               @default(0)
   lastActiveAt         DateTime          @default(now())
+  // What the user wears: { title, frame, banner }, each the slug of a cosmetic they own (or absent).
+  equipped             Json              @default("{}")
+  // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their
+  // own that local day. lastStreakDay is that local date, "YYYY-MM-DD", in the user's time zone then.
+  currentStreak        Int               @default(0)
+  longestStreak        Int               @default(0)
+  lastStreakDay        String?
+  // Banked freezes, at most 2: a single missed day spends one instead of ending the streak.
+  streakFreezes        Int               @default(0)
+  // A freeze was spent during the current run (reset when a run starts over).
+  streakFreezeUsed     Boolean           @default(false)
   // Set when the Clerk account is deleted. The row is kept and anonymised so
   // the content other people depend on survives (see docs/AUTH_MIGRATION.md).
   deletedAt            DateTime?
@@ -195,6 +206,13 @@ model User {
   leaderboardEntries  LeaderboardEntry[]
   subscription        Subscription?
   productEvents       ProductEvent[]
+  seasonStandings     SeasonStanding[]
+  counters            UserCounter[]
+  progressTicks       ProgressTick[]
+  cosmetics           UserCosmetic[]
+
+  // "Users active in the last 30 days" is the denominator of every achievement's rarity.
+  @@index([lastActiveAt])
 }
 
 model Account {
@@ -250,8 +268,24 @@ model Profile {
   showEmail        Boolean  @default(false)
   showLocation     Boolean  @default(true)
   showAvailability Boolean  @default(true)
+  // Where the person is, for the country, city and campus leaderboards (see src/lib/places.ts).
+  // countryCode is ISO 3166-1 alpha-2. city and campus hold tidied free text; the *Key columns
+  // hold the comparable form ("São Paulo" -> "sao-paulo"), and are what the boards group by.
+  countryCode      String?
+  city             String?
+  cityKey          String?
+  campus           String?
+  campusKey        String?
+  // Privacy. Opting out of leaderboards removes the person from every board and from every rank
+  // others can see; hiding activity keeps the contribution heatmap to themselves.
+  hideFromLeaderboards Boolean @default(false)
+  showActivity     Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([countryCode])
+  @@index([countryCode, cityKey])
+  @@index([campusKey])
 }
 
 model Skill {
@@ -572,6 +606,10 @@ model Achievement {
   criteria    Json // { type, conditions }
   isSecret    Boolean  @default(false)
   order       Int      @default(0)
+  // The share of users active in the last 30 days who have earned it, 0 to 1 (smaller is rarer).
+  // Null until the nightly job (achievements/rarity) has run once.
+  rarity          Float?
+  rarityUpdatedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -583,12 +621,95 @@ model UserAchievement {
   userId        String
   achievementId String
   earnedAt      DateTime @default(now())
-  progress      Json? // For tracking progress towards achievement
+  progress      Json? // { current, target } as it stood when it was earned
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementId])
+}
+
+// How many times a user has done something that counts toward achievements and quests, one row per
+// kind of thing (the metrics in src/lib/metrics.ts). It only ever goes up, and only through
+// recordTick, which also writes the ProgressTick that makes each increment happen once.
+model UserCounter {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+// One counted thing: "this user shipped this project". The unique key on (userId, metric, dedupeKey)
+// is what makes a repeated event (un-endorsing and endorsing again, a retry) count once, and the
+// timestamps answer the questions about a week ("three ships in one week").
+model ProgressTick {
+  id        String   @id @default(cuid())
+  userId    String
+  metric    String
+  dedupeKey String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, metric, dedupeKey])
+  @@index([userId, metric, createdAt])
+}
+
+enum CosmeticType {
+  TITLE
+  FRAME
+  BANNER
+  AVATAR_PART
+}
+
+enum CosmeticRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+// Something a person shows on their profile: a title, a frame, a banner, a piece of avatar. They are only
+// ever EARNED, by a rule in unlockRule (a tier, an achievement, a streak): nothing here has a price and no
+// route grants one. The catalog is in src/lib/cosmetic-definitions.ts and rows are created from it on first
+// use, like achievements. src/lib/cosmetics.ts is the only code that writes a UserCosmetic.
+model Cosmetic {
+  id          String         @id @default(cuid())
+  slug        String         @unique
+  type        CosmeticType
+  name        String
+  description String         @db.Text
+  rarity      CosmeticRarity @default(COMMON)
+  // What unlocks it, e.g. { "type": "TIER", "tier": "GOLD" } or { "type": "ACHIEVEMENT", "slug": "ship-100" }.
+  unlockRule  Json
+  order       Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  userCosmetics UserCosmetic[]
+
+  @@index([type])
+}
+
+// A cosmetic a user has earned (their inventory). `source` says which rule unlocked it.
+model UserCosmetic {
+  id         String   @id @default(cuid())
+  userId     String
+  cosmeticId String
+  source     String
+  unlockedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cosmetic Cosmetic @relation(fields: [cosmeticId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cosmeticId])
+  @@index([userId])
 }
 
 model XPEvent {
@@ -598,7 +719,7 @@ model XPEvent {
   amount      Int
   description String
   metadata    Json?
-  // Set once seasons exist; no relation yet, so it stays a plain nullable column.
+  // The season being played when it was earned (see Season). Null for XP from before seasons began.
   seasonId    String?
   // What earned it (PROJECT, HACKATHON, ACHIEVEMENT, ...) and which row.
   sourceType  String?
@@ -609,11 +730,56 @@ model XPEvent {
   dedupeKey   String?
   createdAt   DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  season Season? @relation(fields: [seasonId], references: [id], onDelete: SetNull)
 
   @@unique([userId, type, dedupeKey])
   @@index([userId, createdAt])
   @@index([userId, type, createdAt])
+  // Leaderboards and the nightly reconcile add XP up over a time range or a season.
+  @@index([createdAt])
+  @@index([seasonId, userId])
+}
+
+// A fixed stretch of time with its own leaderboard. At most one is active (the rollover job closes
+// one and opens the next in the same transaction). Every XPEvent is stamped with the season it was
+// earned in, so a season's standings are always a sum over the log.
+model Season {
+  id        String    @id @default(cuid())
+  number    Int       @unique
+  name      String
+  startsAt  DateTime
+  endsAt    DateTime
+  active    Boolean   @default(false)
+  // Set when the rollover job has closed the season and written its final standings.
+  closedAt  DateTime?
+  // Set when the season's cosmetic rewards (title, frames, participation badge) have been granted. Null until then;
+  // the rollover job grants them for every closed season that is still null.
+  rewardsGrantedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  xpEvents  XPEvent[]
+  standings SeasonStanding[]
+
+  @@index([active])
+}
+
+// A season's final standing for one person, written once when the season closes. The season's cosmetic
+// rewards (see src/lib/seasons.ts) are granted from this record; no XP is paid for a placing.
+model SeasonStanding {
+  id        String   @id @default(cuid())
+  seasonId  String
+  userId    String
+  rank      Int
+  score     Int
+  createdAt DateTime @default(now())
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, userId])
+  @@index([seasonId, rank])
+  @@index([userId])
 }
 
 model ReputationEvent {
@@ -847,29 +1013,40 @@ model CurrentBuild {
   @@index([hackathonId])
 }
 
+// A quest a user can be given: a small, useful thing to do inside a day or a week. The catalog is in
+// src/lib/quest-definitions.ts and rows are created from it on first use (like achievements); which
+// three daily and three weekly quests a person sees is decided by a hash of (user, period), not stored
+// here. startsAt and endsAt are only for hand-made quests with a fixed window; a rotating quest has none.
 model Quest {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
-  slug          String   @unique
-  description   String   @db.Text
-  type          String // WEEKLY, DAILY, SPECIAL
-  criteria      Json // { type, conditions }
-  xpReward      Int      @default(0)
+  slug          String    @unique
+  description   String    @db.Text
+  type          String // DAILY, WEEKLY, SPECIAL
+  criteria      Json // { metric, target } for the rotating quests
+  xpReward      Int       @default(0)
   achievementId String?
-  startsAt      DateTime
-  endsAt        DateTime
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  startsAt      DateTime?
+  endsAt        DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   userQuests UserQuest[]
 }
 
+// One user's go at one quest in one period (a local day or week). Created when the first thing that
+// counts toward it happens, so a row exists only for quests the user has started.
 model UserQuest {
   id          String    @id @default(cuid())
   userId      String
   questId     String
-  progress    Json // { completed: boolean, progress: number }
+  // The period it belongs to: the local date ("2026-10-16") for a daily quest, the ISO week ("2026-W42")
+  // for a weekly one, in the user's time zone then.
+  periodKey   String
+  periodStart DateTime
+  periodEnd   DateTime
+  progress    Json // { current, target, completed }
   completedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -877,7 +1054,8 @@ model UserQuest {
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   quest Quest @relation(fields: [questId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, questId])
+  @@unique([userId, questId, periodKey])
+  @@index([userId, periodEnd])
 }
 
 model Activity {

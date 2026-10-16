@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { isValidTimeZone, resolveTimeZone, localDayStart, localDateKey } from './time'
+import {
+  addDaysToDateKey,
+  daysBetweenDateKeys,
+  isLocalWeekend,
+  isoWeekKeyOfDateKey,
+  isoWeekdayOfDateKey,
+  isValidTimeZone,
+  localDateKey,
+  localDateStart,
+  localDayEnd,
+  localDayStart,
+  localHour,
+  localIsoWeekday,
+  localWeekEnd,
+  localWeekKey,
+  localWeekStart,
+  mondayOfDateKey,
+  resolveTimeZone,
+} from './time'
 
 const at = (iso: string) => new Date(iso)
 const start = (nowIso: string, zone: string | null | undefined) => localDayStart(at(nowIso), zone).toISOString()
@@ -101,5 +119,131 @@ describe('localDayStart', () => {
         }
       }
     }
+  })
+})
+
+describe('calendar arithmetic on date keys', () => {
+  it('adds days across month, year and leap-day boundaries', () => {
+    expect(addDaysToDateKey('2026-01-31', 1)).toBe('2026-02-01')
+    expect(addDaysToDateKey('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addDaysToDateKey('2028-02-28', 1)).toBe('2028-02-29')
+    expect(addDaysToDateKey('2026-03-01', -1)).toBe('2026-02-28')
+    expect(addDaysToDateKey('2026-06-15', 0)).toBe('2026-06-15')
+  })
+
+  it('counts days between dates, signed', () => {
+    expect(daysBetweenDateKeys('2026-03-01', '2026-03-01')).toBe(0)
+    expect(daysBetweenDateKeys('2026-03-01', '2026-03-02')).toBe(1)
+    expect(daysBetweenDateKeys('2026-03-02', '2026-03-01')).toBe(-1)
+    expect(daysBetweenDateKeys('2025-12-31', '2026-12-31')).toBe(365)
+    expect(daysBetweenDateKeys('2028-01-01', '2029-01-01')).toBe(366)
+  })
+
+  it('is not thrown off by daylight saving, because it never leaves the calendar', () => {
+    expect(daysBetweenDateKeys('2026-03-07', '2026-03-09')).toBe(2)
+    expect(daysBetweenDateKeys('2026-10-31', '2026-11-02')).toBe(2)
+  })
+
+  it('refuses something that is not a date', () => {
+    expect(() => addDaysToDateKey('tomorrow', 1)).toThrow()
+    expect(() => daysBetweenDateKeys('2026-3-1', '2026-03-02')).toThrow()
+  })
+})
+
+describe('localDateStart and localDayEnd', () => {
+  it('is the first instant of any date in the zone, not only today', () => {
+    expect(localDateStart('2026-03-10', 'Asia/Kolkata').toISOString()).toBe('2026-03-09T18:30:00.000Z')
+    expect(localDateStart('2026-03-10', 'UTC').toISOString()).toBe('2026-03-10T00:00:00.000Z')
+    expect(localDateStart('2026-03-10', 'garbage').toISOString()).toBe('2026-03-10T00:00:00.000Z')
+  })
+
+  it('agrees with localDayStart', () => {
+    const now = at('2026-07-04T09:15:00Z')
+    for (const zone of ['UTC', 'Asia/Kolkata', 'America/New_York', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+      expect(localDateStart(localDateKey(now, zone), zone).toISOString()).toBe(localDayStart(now, zone).toISOString())
+    }
+  })
+
+  it('lets a day end where the next one starts, 23 hours later on a spring-forward day', () => {
+    // New York: clocks go forward on 2026-03-08.
+    const start = localDayStart(at('2026-03-08T15:00:00Z'), 'America/New_York')
+    const end = localDayEnd(at('2026-03-08T15:00:00Z'), 'America/New_York')
+    expect(start.toISOString()).toBe('2026-03-08T05:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-03-09T04:00:00.000Z')
+    expect((end.getTime() - start.getTime()) / 3_600_000).toBe(23)
+  })
+
+  it('lets a day be 25 hours on a fall-back day', () => {
+    const now = at('2026-11-01T15:00:00Z')
+    expect((localDayEnd(now, 'America/New_York').getTime() - localDayStart(now, 'America/New_York').getTime()) / 3_600_000).toBe(25)
+  })
+})
+
+describe('local hour and weekday', () => {
+  it('reads the hour in the zone', () => {
+    const instant = at('2026-03-10T20:30:00Z')
+    expect(localHour(instant, 'UTC')).toBe(20)
+    expect(localHour(instant, 'Asia/Kolkata')).toBe(2)
+    expect(localHour(instant, 'America/Los_Angeles')).toBe(13)
+    expect(localHour(at('2026-03-10T00:00:00Z'), 'UTC')).toBe(0)
+    expect(localHour(at('2026-03-10T23:59:59Z'), 'UTC')).toBe(23)
+  })
+
+  it('numbers weekdays from Monday = 1 to Sunday = 7', () => {
+    expect(isoWeekdayOfDateKey('2026-06-15')).toBe(1) // a Monday
+    expect(isoWeekdayOfDateKey('2026-06-20')).toBe(6)
+    expect(isoWeekdayOfDateKey('2026-06-21')).toBe(7)
+  })
+
+  it('takes the weekday from the local date, which can differ from the UTC one', () => {
+    const instant = at('2026-06-20T20:00:00Z') // Saturday evening UTC, already Sunday in Kolkata
+    expect(localIsoWeekday(instant, 'UTC')).toBe(6)
+    expect(localIsoWeekday(instant, 'Asia/Kolkata')).toBe(7)
+    expect(isLocalWeekend(at('2026-06-19T23:00:00Z'), 'UTC')).toBe(false)
+    expect(isLocalWeekend(at('2026-06-19T23:00:00Z'), 'Asia/Kolkata')).toBe(true)
+    expect(isLocalWeekend(at('2026-06-22T00:00:00Z'), 'UTC')).toBe(false)
+  })
+})
+
+describe('weeks', () => {
+  it('runs Monday to Sunday', () => {
+    expect(mondayOfDateKey('2026-06-15')).toBe('2026-06-15')
+    expect(mondayOfDateKey('2026-06-17')).toBe('2026-06-15')
+    expect(mondayOfDateKey('2026-06-21')).toBe('2026-06-15')
+    expect(mondayOfDateKey('2026-06-22')).toBe('2026-06-22')
+  })
+
+  it('starts the local week at Monday 00:00 in the zone and ends it seven days later', () => {
+    const now = at('2026-06-17T12:00:00Z')
+    expect(localWeekStart(now, 'UTC').toISOString()).toBe('2026-06-15T00:00:00.000Z')
+    expect(localWeekEnd(now, 'UTC').toISOString()).toBe('2026-06-22T00:00:00.000Z')
+    expect(localWeekStart(now, 'Asia/Kolkata').toISOString()).toBe('2026-06-14T18:30:00.000Z')
+    // Sunday evening UTC is already the next week in Kolkata.
+    expect(localWeekStart(at('2026-06-21T20:00:00Z'), 'Asia/Kolkata').toISOString()).toBe('2026-06-21T18:30:00.000Z')
+    expect(localWeekStart(at('2026-06-21T20:00:00Z'), 'UTC').toISOString()).toBe('2026-06-15T00:00:00.000Z')
+  })
+
+  it('keeps a week that spans a daylight saving change seven calendar days long', () => {
+    const now = at('2026-03-10T12:00:00Z')
+    const start = localWeekStart(now, 'America/New_York')
+    const end = localWeekEnd(now, 'America/New_York')
+    expect(start.toISOString()).toBe('2026-03-09T04:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-03-16T04:00:00.000Z')
+    const spring = localWeekStart(at('2026-03-05T12:00:00Z'), 'America/New_York')
+    expect((localWeekEnd(at('2026-03-05T12:00:00Z'), 'America/New_York').getTime() - spring.getTime()) / 3_600_000).toBe(7 * 24 - 1)
+  })
+
+  it('names ISO weeks, including the ones that belong to the neighbouring year', () => {
+    expect(isoWeekKeyOfDateKey('2026-06-15')).toBe('2026-W25')
+    expect(isoWeekKeyOfDateKey('2026-01-01')).toBe('2026-W01') // a Thursday
+    expect(isoWeekKeyOfDateKey('2024-12-30')).toBe('2025-W01') // a Monday that starts next year's week 1
+    expect(isoWeekKeyOfDateKey('2021-01-03')).toBe('2020-W53') // a Sunday that ends last year's week 53
+    expect(isoWeekKeyOfDateKey('2026-12-31')).toBe('2026-W53')
+    expect(isoWeekKeyOfDateKey('2027-01-01')).toBe('2026-W53')
+  })
+
+  it('names the local week at an instant, using the local date', () => {
+    expect(localWeekKey(at('2026-06-21T20:00:00Z'), 'UTC')).toBe('2026-W25')
+    expect(localWeekKey(at('2026-06-21T20:00:00Z'), 'Asia/Kolkata')).toBe('2026-W26')
   })
 })

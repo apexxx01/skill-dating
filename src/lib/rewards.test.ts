@@ -3,30 +3,57 @@ import type { PrismaClient } from '@prisma/client'
 import type { Db } from './events'
 
 vi.mock('./subscribers', () => ({}))
+// The leaderboards are written after a commit, with their own tests (leaderboard-write.test.ts).
+const recordBoardXp = vi.fn().mockResolvedValue(undefined)
+vi.mock('./leaderboard-write', () => ({ recordBoardXp: (...args: unknown[]) => recordBoardXp(...args) }))
+vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 const track = vi.fn().mockResolvedValue(undefined)
 vi.mock('./infra/analytics', () => ({ track: (...args: unknown[]) => track(...args) }))
 
 import { grant } from './rewards'
-import { transactWithEvents } from './events'
+import { bus, transactWithEvents } from './events'
 import { xpAtLevelStart } from './levels'
+import { MemoryCache } from './infra/cache.memory'
+import { setCache } from './infra/cache'
+import { heatmapVersionKey, statsCacheKey } from './xp-views'
 
 interface Row {
   userId: string
   type: string
   amount: number
   dedupeKey: string
+  seasonId: string | null
   createdAt: Date
+}
+
+interface FakeUser {
+  xp: number
+  timezone: string | null
+  currentStreak?: number
+  longestStreak?: number
+  lastStreakDay?: string | null
+  streakFreezes?: number
+  streakFreezeUsed?: boolean
 }
 
 // A small in-memory stand-in for the parts of the database grant() touches,
 // including the unique index on (userId, type, dedupeKey).
-function fakeDatabase(users: Record<string, { xp: number; timezone: string | null }>) {
+function fakeDatabase(input: Record<string, FakeUser>, options: { season?: { id: string } | null } = {}) {
+  const users: Record<string, Required<FakeUser>> = {}
+  for (const [id, user] of Object.entries(input)) {
+    users[id] = { currentStreak: 0, longestStreak: 0, lastStreakDay: null, streakFreezes: 0, streakFreezeUsed: false, ...user }
+  }
+  const season = options.season === undefined ? { id: 'season-1' } : options.season
   const rows: Row[] = []
   const notifications: { userId: string; metadata: { kind: string } }[] = []
   const tx = {
     user: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => users[where.id] ?? null),
       findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => users[where.id]),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Partial<Required<FakeUser>> }) => Object.assign(users[where.id], data)),
+    },
+    season: {
+      findFirst: vi.fn(async () => season),
     },
     xPEvent: {
       findUnique: vi.fn(async ({ where }: { where: { userId_type_dedupeKey: { userId: string; type: string; dedupeKey: string } } }) => {
@@ -52,13 +79,16 @@ function fakeDatabase(users: Record<string, { xp: number; timezone: string | nul
     $executeRaw: vi.fn(async () => 1),
     // UPDATE "User" SET xp = xp + ${amount} WHERE id = ${userId} RETURNING xp
     $queryRaw: vi.fn(async (_strings: TemplateStringsArray, amount: number, userId: string) => {
-      users[userId].xp += amount
-      return [{ xp: users[userId].xp }]
+      const user = users[userId]
+      user.xp += amount
+      const { xp, currentStreak, longestStreak, lastStreakDay, streakFreezes, streakFreezeUsed } = user
+      return [{ xp, currentStreak, longestStreak, lastStreakDay, streakFreezes, streakFreezeUsed }]
     }),
   }
   let pendingCreatedAt: Date | undefined
   return {
     tx: tx as unknown as Db,
+    users,
     rows,
     notifications,
     /** Where the next inserted row says it was created, standing in for the database clock. */
@@ -71,7 +101,11 @@ function fakeDatabase(users: Record<string, { xp: number; timezone: string | nul
 
 const project = (id: string) => ({ sourceType: 'PROJECT' as const, sourceId: id, description: `Created project ${id}` })
 
-beforeEach(() => track.mockClear())
+beforeEach(() => {
+  track.mockClear()
+  recordBoardXp.mockClear()
+  setCache(new MemoryCache())
+})
 
 describe('grant', () => {
   it('pays the configured amount, stores what it was for, and reports the new total', async () => {
@@ -142,7 +176,7 @@ describe('grant', () => {
       ['EVIDENCE_ENDORSED', 'ENDORSEMENT', 10, 10],
       ['CONNECTION_ACCEPTED', 'CONNECTION', 10, 5],
       ['MESSAGE_SENT_FIRST_IN_CONNECTION', 'CONVERSATION', 5, 5],
-      ['TEAM_APPLICATION_ACCEPTED', 'TEAM_APPLICATION', 50, null],
+      ['TEAM_APPLICATION_ACCEPTED', 'TEAM_APPLICATION', 50, 3],
     ] as const
     const source = (sourceType: (typeof actions)[number][1], id: string) => ({ sourceType, sourceId: id, description: `award ${id}` })
 
@@ -178,13 +212,6 @@ describe('grant', () => {
       // 18:30Z is Kolkata midnight.
       const nextDay = new Date('2026-03-10T18:30:00Z')
       expect((await grant(db.tx, 'u1', action, { ...source(sourceType, 'tomorrow'), now: nextDay })).granted).toBe(true)
-    })
-
-    it('does not cap a team application, however many are accepted in a day', async () => {
-      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
-      for (let index = 0; index < 8; index++) {
-        expect((await grant(db.tx, 'u1', 'TEAM_APPLICATION_ACCEPTED', source('TEAM_APPLICATION', `a${index}`))).granted).toBe(true)
-      }
     })
 
     it('counts each action and each person separately against a cap', async () => {
@@ -292,8 +319,10 @@ describe('grant', () => {
         insideTransaction = track.mock.calls.length
       })
       expect(insideTransaction).toBe(0)
-      expect(track.mock.calls.map((call) => call[1])).toEqual(['level_up', 'tier_up'])
+      // The first action of the user's own also starts a streak.
+      expect(track.mock.calls.map((call) => call[1])).toEqual(['level_up', 'tier_up', 'streak_extended'])
       expect(track.mock.calls[1]).toEqual(['u1', 'tier_up', { tier: 'SILVER', level: 10 }])
+      expect(track.mock.calls[2]).toEqual(['u1', 'streak_extended', { current: 1 }])
     })
 
     it('tracks nothing when the transaction fails', async () => {
@@ -360,6 +389,231 @@ describe('grant', () => {
         const result = await grant(db.tx, 'u1', 'ACHIEVEMENT_EARNED', { sourceType: 'ACHIEVEMENT', sourceId: `s${amount}`, description: 'x', amount })
         expect(result).toMatchObject({ granted: false, reason: 'NO_REWARD' })
       }
+    })
+  })
+
+  describe('the streak', () => {
+    const at = (iso: string) => new Date(iso)
+    const mile = (id: string, now: Date) => ({ sourceType: 'MILESTONE' as const, sourceId: id, description: 'Milestone', now })
+
+    it('starts at 1 on the first action of own, and reports it as an extension', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const result = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-10T10:00:00Z')))
+      expect(result.envelope.streak).toEqual({ current: 1, longest: 1, extended: true, freezeUsed: false })
+      expect(db.users.u1).toMatchObject({ currentStreak: 1, longestStreak: 1, lastStreakDay: '2026-03-10' })
+    })
+
+    it('counts a local day once: later actions the same day report the streak without extending it', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-10T08:00:00Z')))
+      const second = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m2', at('2026-03-10T20:00:00Z')))
+      expect(second.envelope.streak).toEqual({ current: 1, longest: 1, extended: false, freezeUsed: false })
+      expect(db.tx.user.update).toHaveBeenCalledTimes(1)
+    })
+
+    it('extends on the next local day, and ends after a missed one', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-10T10:00:00Z')))
+      const next = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m2', at('2026-03-11T10:00:00Z')))
+      expect(next.envelope.streak).toEqual({ current: 2, longest: 2, extended: true, freezeUsed: false })
+      const afterGap = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m3', at('2026-03-13T10:00:00Z')))
+      expect(afterGap.envelope.streak).toEqual({ current: 1, longest: 2, extended: true, freezeUsed: false })
+    })
+
+    it('uses the local day of the user: 20:00Z is the next day in Kolkata', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: 'Asia/Kolkata' } })
+      await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-10T10:00:00Z')))
+      const evening = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m2', at('2026-03-10T20:00:00Z')))
+      expect(evening.envelope.streak).toMatchObject({ current: 2, extended: true })
+      expect(db.users.u1.lastStreakDay).toBe('2026-03-11')
+    })
+
+    it('spends a banked freeze on one missed day and says so', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null, currentStreak: 9, longestStreak: 9, lastStreakDay: '2026-03-10', streakFreezes: 1 } })
+      const result = await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-12T10:00:00Z')))
+      expect(result.envelope.streak).toEqual({ current: 10, longest: 10, extended: true, freezeUsed: true })
+      expect(db.users.u1).toMatchObject({ streakFreezes: 0, streakFreezeUsed: true })
+    })
+
+    it('earns a freeze at 7 days', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null, currentStreak: 6, longestStreak: 6, lastStreakDay: '2026-03-10' } })
+      await grant(db.tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-11T10:00:00Z')))
+      expect(db.users.u1).toMatchObject({ currentStreak: 7, streakFreezes: 1 })
+    })
+
+    it('does not count what the user only received: an endorsement, a team application, a connection they did not accept', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const now = at('2026-03-10T10:00:00Z')
+      await grant(db.tx, 'u1', 'EVIDENCE_ENDORSED', { sourceType: 'ENDORSEMENT', sourceId: 'e1:x', description: 'x', now })
+      await grant(db.tx, 'u1', 'TEAM_APPLICATION_ACCEPTED', { sourceType: 'TEAM_APPLICATION', sourceId: 'a1', description: 'x', now })
+      await grant(db.tx, 'u1', 'HACKATHON_WIN', { sourceType: 'HACKATHON', sourceId: 'h1', description: 'x', now })
+      const received = await grant(db.tx, 'u1', 'CONNECTION_ACCEPTED', { sourceType: 'CONNECTION', sourceId: 'c1', description: 'x', now, actor: false })
+      expect(received.envelope.streak).toEqual({ current: 0, longest: 0, extended: false, freezeUsed: false })
+      expect(db.users.u1).toMatchObject({ currentStreak: 0, lastStreakDay: null })
+      // The same award, as the one who acted, does count.
+      const acted = await grant(db.tx, 'u1', 'CONNECTION_ACCEPTED', { sourceType: 'CONNECTION', sourceId: 'c2', description: 'x', now })
+      expect(acted.envelope.streak).toMatchObject({ current: 1, extended: true })
+    })
+
+    it('does not count an achievement on its own', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const result = await grant(db.tx, 'u1', 'ACHIEVEMENT_EARNED', { sourceType: 'ACHIEVEMENT', sourceId: 'x', description: 'x', amount: 25 })
+      expect(result.envelope.streak).toMatchObject({ current: 0, extended: false })
+      expect(db.users.u1.lastStreakDay).toBeNull()
+    })
+
+    it('does not count an award that paid nothing: the daily cap, a duplicate', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const day1 = at('2026-03-10T10:00:00Z')
+      db.createdAt(day1)
+      for (const id of ['a', 'b', 'c']) await grant(db.tx, 'u1', 'PROJECT_CREATED', { ...project(id), now: day1 })
+      const day2 = at('2026-03-11T10:00:00Z')
+      // The same project again is a duplicate and pays nothing, so day 2 does not count.
+      await grant(db.tx, 'u1', 'PROJECT_CREATED', { ...project('a'), now: day2 })
+      expect(db.users.u1).toMatchObject({ currentStreak: 1, lastStreakDay: '2026-03-10' })
+    })
+
+    it('reports a lapsed streak as 0 for an award that is not an action of the user', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null, currentStreak: 12, longestStreak: 12, lastStreakDay: '2026-03-01' } })
+      const result = await grant(db.tx, 'u1', 'EVIDENCE_ENDORSED', { sourceType: 'ENDORSEMENT', sourceId: 'e1:x', description: 'x', now: at('2026-03-10T10:00:00Z') })
+      expect(result.envelope.streak).toEqual({ current: 0, longest: 12, extended: false, freezeUsed: false })
+      // The stored numbers are untouched until the user acts.
+      expect(db.users.u1.currentStreak).toBe(12)
+    })
+
+    it('announces STREAK_EXTENDED once per counting day, and USER_COMEBACK after 30 idle days', async () => {
+      const extended: unknown[] = []
+      const comebacks: unknown[] = []
+      const off = [
+        bus.onTransactional('STREAK_EXTENDED', async ({ payload }) => void extended.push(payload)),
+        bus.onTransactional('USER_COMEBACK', async ({ payload }) => void comebacks.push(payload)),
+      ]
+      try {
+        const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+        const { client } = db
+        await transactWithEvents(client, async (tx) => {
+          await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', at('2026-03-10T10:00:00Z')))
+          await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m2', at('2026-03-10T11:00:00Z')))
+        })
+        // The first ever action is not a comeback.
+        expect(extended).toEqual([{ userId: 'u1', current: 1, longest: 1, freezeUsedInRun: false }])
+        expect(comebacks).toEqual([])
+
+        await transactWithEvents(client, async (tx) => {
+          await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m3', at('2026-03-31T10:00:00Z')))
+        })
+        expect(comebacks).toEqual([])
+
+        await transactWithEvents(client, async (tx) => {
+          await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m4', at('2026-05-01T10:00:00Z')))
+        })
+        expect(comebacks).toEqual([{ userId: 'u1', idleDays: 31 }])
+        expect(extended).toHaveLength(3)
+      } finally {
+        off.forEach((unsubscribe) => unsubscribe())
+      }
+    })
+
+    it('merges the streak of several awards in one request', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const now = at('2026-03-10T10:00:00Z')
+      const { scope } = await transactWithEvents(db.client, async (tx) => {
+        await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m1', now))
+        await grant(tx, 'u1', 'MILESTONE_COMPLETED', mile('m2', now))
+      })
+      expect((await scope.rewardsFor(db.tx, 'u1')).streak).toEqual({ current: 1, longest: 1, extended: true, freezeUsed: false })
+    })
+
+    it('reports the stored streak for a request that earned nothing', async () => {
+      const db = fakeDatabase({ u1: { xp: 40, timezone: null, currentStreak: 3, longestStreak: 8, lastStreakDay: new Date().toISOString().slice(0, 10) } })
+      const { scope } = await transactWithEvents(db.client, async () => undefined)
+      expect(await scope.rewardsFor(db.tx, 'u1')).toMatchObject({ xpGained: 0, totalXp: 40, streak: { current: 3, longest: 8, extended: false, freezeUsed: false } })
+    })
+  })
+
+  describe('seasons', () => {
+    it('stamps every award with the active season', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } }, { season: { id: 'season-7' } })
+      await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
+      expect(db.rows[0].seasonId).toBe('season-7')
+    })
+
+    it('stamps nothing when no season is running', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } }, { season: null })
+      await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
+      expect(db.rows[0].seasonId).toBeNull()
+    })
+
+    it('looks for the newest active season', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
+      expect(db.tx.season.findFirst).toHaveBeenCalledWith({ where: { active: true }, orderBy: { number: 'desc' }, select: { id: true } })
+    })
+  })
+
+  describe('the leaderboards', () => {
+    it('are given each award after the transaction commits, with the season it was stamped with', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } }, { season: { id: 'season-7' } })
+      const at = new Date('2026-03-10T10:00:00Z')
+      await transactWithEvents(db.client, async (tx) => {
+        await grant(tx, 'u1', 'PROJECT_CREATED', { ...project('p1'), now: at })
+        expect(recordBoardXp).not.toHaveBeenCalled()
+      })
+      expect(recordBoardXp).toHaveBeenCalledTimes(1)
+      expect(recordBoardXp.mock.calls[0][2]).toEqual({ userId: 'u1', amount: 50, at, seasonId: 'season-7' })
+    })
+
+    it('hear nothing about an award that rolled back or paid nothing', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await expect(
+        transactWithEvents(db.client, async (tx) => {
+          await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))
+          throw new Error('later step failed')
+        })
+      ).rejects.toThrow()
+      expect(recordBoardXp).not.toHaveBeenCalled()
+
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p2'))))
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p2'))))
+      expect(recordBoardXp).toHaveBeenCalledTimes(1)
+    })
+
+    it('failing to update them does not fail the award', async () => {
+      recordBoardXp.mockRejectedValueOnce(new Error('redis is down'))
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const { scope } = await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))))
+      expect((await scope.rewardsFor(db.tx, 'u1')).xpGained).toBe(50)
+    })
+  })
+
+  describe('cached views of a user', () => {
+    it('are retired after the transaction commits, and not when it rolls back', async () => {
+      const cache = new MemoryCache()
+      setCache(cache)
+      await cache.set(statsCacheKey('u1'), '{"stale":true}')
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+
+      await expect(
+        transactWithEvents(db.client, async (tx) => {
+          await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))
+          throw new Error('later step failed')
+        })
+      ).rejects.toThrow()
+      expect(await cache.get(statsCacheKey('u1'))).toBe('{"stale":true}')
+      expect(await cache.get(heatmapVersionKey('u1'))).toBeNull()
+
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p2'))))
+      expect(await cache.get(statsCacheKey('u1'))).toBeNull()
+      expect(await cache.get(heatmapVersionKey('u1'))).toBe('1')
+    })
+
+    it('are not touched by an award that paid nothing', async () => {
+      const cache = new MemoryCache()
+      setCache(cache)
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))))
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))))
+      expect(await cache.get(heatmapVersionKey('u1'))).toBe('1')
     })
   })
 })

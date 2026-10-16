@@ -1,5 +1,6 @@
 import { INTEGRATION_BASE_URL } from './config'
 import { createClerkUser, createSession, mintToken } from './clerk-api'
+import { establishAccount } from './db'
 
 // A client identity. Signed-in jars carry a real Clerk session and mint real
 // session tokens (they last about 60 seconds) as needed; `req` sends the current
@@ -111,13 +112,18 @@ export interface TestUser {
  * lazy sync the server does for every new Clerk account. `userId` is the LOCAL
  * user id. `_password` is ignored: passwords are random and never needed.
  */
-export async function registerAndLogin(email: string, username: string, _password?: string): Promise<TestUser> {
+export async function registerAndLogin(email: string, username: string, _password?: string, options: { fresh?: boolean } = {}): Promise<TestUser> {
   const clerkUser = await createClerkUser(email, username)
   const sessionId = await createSession(clerkUser.clerkId)
   const jar = cookieJar(syntheticIp(), () => mintToken(sessionId))
 
   const me = await req(jar, 'GET', '/api/users/me')
   if (me.status !== 200 || !me.data?.id) throw new Error('sign-in failed: ' + JSON.stringify(me))
+
+  // Rewards that another person triggers only pay when that person's account is a week old and verified (src/lib/trust.ts),
+  // which a test account never is. Test accounts are made established, as the community the tests pretend to be in would be;
+  // a test of the gate itself asks for a `fresh` one.
+  if (!options.fresh) await establishAccount(me.data.id)
 
   return { jar, userId: me.data.id }
 }
@@ -126,4 +132,14 @@ let counter = 0
 export function uniqueSuffix(): string {
   counter += 1
   return `${Date.now()}${counter}`
+}
+
+/**
+ * Rebuilds the leaderboards from the XP log, the way the nightly job does. For tests that put XP rows straight
+ * into the database: the boards are a fast copy kept up to date by awards made through the engine, so a row
+ * written behind its back shows up on them only after a rebuild.
+ */
+export async function reconcileLeaderboards(adminJar: Jar): Promise<void> {
+  const res = await req(adminJar, 'POST', '/api/admin/jobs/leaderboards/reconcile')
+  if (res.status !== 200) throw new Error('leaderboard rebuild failed: ' + JSON.stringify(res))
 }

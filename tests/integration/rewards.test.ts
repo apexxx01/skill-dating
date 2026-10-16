@@ -43,7 +43,7 @@ describe('rewards engine', () => {
       tierChanged: false,
       achievements: [{ slug: 'first-project', name: 'First Project' }],
       questsCompleted: [],
-      streak: null,
+      streak: { current: 1, longest: 1, extended: true, freezeUsed: false }, // the first action of the user's own starts a streak
     })
     expect(await xpOf(u)).toBe(75)
     expect(await xpEventTotal(u)).toBe(75)
@@ -54,7 +54,10 @@ describe('rewards engine', () => {
     const project = (await createProject(u, 'Rows')).data
     const rows = await testPrisma.xPEvent.findMany({ where: { userId: u.userId }, orderBy: { createdAt: 'asc' } })
     const created = rows.find((row) => row.type === 'PROJECT_CREATED')!
-    expect(created).toMatchObject({ amount: 50, sourceType: 'PROJECT', sourceId: project.id, dedupeKey: `project:${project.id}`, seasonId: null })
+    expect(created).toMatchObject({ amount: 50, sourceType: 'PROJECT', sourceId: project.id, dedupeKey: `project:${project.id}` })
+    // Stamped with the season being played.
+    const season = await testPrisma.season.findFirstOrThrow({ where: { active: true }, orderBy: { number: 'desc' } })
+    expect(created.seasonId).toBe(season.id)
     const achievement = rows.find((row) => row.type === 'ACHIEVEMENT_EARNED')!
     expect(achievement).toMatchObject({ amount: 25, sourceType: 'ACHIEVEMENT', sourceId: 'first-project', dedupeKey: 'achievement:first-project' })
   })

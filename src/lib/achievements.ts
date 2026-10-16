@@ -1,10 +1,9 @@
-import type { RewardsEnvelope } from '@/types/api'
-import { ACHIEVEMENT_DEFINITIONS, type AchievementSlug } from './achievement-definitions'
-import { afterCommit, recordReward, type Db } from './events'
+import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition, type AchievementSlug } from './achievement-definitions'
+import { afterCommit, emit, recordReward, type Db } from './events'
 import { track } from './infra/analytics'
 import { recordActivity } from './activity'
 import { grant } from './rewards'
-import { emptyEnvelope } from './rewards-envelope'
+import { emptyEnvelope, type EnvelopeDraft } from './rewards-envelope'
 
 /**
  * Grants an achievement to a user, idempotently. Always call this from
@@ -25,9 +24,12 @@ import { emptyEnvelope } from './rewards-envelope'
 export async function grantAchievement(
   tx: Db,
   userId: string,
-  slug: AchievementSlug
-): Promise<{ granted: boolean; envelope?: RewardsEnvelope }> {
-  const def = ACHIEVEMENT_DEFINITIONS[slug]
+  slug: AchievementSlug,
+  /** Where the counter stood, stored with the unlock. Defaults to the target met exactly. */
+  progress?: { current: number; target: number }
+): Promise<{ granted: boolean; envelope?: EnvelopeDraft }> {
+  const def: AchievementDefinition = ACHIEVEMENT_DEFINITIONS[slug]
+  const target = def.criteria.target
 
   const achievement = await tx.achievement.upsert({
     where: { slug },
@@ -41,7 +43,7 @@ export async function grantAchievement(
   // check, after which one fails on the constraint and aborts its whole
   // enclosing transaction (the project, update or milestone it belongs to).
   const inserted = await tx.userAchievement.createMany({
-    data: [{ userId, achievementId: achievement.id }],
+    data: [{ userId, achievementId: achievement.id, progress: progress ?? { current: target, target } }],
     skipDuplicates: true,
   })
   if (inserted.count === 0) {
@@ -77,9 +79,11 @@ export async function grantAchievement(
   })
 
   // The XP part was recorded by grant(); this adds the unlock itself to what the request reports.
-  const envelope: RewardsEnvelope = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
+  const envelope: EnvelopeDraft = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
   recordReward(tx, userId, envelope)
   afterCommit(tx, () => track(userId, 'achievement_earned', { slug, xpReward: achievement.xpReward }))
+  // Announced last, so what listens (the cosmetics an achievement unlocks) is merged in after the unlock itself.
+  await emit(tx, 'ACHIEVEMENT_UNLOCKED', { userId, slug })
 
   return { granted: true, envelope }
 }

@@ -23,7 +23,10 @@ export const cursorParam = z.string().min(1).max(400).optional()
 export type SortValue = string | number | Date
 export type Direction = 'asc' | 'desc'
 
-type Encoded = { k: 'keyset'; s: { t: 'd' | 'n' | 's'; v: string | number }; id: string } | { k: 'offset'; o: number }
+type Encoded =
+  | { k: 'keyset'; s: { t: 'd' | 'n' | 's'; v: string | number }; id: string }
+  | { k: 'offset'; o: number }
+  | { k: 'rank'; r: number; m?: string }
 
 function pack(value: Encoded): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
@@ -33,6 +36,16 @@ function unpack(raw: string): Encoded | null {
   try {
     const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Encoded
     if (value && value.k === 'offset' && Number.isInteger(value.o) && value.o >= 0 && value.o <= 1_000_000) return value
+    if (
+      value &&
+      value.k === 'rank' &&
+      Number.isInteger(value.r) &&
+      value.r >= 0 &&
+      value.r <= 100_000_000 &&
+      (value.m === undefined || (typeof value.m === 'string' && value.m.length > 0 && value.m.length <= 128))
+    ) {
+      return value
+    }
     if (
       value &&
       value.k === 'keyset' &&
@@ -233,4 +246,29 @@ export const NEXT_CURSOR_HEADER = 'X-Next-Cursor'
 export function withNextCursor<R extends Response>(response: R, nextCursor: string | null): R {
   if (nextCursor) response.headers.set(NEXT_CURSOR_HEADER, nextCursor)
   return response
+}
+
+// --- Rank ----------------------------------------------------------------------------------
+
+/**
+ * A cursor into a ranked list, such as a leaderboard. It remembers the rank of the last row returned and
+ * who that was, so when scores move between pages the next page starts after THAT person if they are still
+ * on the board, and at the same rank if not: nobody is shown twice because somebody overtook them.
+ */
+export interface RankPosition {
+  /** The rank of the last row returned (1 is first). */
+  rank: number
+  /** Who held it. */
+  member?: string
+}
+
+export function encodeRankCursor(position: RankPosition): string {
+  return pack({ k: 'rank', r: position.rank, ...(position.member ? { m: position.member } : {}) })
+}
+
+/** The position a rank cursor stands for, or null when it is not a valid rank cursor. */
+export function decodeRankCursor(raw: string): RankPosition | null {
+  const value = unpack(raw)
+  if (!value || value.k !== 'rank') return null
+  return { rank: value.r, ...(value.m ? { member: value.m } : {}) }
 }

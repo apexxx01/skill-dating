@@ -76,8 +76,10 @@ export async function endorsementSummaries(
 
 // Rewards for being endorsed (the XP and the `endorsed` achievement) are the one
 // thing worth farming with throwaway accounts, so they are restricted:
-//  - nobody is paid for endorsing themselves or across a block;
-//  - the endorser must have a verified account (anything above NONE; the
+//  - the endorser must be a trusted counterparty (an account a week old with a verified
+//    email, not blocked either way, not the owner: src/lib/trust.ts, checked by the
+//    rewards subscriber before this runs);
+//  - the endorser must also have a verified login (anything above NONE; the
 //    levels are ordered, and a password sign-up stays NONE until it signs in
 //    through a provider that proves the email address);
 //  - one endorser can trigger a limited number of rewards per rolling day, so
@@ -88,13 +90,10 @@ export const MAX_REWARDED_ENDORSEMENTS_PER_ENDORSER_PER_DAY = 10
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * Whether being endorsed by `endorserId` may pay `ownerId` the `endorsed`
- * achievement. The rewards subscriber asks this before granting it.
+ * The endorsement-specific rules for paying `ownerId` because `endorserId` endorsed them: a verified login and a
+ * daily limit. The general rule for rewards other people trigger (trust.ts) has already been applied.
  */
 export async function endorsementRewardAllowed(tx: Prisma.TransactionClient, ownerId: string, endorserId: string): Promise<boolean> {
-  if (ownerId === endorserId) return false
-  if (await blockRelation(tx, endorserId, ownerId)) return false
-
   const endorser = await tx.user.findUnique({ where: { id: endorserId }, select: { verificationLevel: true } })
   if (!endorser || endorser.verificationLevel === 'NONE') return false
 

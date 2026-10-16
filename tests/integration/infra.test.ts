@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { INTEGRATION_BASE_URL } from './config'
 import { req, registerAndLogin, uniqueSuffix, syntheticIp, type TestUser } from './helpers'
 import { cleanupTestUsers, testPrisma } from './db'
+import { jobs } from '../../src/lib/infra/jobs'
 
 // The realtime token endpoint and the Inngest route, over HTTP. The server in
 // this suite has no Ably or Inngest credentials, so it runs the in-process
@@ -113,7 +114,8 @@ describe('Inngest route', () => {
     const res = await fetch(INTEGRATION_BASE_URL + '/api/inngest', { headers: { 'x-forwarded-for': syntheticIp() } })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.function_count).toBe(1)
+    expect(body.function_count).toBe(Object.keys(jobs).length)
+    expect(body.function_count).toBeGreaterThanOrEqual(3)
     expect(body.has_event_key).toBe(false)
     expect(body.has_signing_key).toBe(false)
   })

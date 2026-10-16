@@ -18,6 +18,12 @@ export interface JobDefinition<S extends z.ZodTypeAny = z.ZodTypeAny> {
   schema: S
   /** Extra attempts after the first failure. Default 3. */
   retries?: number
+  /**
+   * A cron expression (UTC), for a job that runs on its own: Inngest triggers it on the schedule
+   * as well as on its event. The payload of a scheduled run is empty, so the schema must accept `{}`.
+   * The in-process queue never schedules; call it directly (see POST /api/admin/jobs/{name}).
+   */
+  schedule?: string
   // Method syntax on purpose: it keeps JobDefinition<SpecificSchema> assignable to the registry's JobDefinition.
   handler(context: { data: z.output<S> }): Promise<unknown>
 }
@@ -35,6 +41,54 @@ export const jobs = {
   'system/ping': defineJob({
     schema: z.object({ note: z.string().max(200).optional() }),
     handler: async ({ data }) => ({ pong: true, note: data.note ?? null }),
+  }),
+  // Closes the active season when its time is up, writes the final standings and opens the next
+  // season (src/lib/seasons.ts). Hourly: a season may run over its end by up to an hour.
+  'seasons/rollover': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 * * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/seasons')).runSeasonRollover(),
+  }),
+  // Recomputes every achievement's rarity: the share of users active in the last 30 days who have it
+  // (src/lib/achievement-rarity.ts). Nightly.
+  'achievements/rarity': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '30 3 * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/achievement-rarity')).runRarityJob(),
+  }),
+  // Rebuilds every leaderboard of the current periods from the XP log and swaps each in whole
+  // (src/lib/leaderboard-rebuild.ts). Nightly, after every deploy (npm run postdeploy), and once when boards are found never to have been built.
+  'leaderboards/reconcile': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 4 * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/leaderboard-write')).runReconcileJob(),
+  }),
+  // Moves one person's entries after they changed where they are or switched leaderboards off or on.
+  // `previous` is what they were before, so the boards they have left can be cleared.
+  'leaderboards/refresh-user': defineJob({
+    schema: z.object({
+      userId: z.string().min(1).max(64),
+      previous: z
+        .object({
+          hidden: z.boolean(),
+          countryCode: z.string().max(2).nullable(),
+          cityKey: z.string().max(100).nullable(),
+          campusKey: z.string().max(100).nullable(),
+        })
+        .nullable()
+        .default(null),
+    }),
+    handler: async ({ data }) => (await import('@/lib/leaderboard-write')).runRefreshUserJob(data.userId, data.previous),
+  }),
+  // Gives people who earned things before cosmetics existed the cosmetics those earn (src/lib/cosmetics.ts).
+  // Run it once after deploying; it is safe to repeat. Pass the `next` it returns as `after` to continue a big run.
+  'cosmetics/backfill': defineJob({
+    schema: z.object({ after: z.string().min(1).max(64).optional(), limit: z.number().int().min(1).max(5000).optional() }).default({}),
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/cosmetics')).runCosmeticsBackfill(data),
   }),
 } satisfies JobRegistry
 
@@ -122,10 +176,10 @@ export function inngestFunctions(client: Inngest = getInngest(), registry: JobRe
       {
         // Function ids are slugs; the event name keeps its slash.
         id: name.replace(/[^a-zA-Z0-9]+/g, '-'),
-        triggers: [{ event: name }],
+        triggers: [{ event: name }, ...(definition.schedule ? [{ cron: definition.schedule }] : [])],
         retries: (definition.retries ?? DEFAULT_RETRIES) as InngestRetries,
       },
-      async ({ event }) => runJob(registry, name, event.data)
+      async ({ event }) => runJob(registry, name, event.data ?? {})
     )
   )
 }

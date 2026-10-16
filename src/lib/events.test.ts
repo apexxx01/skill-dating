@@ -7,7 +7,13 @@ import { envelopeForGain } from './rewards-envelope'
 import { setErrorReporter } from './log'
 
 function fakeClient(xp = 0) {
-  const tx = { user: { findUnique: vi.fn().mockResolvedValue({ xp }) } }
+  const tx = {
+    user: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ xp, timezone: null, currentStreak: 0, longestStreak: 0, lastStreakDay: null, streakFreezes: 0, streakFreezeUsed: false }),
+    },
+  }
   const client = {
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(tx)),
     user: tx.user,
@@ -21,18 +27,23 @@ describe('event names', () => {
   it('lists every event the platform stage defines', () => {
     expect([...DOMAIN_EVENT_NAMES].sort()).toEqual(
       [
+        'ACHIEVEMENT_UNLOCKED',
         'CONNECTION_ACCEPTED',
         'EVIDENCE_ADDED',
         'EVIDENCE_ENDORSED',
         'HACKATHON_JOINED',
         'HACKATHON_WON',
+        'MESSAGE_REPLIED',
         'MESSAGE_SENT_FIRST_IN_CONNECTION',
         'MILESTONE_COMPLETED',
         'PROJECT_CREATED',
         'PROJECT_SHIPPED',
         'PROJECT_UPDATE_POSTED',
+        'STREAK_EXTENDED',
         'TEAM_APPLICATION_ACCEPTED',
         'TEAM_FORMED',
+        'TIER_REACHED',
+        'USER_COMEBACK',
       ].sort()
     )
   })
@@ -219,10 +230,13 @@ describe('rewards in a scope', () => {
       bus.recordReward(tx, 'u1', envelopeForGain(50, 60, [{ slug: 'a', name: 'A' }]))
       bus.recordReward(tx, 'u2', envelopeForGain(0, 10))
     })
-    const reward = await scope.rewardsFor({} as Db, 'u1')
+    const { tx: reader } = fakeClient()
+    const reward = await scope.rewardsFor(reader, 'u1')
     expect(reward).toMatchObject({ xpGained: 110, totalXp: 110, oldLevel: 1, newLevel: 4, leveledUp: true })
     expect(reward.achievements).toEqual([{ slug: 'a', name: 'A' }])
-    expect((await scope.rewardsFor({} as Db, 'u2')).xpGained).toBe(10)
+    expect((await scope.rewardsFor(reader, 'u2')).xpGained).toBe(10)
+    // Nothing in the transaction knew the streak, so it is read from the user.
+    expect(reward.streak).toEqual({ current: 0, longest: 0, extended: false, freezeUsed: false })
   })
 
   it('reads the current XP for a user who earned nothing', async () => {
@@ -286,7 +300,13 @@ describe('the transaction of an event', () => {
       })
     const emitters = walk(SRC).filter((file) => /\bemit\(\s*tx\b/.test(fs.readFileSync(file, 'utf-8')))
     expect(emitters.length).toBeGreaterThanOrEqual(10)
-    const without = emitters.filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8'))).map((file) => path.relative(SRC, file))
+    // The rewards engine and the achievement grant run on the transaction their caller opened (always with
+    // transactWithEvents); they open none themselves.
+    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts')])
+    const without = emitters
+      .filter((file) => !borrowsItsTransaction.has(file))
+      .filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8')))
+      .map((file) => path.relative(SRC, file))
     expect(without).toEqual([])
   })
 })

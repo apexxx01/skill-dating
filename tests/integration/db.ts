@@ -12,6 +12,14 @@ export const testPrisma = new PrismaClient({
   },
 })
 
+/** Makes an account one the platform trusts as a counterparty: a week old (and a day) with a verified email. */
+export async function establishAccount(userId: string, over: { ageDays?: number; verified?: boolean } = {}) {
+  await testPrisma.user.update({
+    where: { id: userId },
+    data: { createdAt: new Date(Date.now() - (over.ageDays ?? 8) * 24 * 60 * 60 * 1000), isEmailVerified: over.verified ?? true },
+  })
+}
+
 export async function promoteToAdmin(userId: string) {
   await testPrisma.user.update({ where: { id: userId }, data: { role: 'ADMIN' } })
 }

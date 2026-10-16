@@ -3,8 +3,10 @@ import {
   cursorParam,
   decodeKeysetCursor,
   decodeOffsetCursor,
+  decodeRankCursor,
   encodeKeysetCursor,
   encodeOffsetCursor,
+  encodeRankCursor,
   keysetOrderBy,
   keysetPage,
   keysetWhere,
@@ -347,5 +349,36 @@ describe('withNextCursor', () => {
     expect(withNextCursor(new Response('[]'), 'abc').headers.get(NEXT_CURSOR_HEADER)).toBe('abc')
     expect(withNextCursor(new Response('[]'), null).headers.get(NEXT_CURSOR_HEADER)).toBeNull()
     expect(NEXT_CURSOR_HEADER).toBe('X-Next-Cursor')
+  })
+})
+
+describe('rank cursors', () => {
+  it('round-trips a rank with and without the member who held it', () => {
+    expect(decodeRankCursor(encodeRankCursor({ rank: 20, member: 'user-9' }))).toEqual({ rank: 20, member: 'user-9' })
+    expect(decodeRankCursor(encodeRankCursor({ rank: 0 }))).toEqual({ rank: 0 })
+    expect(decodeRankCursor(encodeRankCursor({ rank: 5_000_000, member: 'x' }))).toEqual({ rank: 5_000_000, member: 'x' })
+  })
+
+  it('is opaque and is not a keyset or offset cursor', () => {
+    const cursor = encodeRankCursor({ rank: 20, member: 'user-9' })
+    expect(cursor).not.toContain('user-9')
+    expect(decodeKeysetCursor(cursor)).toBeNull()
+    expect(decodeOffsetCursor(cursor)).toBeNull()
+    expect(decodeRankCursor(encodeOffsetCursor(20))).toBeNull()
+    expect(decodeRankCursor(encodeKeysetCursor('a', 'b'))).toBeNull()
+  })
+
+  it('refuses anything that is not a well-formed rank cursor', () => {
+    const forge = (value: unknown) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+    expect(decodeRankCursor('garbage')).toBeNull()
+    expect(decodeRankCursor('')).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: -1 }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 1.5 }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 'five' }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 1e12 }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 3, m: 7 }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 3, m: '' }))).toBeNull()
+    expect(decodeRankCursor(forge({ k: 'rank', r: 3, m: 'x'.repeat(129) }))).toBeNull()
+    expect(decodeRankCursor(forge({ r: 3 }))).toBeNull()
   })
 })
