@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { isValidTimeZone } from '@/lib/time'
 import { normalizeCountryCode, normalizePlace, placeKey } from '@/lib/places'
+import { parseBirthDate } from '@/lib/matching/dating'
 
 // The profile fields that decide where a person appears and what others can see:
 // their time zone (which days, quests and caps follow), where they are (for the
@@ -24,6 +25,9 @@ export const profileSettingsSchema = z
     campus: z.string().max(200).nullable(),
     hideFromLeaderboards: z.boolean(),
     showActivity: z.boolean(),
+    // PRIVATE: shown to nobody but the owner, here. Only used to check that someone is 18 or older for dating. Set once, then locked
+    // (a minor must not be able to change it to an adult's); it cannot be cleared.
+    birthDate: z.string().refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15'),
   })
   .partial()
   .strict()
@@ -38,6 +42,8 @@ export interface ProfileSettings {
   campus: string | null
   hideFromLeaderboards: boolean
   showActivity: boolean
+  /** "YYYY-MM-DD", or null until it is set. Never part of anybody else's view of this person. */
+  birthDate: string | null
 }
 
 export const DEFAULT_PROFILE_SETTINGS: ProfileSettings = {
@@ -47,6 +53,7 @@ export const DEFAULT_PROFILE_SETTINGS: ProfileSettings = {
   campus: null,
   hideFromLeaderboards: false,
   showActivity: true,
+  birthDate: null,
 }
 
 /** The columns of Profile that follow from the request: tidied text and its comparable key together. */

@@ -41,6 +41,17 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+// What a person can be looking for in the matching engine (src/lib/matching). MENTOR and MENTEE are the two sides of one
+// relationship; the others pair with themselves. DATING is separate: it never mixes with the rest, in either direction.
+enum MatchType {
+  COFOUNDER
+  HACKATHON_TEAMMATE
+  COLLABORATOR
+  MENTOR
+  MENTEE
+  DATING
+}
+
 enum TeamRole {
   OWNER
   ADMIN
@@ -151,6 +162,9 @@ model User {
   rank                 Int               @default(0)
   reputationScore      Int               @default(0)
   lastActiveAt         DateTime          @default(now())
+  // PRIVATE. Only ever read to check that someone is 18 or older for DATING, and returned to nobody but the owner on
+  // their own profile read (GET /api/users/me/profile). Set once and then locked. Wiped when the account is deleted.
+  birthDate            DateTime?         @db.Date
   // What the user wears: { title, frame, banner }, each the slug of a cosmetic they own (or absent).
   equipped             Json              @default("{}")
   // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their
@@ -210,6 +224,7 @@ model User {
   counters            UserCounter[]
   progressTicks       ProgressTick[]
   cosmetics           UserCosmetic[]
+  matchingProfile     MatchingProfile?
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -251,37 +266,37 @@ model VerificationToken {
 }
 
 model Profile {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  headline         String?
-  bio              String?  @db.Text
-  location         String?
-  timezone         String?
-  availability     String?
-  builderRole      String?
-  website          String?
-  githubUrl        String?
-  portfolioUrl     String?
-  linkedinUrl      String?
-  twitterUrl       String?
-  showEmail        Boolean  @default(false)
-  showLocation     Boolean  @default(true)
-  showAvailability Boolean  @default(true)
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline             String?
+  bio                  String?  @db.Text
+  location             String?
+  timezone             String?
+  availability         String?
+  builderRole          String?
+  website              String?
+  githubUrl            String?
+  portfolioUrl         String?
+  linkedinUrl          String?
+  twitterUrl           String?
+  showEmail            Boolean  @default(false)
+  showLocation         Boolean  @default(true)
+  showAvailability     Boolean  @default(true)
   // Where the person is, for the country, city and campus leaderboards (see src/lib/places.ts).
   // countryCode is ISO 3166-1 alpha-2. city and campus hold tidied free text; the *Key columns
   // hold the comparable form ("São Paulo" -> "sao-paulo"), and are what the boards group by.
-  countryCode      String?
-  city             String?
-  cityKey          String?
-  campus           String?
-  campusKey        String?
+  countryCode          String?
+  city                 String?
+  cityKey              String?
+  campus               String?
+  campusKey            String?
   // Privacy. Opting out of leaderboards removes the person from every board and from every rank
   // others can see; hiding activity keeps the contribution heatmap to themselves.
-  hideFromLeaderboards Boolean @default(false)
-  showActivity     Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  hideFromLeaderboards Boolean  @default(false)
+  showActivity         Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@index([countryCode])
   @@index([countryCode, cityKey])
@@ -596,22 +611,22 @@ model ChallengeAttempt {
 }
 
 model Achievement {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String   @db.Text
-  icon        String?
-  category    String
-  xpReward    Int      @default(0)
-  criteria    Json // { type, conditions }
-  isSecret    Boolean  @default(false)
-  order       Int      @default(0)
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String    @db.Text
+  icon            String?
+  category        String
+  xpReward        Int       @default(0)
+  criteria        Json // { type, conditions }
+  isSecret        Boolean   @default(false)
+  order           Int       @default(0)
   // The share of users active in the last 30 days who have earned it, 0 to 1 (smaller is rarer).
   // Null until the nightly job (achievements/rarity) has run once.
   rarity          Float?
   rarityUpdatedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   userAchievements UserAchievement[]
 }
@@ -747,18 +762,18 @@ model XPEvent {
 // one and opens the next in the same transaction). Every XPEvent is stamped with the season it was
 // earned in, so a season's standings are always a sum over the log.
 model Season {
-  id        String    @id @default(cuid())
-  number    Int       @unique
-  name      String
-  startsAt  DateTime
-  endsAt    DateTime
-  active    Boolean   @default(false)
+  id               String    @id @default(cuid())
+  number           Int       @unique
+  name             String
+  startsAt         DateTime
+  endsAt           DateTime
+  active           Boolean   @default(false)
   // Set when the rollover job has closed the season and written its final standings.
-  closedAt  DateTime?
+  closedAt         DateTime?
   // Set when the season's cosmetic rewards (title, frames, participation badge) have been granted. Null until then;
   // the rollover job grants them for every closed season that is still null.
   rewardsGrantedAt DateTime?
-  createdAt DateTime  @default(now())
+  createdAt        DateTime  @default(now())
 
   xpEvents  XPEvent[]
   standings SeasonStanding[]
@@ -1185,4 +1200,35 @@ model ProductEvent {
 
   @@index([name, createdAt])
   @@index([userId, name])
+}
+
+// How a person wants to be matched (src/lib/matching). One row per user, created by the first PUT /api/matching/profile.
+model MatchingProfile {
+  id               String      @id @default(cuid())
+  userId           String      @unique
+  // Never empty once saved. DATING is only ever present for someone who passed the dating gate (src/lib/matching/dating.ts).
+  connectionTypes  MatchType[]
+  // [{ tag, hackathonId?, expiresAt? }], at most 10.
+  intentTags       Json        @default("[]")
+  hoursPerWeek     Int?
+  availableFrom    DateTime?   @db.Date
+  remoteOk         Boolean     @default(true)
+  // Only match with people in the same city (Profile.cityKey).
+  cityOnly         Boolean     @default(false)
+  // Skill slugs.
+  lookingForSkills String[]    @default([])
+  // Answers to the fixed working-style quiz: { questionId: optionId }.
+  workingStyle     Json        @default("{}")
+  // "HH:MM" in the person's own time zone: when their daily drops arrive.
+  dropTimeLocal    String      @default("09:00")
+  paused           Boolean     @default(false)
+  // The local date ("YYYY-MM-DD", in their zone then) that drops were last generated for, so a day is generated once.
+  lastDropDate     String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([paused, dropTimeLocal])
+  @@index([connectionTypes], type: Gin)
 }

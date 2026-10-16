@@ -882,6 +882,11 @@ export interface ProfileSettings {
   hideFromLeaderboards: boolean
   /** false: other people get an empty heatmap for this user. */
   showActivity: boolean
+  /**
+   * "YYYY-MM-DD", PRIVATE: only this endpoint, for the owner, ever returns it. Needed to use dating (18 or older). Set once and then
+   * locked: sending a different date afterwards is `409 BIRTH_DATE_LOCKED`. It cannot be cleared.
+   */
+  birthDate: string | null
 }
 
 // ---------------------------------------------------------------------------

@@ -125,6 +125,12 @@ export const ERROR_CATALOG = {
   COSMETIC_NOT_OWNED: { status: 403, message: 'You have not earned this cosmetic' },
   COSMETIC_WRONG_SLOT: { status: 400, message: 'This cosmetic does not go in that slot' },
 
+  // --- Matching ----------------------------------------------------------------------------
+  DATING_BIRTH_DATE_REQUIRED: { status: 403, message: 'Add your date of birth in your profile settings to use dating' },
+  DATING_UNDERAGE: { status: 403, message: 'Dating is only available to people who are 18 or older' },
+  DATING_VERIFICATION_REQUIRED: { status: 403, message: 'Dating needs a verified email and either a verified phone number or a connected GitHub account' },
+  BIRTH_DATE_LOCKED: { status: 409, message: 'Your date of birth is already set and cannot be changed' },
+
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },
   HACKATHON_ALREADY_REGISTERED: { status: 400, message: 'Already registered' },

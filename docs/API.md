@@ -349,10 +349,10 @@ Users blocked in either direction are left out of the list but nobody is renumbe
 Streaks, achievements, quests, the player card, cosmetics and seasons. The rules are in [GAMIFICATION.md](GAMIFICATION.md).
 
 ### `GET /api/users/me/profile`
-The caller's location and privacy settings: `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }`. Nothing is created by reading; a user who never saved gets the defaults (`timezone`, `countryCode`, `city`, `campus` null; `hideFromLeaderboards` false; `showActivity` true).
+The caller's location and privacy settings: `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity, birthDate }`. Nothing is created by reading; a user who never saved gets the defaults (`timezone`, `countryCode`, `city`, `campus`, `birthDate` null; `hideFromLeaderboards` false; `showActivity` true). `birthDate` (`YYYY-MM-DD`) is **private**: this read, for the owner, is the only place any route returns it.
 
 ### `PATCH /api/users/me/profile`
-**Body (at least one):** `{ timezone?(IANA name or null), countryCode?(ISO 3166-1 alpha-2 or null), city?(≤200, free text or null), campus?(≤200, free text or null), hideFromLeaderboards?, showActivity? }`. Unknown keys are refused. Text is tidied and given a comparable key (see Leaderboards). `timezone` decides which day a streak, a quest and a daily cap use. A change of place or of `hideFromLeaderboards` queues a job that moves the person's entries on the boards; `showActivity: false` hides the heatmap and the streak from everyone else. **Response:** the settings.
+**Body (at least one):** `{ timezone?(IANA name or null), countryCode?(ISO 3166-1 alpha-2 or null), city?(≤200, free text or null), campus?(≤200, free text or null), hideFromLeaderboards?, showActivity?, birthDate? }`. Unknown keys are refused. `birthDate` is a real date in the past; it is set once and then locked (a different date afterwards is `409 BIRTH_DATE_LOCKED`, the same date again is fine, and it cannot be cleared). It is used only to check that someone is 18 or older for dating (see [MATCHING.md](MATCHING.md)) and is wiped when the account is deleted. Text is tidied and given a comparable key (see Leaderboards). `timezone` decides which day a streak, a quest and a daily cap use. A change of place or of `hideFromLeaderboards` queues a job that moves the person's entries on the boards; `showActivity: false` hides the heatmap and the streak from everyone else. **Response:** the settings.
 
 ### `GET /api/users/[id]/heatmap`
 **Query:** `days` (1 to 365, default 365). XP and actions per **local day of the profile owner**, for days that had any, oldest first: `{ timezone, days, from, to, hidden, items: [{ date, xp, actions }] }`. `actions` counts what the person did; the XP of the achievements and quests it led to adds to `xp` only. Cached 10 minutes and retired by every award. `404 USER_NOT_FOUND` for a missing or deleted user, or one who has blocked the caller (the person who blocked can still open it); `hidden: true` with no items when the owner keeps their activity private (never for your own).
@@ -476,6 +476,21 @@ Everything the dashboard page shows, through the same rules as every other endpo
 **Response:** `{ currentBuild, userProjects (active, ≤5), userTeams, hackathonParticipations, userQuests, recentActivities, xpEvents, userSkills, recommendedBuilders (with compatibility and commonSkills), recruitingTeams, upcomingHackathons }`
 
 ---
+
+## Matching
+
+The matching engine's profile and quiz. The rules (scoring, daily drops, the dating gate, anti-spam) are in [MATCHING.md](MATCHING.md).
+
+### `GET /api/matching/quiz`
+The fixed working-style quiz: `{ version, questions: [{ id, prompt, options: [{ id, label }] }] }`. The options of a question are ordered from one end of a spectrum to the other. Answers go in `workingStyle` of the profile as `{ [questionId]: optionId }`; any subset of the questions may be answered.
+
+### `GET /api/matching/profile`
+The caller's matching profile: `{ exists, profile, dating }`. `profile` is `{ connectionTypes, intentTags, hoursPerWeek, availableFrom, remoteOk, cityOnly, lookingForSkills, workingStyle, dropTimeLocal, paused }`, with defaults (and no connection types) until the first save; nothing is created by reading. `dating` is `{ eligible, blockers, minAge }`: whether the dating gate is open for the caller and, if not, what is missing (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`).
+
+### `PUT /api/matching/profile`
+Saves the whole profile (what is left out takes its default). **Body:** `{ connectionTypes: ("COFOUNDER"|"HACKATHON_TEAMMATE"|"COLLABORATOR"|"MENTOR"|"MENTEE"|"DATING")[] (1 to 6, each once), intentTags?: { tag, hackathonId?, expiresAt? }[] (≤10; tag is 2 to 40 characters of a-z, 0-9 and "-"; expiresAt is a future ISO 8601 instant within a year), hoursPerWeek?: 1..100|null, availableFrom?: "YYYY-MM-DD"|null, remoteOk?, cityOnly?, lookingForSkills?: string[] (skill slugs, ≤20, each must exist), workingStyle?: { [questionId]: optionId }, dropTimeLocal?: "HH:MM" (default "09:00", in the caller's own time zone), paused? }`. Unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED` (an unknown skill or hackathon is reported in `details`).
+
+**DATING is opt-in and gated.** Saving a profile with `DATING` needs a date of birth on file that makes the caller 18 or older, a verified email, and a verified phone or a connected GitHub account: `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` or `403 DATING_VERIFICATION_REQUIRED` (`details.blockers` lists everything missing), and nothing is saved. Set the date of birth with `PATCH /api/users/me/profile`.
 
 ## Realtime
 
@@ -648,6 +663,10 @@ and a unit test fails if a code is missing here.
 | `JOB_NOT_FOUND` | 404 | No such job |
 | `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
 | `COSMETIC_WRONG_SLOT` | 400 | This cosmetic does not go in that slot |
+| `DATING_BIRTH_DATE_REQUIRED` | 403 | Add your date of birth in your profile settings to use dating |
+| `DATING_UNDERAGE` | 403 | Dating is only available to people who are 18 or older |
+| `DATING_VERIFICATION_REQUIRED` | 403 | Dating needs a verified email and either a verified phone number or a connected GitHub account |
+| `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
 
 ---
 
