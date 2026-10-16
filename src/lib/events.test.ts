@@ -27,6 +27,7 @@ describe('event names', () => {
   it('lists every event the platform stage defines', () => {
     expect([...DOMAIN_EVENT_NAMES].sort()).toEqual(
       [
+        'ACHIEVEMENT_UNLOCKED',
         'CONNECTION_ACCEPTED',
         'EVIDENCE_ADDED',
         'EVIDENCE_ENDORSED',
@@ -41,6 +42,7 @@ describe('event names', () => {
         'STREAK_EXTENDED',
         'TEAM_APPLICATION_ACCEPTED',
         'TEAM_FORMED',
+        'TIER_REACHED',
         'USER_COMEBACK',
       ].sort()
     )
@@ -298,8 +300,9 @@ describe('the transaction of an event', () => {
       })
     const emitters = walk(SRC).filter((file) => /\bemit\(\s*tx\b/.test(fs.readFileSync(file, 'utf-8')))
     expect(emitters.length).toBeGreaterThanOrEqual(10)
-    // The rewards engine runs on the transaction its caller opened (always with transactWithEvents); it opens none itself.
-    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts')])
+    // The rewards engine and the achievement grant run on the transaction their caller opened (always with
+    // transactWithEvents); they open none themselves.
+    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts')])
     const without = emitters
       .filter((file) => !borrowsItsTransaction.has(file))
       .filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8')))

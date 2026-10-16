@@ -1,5 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import type { PlayerCard } from '@/types/api'
+import { COSMETIC_BY_SLUG } from '@/lib/cosmetic-definitions'
+import { readEquipped } from '@/lib/cosmetics'
 import { getCache, type Cache } from '@/lib/infra/cache'
 import { boardKey, scopesOf } from '@/lib/leaderboard-boards'
 import { ensureBoardsBuilt } from '@/lib/leaderboard-read'
@@ -23,7 +25,7 @@ const TOP_ACHIEVEMENTS = 3
 export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now: Date = new Date()): Promise<PlayerCard | null> {
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { id: true, xp: true, timezone: true, deletedAt: true, currentStreak: true, longestStreak: true, lastStreakDay: true, streakFreezes: true, streakFreezeUsed: true },
+    select: { id: true, xp: true, timezone: true, deletedAt: true, equipped: true, currentStreak: true, longestStreak: true, lastStreakDay: true, streakFreezes: true, streakFreezeUsed: true },
   })
   if (!user || user.deletedAt) return null
 
@@ -58,6 +60,8 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
   }
 
   const level = levelFor(user.xp)
+  const equipped = readEquipped(user.equipped)
+  const worn = (slug: string | null) => (slug ? { slug, name: COSMETIC_BY_SLUG.get(slug)!.name } : null)
   const state = streakFromColumns(user)
   // The rarest first: a smaller share of people has it. An unknown rarity (the nightly job has not run) sorts last, then by reward.
   const top = [...earned]
@@ -72,6 +76,11 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
     tier: level.tier,
     progress: { xpIntoLevel: level.xpIntoLevel, xpForNextLevel: level.xpForNextLevel, fraction: level.progress },
     ranks,
+    equipped: {
+      title: worn(equipped.title),
+      frame: worn(equipped.frame),
+      banner: worn(equipped.banner),
+    },
     streak: { current: effectiveStreak(state, streakDay(now, user.timezone)), longest: state.longest, freezes: state.freezes, lastDay: state.lastDay },
     topAchievements: top,
     counts: {

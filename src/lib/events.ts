@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
-import type { RewardsEnvelope } from '@/types/api'
+import type { RewardsEnvelope, Tier } from '@/types/api'
 import { log } from '@/lib/log'
 import { completeEnvelope, emptyEnvelope, mergeEnvelopes, type EnvelopeDraft } from '@/lib/rewards-envelope'
 import { readUserStreak, steadyStatus } from '@/lib/streak-status'
@@ -48,6 +48,10 @@ export interface DomainEvents {
   USER_COMEBACK: { userId: string; idleDays: number }
   /** `userId` answered a message in a direct conversation that had been waiting on them from `repliedToUserId`. */
   MESSAGE_REPLIED: { userId: string; conversationId: string; messageId: string; repliedToUserId: string }
+  /** An achievement was unlocked (emitted by the rewards engine). Cosmetics listen. */
+  ACHIEVEMENT_UNLOCKED: { userId: string; slug: string }
+  /** The user reached a tier: a new one, or Bronze with their first XP (emitted by the rewards engine). Cosmetics listen. */
+  TIER_REACHED: { userId: string; tier: Tier; level: number }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -68,6 +72,8 @@ export const DOMAIN_EVENT_NAMES = [
   'STREAK_EXTENDED',
   'USER_COMEBACK',
   'MESSAGE_REPLIED',
+  'ACHIEVEMENT_UNLOCKED',
+  'TIER_REACHED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient

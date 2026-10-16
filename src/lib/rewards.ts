@@ -156,7 +156,11 @@ export async function grant(tx: Db, userId: string, action: RewardAction, option
   afterCommit(tx, () => onXpEarned({ userId, amount, at: now, seasonId: season?.id ?? null }))
   recordReward(tx, userId, envelope)
 
-  // Announced after the award is recorded, so whatever the streak unlocks is merged in after it.
+  // Announced after the award is recorded, so whatever these unlock is merged in after it. Bronze counts as
+  // reached with the very first XP, so the first title is earned the moment a person starts.
+  if (envelope.tierChanged || row.xp - amount === 0) {
+    await emit(tx, 'TIER_REACHED', { userId, tier: envelope.newTier, level: envelope.newLevel })
+  }
   if (step && !step.alreadyCounted) {
     if (step.extended) {
       afterCommit(tx, () => track(userId, 'streak_extended', { current: step.state.current }))

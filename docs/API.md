@@ -608,6 +608,8 @@ and a unit test fails if a code is missing here.
 | `FLAG_NOT_FOUND` | 404 | Feature flag not found |
 | `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
 | `JOB_NOT_FOUND` | 404 | No such job |
+| `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
+| `COSMETIC_WRONG_SLOT` | 400 | This cosmetic does not go in that slot |
 
 ---
 

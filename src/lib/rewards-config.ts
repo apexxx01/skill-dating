@@ -219,6 +219,8 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   STREAK_EXTENDED: {},
   USER_COMEBACK: {},
   MESSAGE_REPLIED: {},
+  ACHIEVEMENT_UNLOCKED: {},
+  TIER_REACHED: {},
 }
 
 /**

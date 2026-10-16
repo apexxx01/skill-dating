@@ -83,6 +83,13 @@ export const jobs = {
     }),
     handler: async ({ data }) => (await import('@/lib/leaderboard-write')).runRefreshUserJob(data.userId, data.previous),
   }),
+  // Gives people who earned things before cosmetics existed the cosmetics those earn (src/lib/cosmetics.ts).
+  // Run it once after deploying; it is safe to repeat. Pass the `next` it returns as `after` to continue a big run.
+  'cosmetics/backfill': defineJob({
+    schema: z.object({ after: z.string().min(1).max(64).optional(), limit: z.number().int().min(1).max(5000).optional() }).default({}),
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/cosmetics')).runCosmeticsBackfill(data),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

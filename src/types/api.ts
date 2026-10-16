@@ -732,6 +732,8 @@ export interface PlayerCard {
   ranks: { global: number | null; country: number | null; city: number | null }
   /** Null for somebody else's card when the person keeps their activity private. */
   streak: { current: number; longest: number; freezes: number; lastDay: string | null } | null
+  /** What the person wears, named. */
+  equipped: { title: { slug: string; name: string } | null; frame: { slug: string; name: string } | null; banner: { slug: string; name: string } | null }
   /** The three rarest achievements earned, rarest first. */
   topAchievements: { slug: string; name: string; icon: string | null; rarity: number | null; earnedAt: IsoDate }[]
   counts: {
@@ -747,6 +749,43 @@ export interface PlayerCard {
     /** Milestones completed. */
     milestones: number
   }
+}
+
+/** What a person wears: the slug of a cosmetic they own in each slot, or null. */
+export interface EquippedCosmetics {
+  title: string | null
+  frame: string | null
+  banner: string | null
+}
+
+/**
+ * One cosmetic in the catalog. Cosmetics are only ever earned. One that is earned by a secret achievement stays
+ * `masked` (placeholder slug `secret-<order>`, no name, text or requirement) until the user owns it.
+ */
+export interface CosmeticItem {
+  slug: string
+  type: 'TITLE' | 'FRAME' | 'BANNER' | 'AVATAR_PART'
+  name: string
+  description: string
+  rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
+  /** Which of `EquippedCosmetics` it goes in; null for a type that cannot be worn yet. */
+  slot: 'title' | 'frame' | 'banner' | null
+  owned: boolean
+  masked: boolean
+  /** Being worn right now. */
+  equipped: boolean
+  unlockedAt: IsoDate | null
+  /** What earns it, for one that is not owned yet (null once owned, and while masked). */
+  requirement: string | null
+  order: number
+}
+
+/** GET /api/users/me/cosmetics, and the body PATCH /api/users/me/equipped answers with is `{ equipped }`. */
+export interface CosmeticsResponse {
+  equipped: EquippedCosmetics
+  cosmetics: CosmeticItem[]
+  owned: number
+  total: number
 }
 
 /** One quest as GET /api/quests lists it. */

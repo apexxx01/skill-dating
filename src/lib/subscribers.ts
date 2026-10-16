@@ -1,5 +1,6 @@
 import { bus, DOMAIN_EVENT_NAMES, type DomainEventName, type EmitResult, type EventBus, type TransactionalContext } from '@/lib/events'
 import { advanceProgress, usersInvolved } from '@/lib/achievement-progress'
+import { COSMETIC_EVENTS, unlockForEvent } from '@/lib/cosmetics'
 import { track } from '@/lib/infra/analytics'
 import { lockProgress } from '@/lib/metrics'
 import { grant } from '@/lib/rewards'
@@ -77,6 +78,9 @@ export function registerSubscribers(target: EventBus = bus) {
   for (const name of DOMAIN_EVENT_NAMES) {
     target.onTransactional(name, (context) => payForEvent(context as TransactionalContext<DomainEventName>))
   }
+
+  // The cosmetics a tier, an achievement or a streak earns. This, and nothing else, grants a cosmetic.
+  for (const name of COSMETIC_EVENTS) target.onTransactional(name, (context) => unlockForEvent(context as TransactionalContext<DomainEventName>))
 
   // After commit only: a rolled-back action is not counted.
   target.onCommitted('PROJECT_CREATED', ({ payload }) => track(payload.userId, 'project_created', { projectId: payload.projectId }))

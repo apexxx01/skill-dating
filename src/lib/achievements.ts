@@ -1,5 +1,5 @@
 import { ACHIEVEMENT_DEFINITIONS, type AchievementDefinition, type AchievementSlug } from './achievement-definitions'
-import { afterCommit, recordReward, type Db } from './events'
+import { afterCommit, emit, recordReward, type Db } from './events'
 import { track } from './infra/analytics'
 import { recordActivity } from './activity'
 import { grant } from './rewards'
@@ -82,6 +82,8 @@ export async function grantAchievement(
   const envelope: EnvelopeDraft = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
   recordReward(tx, userId, envelope)
   afterCommit(tx, () => track(userId, 'achievement_earned', { slug, xpReward: achievement.xpReward }))
+  // Announced last, so what listens (the cosmetics an achievement unlocks) is merged in after the unlock itself.
+  await emit(tx, 'ACHIEVEMENT_UNLOCKED', { userId, slug })
 
   return { granted: true, envelope }
 }
