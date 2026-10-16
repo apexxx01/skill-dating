@@ -119,6 +119,7 @@ export const ERROR_CATALOG = {
 
   // --- Platform ----------------------------------------------------------------------
   FLAG_EXISTS: { status: 409, message: 'A feature flag with this key already exists' },
+  JOB_NOT_FOUND: { status: 404, message: 'No such job' },
 
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },

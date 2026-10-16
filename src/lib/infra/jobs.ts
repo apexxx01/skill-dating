@@ -42,6 +42,14 @@ export const jobs = {
     schema: z.object({ note: z.string().max(200).optional() }),
     handler: async ({ data }) => ({ pong: true, note: data.note ?? null }),
   }),
+  // Closes the active season when its time is up, writes the final standings and opens the next
+  // season (src/lib/seasons.ts). Hourly: a season may run over its end by up to an hour.
+  'seasons/rollover': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 * * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/seasons')).runSeasonRollover(),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

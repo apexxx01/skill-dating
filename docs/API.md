@@ -487,6 +487,9 @@ Every feature flag with its answer for the caller: `{ flags: { "new-feed": true,
 ### `DELETE /api/admin/flags/[key]`
 **Auth:** `ADMIN`. **Response:** `{ success: true }`. Audited.
 
+### `POST /api/admin/jobs/{area}/{action}`
+**Auth:** `ADMIN`. Runs one of the background jobs declared in `src/lib/infra/jobs.ts` (for example `seasons/rollover`) right now, inside the request, exactly as the queue would run it: the payload is validated by the job's own schema. **Body (optional):** `{ data?: {...} }`; no body runs the job with its defaults. **Response:** `{ name, durationMs, result }`, where `result` is what the job returned. `404 JOB_NOT_FOUND` for a name that is not in the registry. Limited to 30 a minute and written to the audit log (`JOB_RUN`). This is how an operator triggers a rebuild or a rollover outside its schedule, and how a deployment without the job queue runs them.
+
 A flag is **on for a user** when they are on its `allowUserIds` (even while it is disabled), or it is `enabled` and the user falls inside the rollout: `rolloutPercent` 100 is everyone, a lower value is a stable share of users chosen by a hash of the flag key and the user id. Raising the percentage only adds users. A flag that does not exist is off.
 
 ---
@@ -604,6 +607,7 @@ and a unit test fails if a code is missing here.
 | `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
 | `FLAG_NOT_FOUND` | 404 | Feature flag not found |
 | `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
+| `JOB_NOT_FOUND` | 404 | No such job |
 
 ---
 
