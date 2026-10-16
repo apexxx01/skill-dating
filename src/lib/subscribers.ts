@@ -4,8 +4,9 @@ import { COSMETIC_EVENTS, unlockForEvent } from '@/lib/cosmetics'
 import { track } from '@/lib/infra/analytics'
 import { lockProgress } from '@/lib/metrics'
 import { grant } from '@/lib/rewards'
-import { applicantRewardEligible, EVENT_REWARDS } from '@/lib/rewards-config'
+import { EVENT_REWARDS } from '@/lib/rewards-config'
 import { endorsementRewardAllowed } from '@/lib/skill-evidence'
+import { peerPairsOf, withheldSubjects } from '@/lib/trust'
 
 // Who listens to what. This module is loaded by the bus before the first event
 // (see events.ts), so a route only has to emit.
@@ -36,18 +37,19 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
   // requests that involve the same people cannot wait on each other.
   await lockProgress(context.tx, usersInvolved(context.name, context.payload))
 
-  // Endorsements pay the owner, XP and progress alike, only when the endorsement rules allow it.
+  // A reward somebody else's action earns (an endorsement, an accepted application, a connection, a first message, a reply)
+  // is paid only when that somebody is a trusted counterparty (src/lib/trust.ts). Whoever's counterparty is not trusted gets
+  // nothing from the event: no XP, and nothing counted toward achievements or quests.
+  const pairs = peerPairsOf(context.name, context.payload as never)
+  const withheld = pairs.length > 0 ? await withheldSubjects(context.tx, pairs) : new Set<string>()
+  if (pairs.length > 0 && pairs.every((pair) => withheld.has(pair.subjectId))) return { rewarded: false }
+
+  // Endorsements also follow the endorsement rules: the endorser has some verification, and endorses for XP only so often a day.
   if (context.name === 'EVIDENCE_ENDORSED') {
     const { endorserId } = context.payload as { endorserId: string }
     if (!(await endorsementRewardAllowed(context.tx as Parameters<typeof endorsementRewardAllowed>[0], userId, endorserId))) {
       return { rewarded: false }
     }
-  }
-
-  // Accepted applications pay the applicant, XP and progress alike, only when the account passes the age and email checks.
-  if (context.name === 'TEAM_APPLICATION_ACCEPTED') {
-    const applicant = await context.tx.user.findUnique({ where: { id: userId }, select: { createdAt: true, isEmailVerified: true } })
-    if (!applicant || !applicantRewardEligible(applicant)) return { rewarded: false }
   }
 
   const paid = new Set<string>()
@@ -57,7 +59,7 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     const description = reward.xp.description(payload)
     // Paid in a fixed order (by id), so two transactions that reward the same pair of
     // users take their locks in the same order and cannot deadlock each other.
-    const recipients = reward.xp.recipients ? [...new Set(reward.xp.recipients(payload))].sort() : [userId]
+    const recipients = (reward.xp.recipients ? [...new Set(reward.xp.recipients(payload))].sort() : [userId]).filter((recipient) => !withheld.has(recipient))
     for (const recipient of recipients) {
       // Of the people a connection pays, only the one who accepted acted; the other just received it.
       const result = await grant(context.tx, recipient, reward.xp.action, { ...source, description, actor: recipient === userId })

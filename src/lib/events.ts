@@ -30,8 +30,11 @@ export interface DomainEvents {
   /** One event per winning team member. */
   HACKATHON_WON: { userId: string; hackathonId: string; hackathonName: string; hackathonTeamId: string }
   TEAM_FORMED: { userId: string; teamId: string; hackathonId: string; hackathonName: string }
-  /** `userId` is the person whose application was accepted. */
-  TEAM_APPLICATION_ACCEPTED: { userId: string; teamId: string; applicationId: string }
+  /**
+   * `userId` is the person whose application (or accepted invitation) this is, the one who may be rewarded;
+   * `counterpartyId` is the other side: whoever reviewed the application, or sent the invitation.
+   */
+  TEAM_APPLICATION_ACCEPTED: { userId: string; teamId: string; applicationId: string; counterpartyId: string }
   EVIDENCE_ADDED: { userId: string; evidenceId: string; skillId: string }
   /** `userId` is the owner of the evidence, the one who may be rewarded. */
   EVIDENCE_ENDORSED: { userId: string; endorserId: string; evidenceId: string }

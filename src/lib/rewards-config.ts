@@ -78,25 +78,12 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   CONNECTION_ACCEPTED: { amount: 10, sourceType: 'CONNECTION', oncePer: 'source', dailyCap: 5, streak: true },
   // Paid to the sender, once per conversation, at most 5 a day.
   MESSAGE_SENT_FIRST_IN_CONNECTION: { amount: 5, sourceType: 'CONVERSATION', oncePer: 'source', dailyCap: 5, streak: true },
-  // Paid to the applicant, once per application, at most 3 a day. Only for an account old enough and with a
-  // verified email (see applicantRewardEligible): two throwaway accounts could otherwise apply to and accept each other.
+  // Paid to the applicant, once per application, at most 3 a day. Only when the other side of the acceptance is a trusted
+  // counterparty and the applicant's own account is too (src/lib/trust.ts): two throwaway accounts could otherwise apply to and accept each other.
   TEAM_APPLICATION_ACCEPTED: { amount: 50, sourceType: 'TEAM_APPLICATION', oncePer: 'source', dailyCap: 3, streak: false },
   // Once per quest and period (the source is the UserQuest). The amount is the quest's own xpReward, and
   // a person has at most three daily and three weekly quests at a time, which is the cap.
   QUEST_COMPLETED: { amount: null, sourceType: 'QUEST', oncePer: 'source', dailyCap: null, streak: false },
-}
-
-/** An account younger than this earns nothing from having a team application accepted. */
-export const MIN_ACCOUNT_AGE_DAYS_FOR_APPLICATION_REWARD = 7
-
-/**
- * Whether being accepted into a team may pay this applicant. The team owner decides who is accepted, so a
- * person with two accounts could farm it; a seven day wait and a verified email make that slow and traceable.
- * Pure: `now` is a parameter so the boundary is testable.
- */
-export function applicantRewardEligible(user: { createdAt: Date; isEmailVerified: boolean }, now: Date = new Date()): boolean {
-  if (!user.isEmailVerified) return false
-  return now.getTime() - user.createdAt.getTime() >= MIN_ACCOUNT_AGE_DAYS_FOR_APPLICATION_REWARD * 24 * 60 * 60 * 1000
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]

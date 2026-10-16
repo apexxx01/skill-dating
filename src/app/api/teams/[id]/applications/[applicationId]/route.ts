@@ -182,7 +182,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       await recordActivity(tx, application.userId, 'TEAM_JOINED', `Joined team "${application.team.name}"`, {
         link: `/teams/${application.team.slug}`
       })
-      await emit(tx, 'TEAM_APPLICATION_ACCEPTED', { userId: application.userId, teamId, applicationId })
+      // The other side of the acceptance: who sent the invitation the applicant just accepted, or the reviewer who accepted the application.
+      const counterpartyId = application.invitedById && application.userId === user.id ? application.invitedById : user.id
+      await emit(tx, 'TEAM_APPLICATION_ACCEPTED', { userId: application.userId, teamId, applicationId, counterpartyId })
     }
 
     return { outcome: 'reviewed' as const, application }
