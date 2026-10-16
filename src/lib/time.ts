@@ -78,26 +78,113 @@ export function localDateKey(instant: Date, timeZone: string | null | undefined)
 }
 
 const HOUR = 3_600_000
+const DAY = 24 * HOUR
+
+function parseDateKey(dateKey: string): { year: number; month: number; day: number } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey)
+  if (!match) throw new Error(`not a YYYY-MM-DD date: ${dateKey}`)
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
+}
+
+function dateKeyOf(utcMs: number): string {
+  const date = new Date(utcMs)
+  return `${String(date.getUTCFullYear()).padStart(4, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+/** `dateKey` plus `days` calendar days (negative to go back). Pure calendar arithmetic: no zone, no daylight saving. */
+export function addDaysToDateKey(dateKey: string, days: number): string {
+  const { year, month, day } = parseDateKey(dateKey)
+  return dateKeyOf(Date.UTC(year, month - 1, day) + days * DAY)
+}
+
+/** Whole calendar days from `from` to `to` (negative when `to` is earlier). */
+export function daysBetweenDateKeys(from: string, to: string): number {
+  const a = parseDateKey(from)
+  const b = parseDateKey(to)
+  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / DAY)
+}
 
 /**
- * The first instant of the calendar day that `now` falls in, in the zone. When
- * a zone skips midnight (the clock jumps from 00:00 to 01:00) that is the moment
- * of the jump; when it repeats midnight, the first of the two.
+ * The first instant of the calendar date `dateKey` in the zone. When a zone skips
+ * midnight (the clock jumps from 00:00 to 01:00) that is the moment of the jump; when it
+ * repeats midnight, the first of the two.
  */
-export function localDayStart(now: Date, timeZone: string | null | undefined): Date {
+export function localDateStart(dateKey: string, timeZone: string | null | undefined): Date {
   const zone = resolveTimeZone(timeZone)
-  const wall = wallClock(now, zone)
-  const midnightAsUtc = Date.UTC(wall.year, wall.month - 1, wall.day)
-  const target = localDateKey(now, zone)
+  const { year, month, day } = parseDateKey(dateKey)
+  const midnightAsUtc = Date.UTC(year, month - 1, day)
+  // Around the middle of the date, so every offset change that can touch it is within reach.
+  const reference = midnightAsUtc + 12 * HOUR
 
   // The start of the day is "local midnight" under whichever offset applied then.
-  // Try the offsets in force around now and keep the earliest instant that really
+  // Try the offsets in force around the date and keep the earliest instant that really
   // is the first one of the date.
-  const offsets = new Set([-36, -12, 0, 12, 36].map((hours) => offsetMs(new Date(now.getTime() + hours * HOUR), zone)))
+  const offsets = new Set([-36, -12, 0, 12, 36].map((hours) => offsetMs(new Date(reference + hours * HOUR), zone)))
   const candidates = [...offsets]
     .map((offset) => new Date(midnightAsUtc - offset))
-    .filter((candidate) => localDateKey(candidate, zone) === target && localDateKey(new Date(candidate.getTime() - 1), zone) !== target)
+    .filter((candidate) => localDateKey(candidate, zone) === dateKey && localDateKey(new Date(candidate.getTime() - 1), zone) !== dateKey)
     .sort((a, b) => a.getTime() - b.getTime())
 
-  return candidates[0] ?? new Date(midnightAsUtc - offsetMs(now, zone))
+  return candidates[0] ?? new Date(midnightAsUtc - offsetMs(new Date(reference), zone))
+}
+
+/** The first instant of the calendar day that `now` falls in, in the zone. */
+export function localDayStart(now: Date, timeZone: string | null | undefined): Date {
+  return localDateStart(localDateKey(now, timeZone), timeZone)
+}
+
+/** The first instant of the next calendar day in the zone: when today's quests and caps reset. */
+export function localDayEnd(now: Date, timeZone: string | null | undefined): Date {
+  return localDateStart(addDaysToDateKey(localDateKey(now, timeZone), 1), timeZone)
+}
+
+/** The hour of the day, 0 to 23, at `instant` in the zone. */
+export function localHour(instant: Date, timeZone: string | null | undefined): number {
+  return wallClock(instant, resolveTimeZone(timeZone)).hour
+}
+
+/** ISO weekday of a calendar date: 1 for Monday to 7 for Sunday. */
+export function isoWeekdayOfDateKey(dateKey: string): number {
+  const { year, month, day } = parseDateKey(dateKey)
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  return weekday === 0 ? 7 : weekday
+}
+
+/** The weekday at `instant` in the zone: 1 for Monday to 7 for Sunday. */
+export function localIsoWeekday(instant: Date, timeZone: string | null | undefined): number {
+  return isoWeekdayOfDateKey(localDateKey(instant, timeZone))
+}
+
+/** Saturday and Sunday. */
+export function isLocalWeekend(instant: Date, timeZone: string | null | undefined): boolean {
+  return localIsoWeekday(instant, timeZone) >= 6
+}
+
+/** The Monday of the week (Monday to Sunday) that holds the calendar date. */
+export function mondayOfDateKey(dateKey: string): string {
+  return addDaysToDateKey(dateKey, 1 - isoWeekdayOfDateKey(dateKey))
+}
+
+/** The first instant of the local week (Monday 00:00) that `now` falls in. */
+export function localWeekStart(now: Date, timeZone: string | null | undefined): Date {
+  return localDateStart(mondayOfDateKey(localDateKey(now, timeZone)), timeZone)
+}
+
+/** The first instant of the next local week: when this week's quests reset. */
+export function localWeekEnd(now: Date, timeZone: string | null | undefined): Date {
+  return localDateStart(addDaysToDateKey(mondayOfDateKey(localDateKey(now, timeZone)), 7), timeZone)
+}
+
+/** The ISO 8601 week of a calendar date, as "2026-W42". The year is the week's year, not always the date's. */
+export function isoWeekKeyOfDateKey(dateKey: string): string {
+  // The week belongs to the year of its Thursday.
+  const thursday = addDaysToDateKey(dateKey, 4 - isoWeekdayOfDateKey(dateKey))
+  const year = Number(thursday.slice(0, 4))
+  const dayOfYear = daysBetweenDateKeys(`${year}-01-01`, thursday)
+  return `${year}-W${String(Math.floor(dayOfYear / 7) + 1).padStart(2, '0')}`
+}
+
+/** The ISO week at `instant` in the zone, as "2026-W42". */
+export function localWeekKey(instant: Date, timeZone: string | null | undefined): string {
+  return isoWeekKeyOfDateKey(localDateKey(instant, timeZone))
 }
