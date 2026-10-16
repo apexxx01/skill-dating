@@ -106,8 +106,9 @@ Each getter is process-wide and survives dev-server reloads; `setCache`, `setJob
 Strings with optional expiry, counters, fixed windows, and sorted sets (`zadd`, `zincr`, `ztop`,
 `zrevrank`, range by score). Three operations exist for leaderboards: `zincrMany` (many increments in
 one round trip, a pipeline on Redis, with an expiry that is started and never pushed back), `zreplace`
-(rebuild a board under a scratch key and swap it in with one rename, so nobody sees a half-built board)
-and `expire`. `createPresence` and `createLeaderboard` are built on those. The two
+(rebuild a board under a scratch key and swap it in with one rename, so nobody sees a half-built board),
+`zstage` (the same, for a board that is built in pieces and corrected while it is built: `set`, `remove`, then
+`commit` or `discard`) and `expire`. `createPresence` and `createLeaderboard` are built on those. The two
 operations that must not race, `incr` and `hit`, are single atomic operations: one Lua script on
 Redis that increments, starts the expiry if the key has none, and reports the time left. A key can
 therefore never outlive its window. The Redis client runs with automatic deserialization off so a
@@ -138,7 +139,7 @@ them. Handlers import their module lazily, so the registry stays light.
 | `system/ping` | none | checks a new environment's Inngest credentials end to end |
 | `seasons/rollover` | hourly | `src/lib/seasons.ts`: close the finished season, write its standings, open the next |
 | `achievements/rarity` | 03:30 daily | `src/lib/achievement-rarity.ts` |
-| `leaderboards/reconcile` | 04:00 daily | `src/lib/leaderboard-write.ts`: rebuild every current board from the XP log |
+| `leaderboards/reconcile` | 04:00 daily | `src/lib/leaderboard-rebuild.ts`: rebuild every current board from the XP log: aggregate up to a cutoff, replay what came after, swap |
 | `leaderboards/refresh-user` | event | move one person's entries after a place or privacy change |
 | `cosmetics/backfill` | event, once | `src/lib/cosmetics.ts`: grandfather cosmetics for existing users |
 
@@ -373,9 +374,14 @@ and the integration suite against a Postgres service container.
 
 - Nothing publishes realtime events.
 - Leaderboard boards are copies of the XP log in Redis. They are repaired nightly, so a failure to update one
-  can show a stale score for up to a day, and XP arriving during a rebuild can be counted twice or missed until the
-  next one. The rebuild reads the whole `XPEvent` table (indexed by time and by season); at tens of millions of
-  rows it should become incremental.
+  can show a stale score for up to a day. XP that arrives during a rebuild is counted exactly once (see
+  [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); the one gap is an award committing between the last replay pass and the
+  rename, which costs that award until the next run. The rebuild aggregates in SQL and holds one batch of 5,000 people in
+  memory, but it still scans each period's slice of the `XPEvent` table (indexed by time and by season) every night;
+  at tens of millions of rows an incremental version is the next step.
+- Raw SQL that compares a bound `Date` with a `DateTime` column goes through `utcTimestamp()` (`src/lib/sql.ts`); written
+  without it the comparison is read in the database's time zone, which is only right when that zone is UTC. The leaderboard
+  queries use it; `heatmap.ts` and `achievement-rarity.ts` still compare directly.
 - `ProgressTick` gets a row per counted action. Once an action has paid, its XP award is what stops it counting
   twice, so ticks older than a couple of weeks are only history (the week-based secret achievements look back at most
   seven days); pruning them is not built.

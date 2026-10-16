@@ -379,8 +379,17 @@ normalised, control characters removed, whitespace collapsed, 80 characters) and
 2. a change of place or of the privacy switch queues the job `leaderboards/refresh-user`, which removes the person from the boards
    they left and sets their score on the ones they are on;
 3. **every night at 04:00 UTC the job `leaderboards/reconcile` rebuilds every board of the current periods from the `XPEvent` log**
-   (the source of truth) and swaps each in whole with one rename. XP that arrives between reading the log and the swap can be counted
-   twice or missed until the next run: a few awards of drift at the worst. Weekly and monthly boards expire a few weeks after they end.
+   (the source of truth) and swaps each in whole with one rename. Weekly and monthly boards expire a few weeks after they end.
+
+   The rebuild takes its time and awards keep arriving, so it works period by period in four steps (`src/lib/leaderboard-rebuild.ts`):
+   (1) take a **cutoff T** one minute in the past (room for awards still being committed); (2) **aggregate the log up to T in SQL**, a batch of
+   5,000 people at a time, into *staged* copies of the boards (the live boards are not touched, and no more than a batch is in memory);
+   (3) **replay what came after T**: everybody with an event after T has their whole score for the period re-read from the log and *set*
+   (never added) on the staged boards, repeating until a pass finds nothing new; (4) swap each staged board in for the live one with one
+   rename. Setting an absolute score is what makes an award that lands mid-rebuild count exactly once: it cannot be counted by the
+   aggregate and again by the replay. What is not covered: an award that commits after the last replay pass and before the rename
+   goes to the old board and is lost on the swap (milliseconds wide; the next run repairs it), and a move to another country or an opt-out
+   in that same window is applied on the next run. The scratch boards of a rebuild that died expire by themselves after six hours.
 
 Boards that were never built (a restart of the in-process cache, a new Redis) are built on the first read with the in-process cache,
 and by queueing `leaderboards/reconcile` with Redis. Run the job once after deploying (`POST /api/admin/jobs/leaderboards/reconcile`).
