@@ -449,13 +449,39 @@ export interface MarkReadResponse {
 // Reputation
 // ---------------------------------------------------------------------------
 
+/** One row of a leaderboard. */
+export interface LeaderboardEntry {
+  /** 1 is first, counted over the people YOU can see: blocked people are left out and do not take a rank. */
+  rank: number
+  /** XP earned in the board's period. */
+  score: number
+  /** The same number as `score`, kept for clients written before periods existed. */
+  xp: number
+  level: number
+  tier: Tier
+  user: UserWithHeadline & { builderRole: string | null }
+}
+
+/**
+ * GET /api/leaderboard?period=&scope=&scopeId=&cursor=&limit=
+ *
+ *  - `period`: `weekly`, `monthly`, `season` or `all-time` (default). Weeks and months are UTC.
+ *  - `scope`: `global` (default), `country`, `city`, `campus` or `crew`. For the first four `scopeId` defaults to
+ *    the user's own place (`myScopes` has them); `crew` needs the team id.
+ *  - the page: `cursor` (the previous `nextCursor`) or `page`, with `limit` (1 to 100, default 50).
+ */
 export interface LeaderboardResponse {
-  entries: {
-    rank: number
-    xp: number
-    user: UserWithHeadline & { builderRole: string | null }
-  }[]
-  me: { xp: number; rank: number | null }
+  period: 'weekly' | 'monthly' | 'season' | 'all-time'
+  scope: { type: 'global' | 'country' | 'city' | 'campus' | 'crew'; id: string | null }
+  /** Present for the season period: which season it is and when it ends. Null between seasons. */
+  season: { id: string; number: number; name: string; startsAt: IsoDate; endsAt: IsoDate } | null
+  entries: LeaderboardEntry[]
+  /** The caller's own standing on this board; `rank` is null when they are not on it (no XP in the period, or opted out). */
+  me: { rank: number | null; score: number; xp: number; hidden: boolean }
+  /** The caller and the two above and two below them (fewer at the edges); empty when `me.rank` is null. */
+  around: LeaderboardEntry[]
+  /** The ids of the caller's own country, city and campus boards, for building a scope picker. Null where not set. */
+  myScopes: { country: string | null; city: string | null; campus: string | null }
   /** Present for page-numbered requests; absent when the request carried a `cursor`. */
   pagination?: Pagination
   /** Send as `cursor` to get the next page; null on the last page. */

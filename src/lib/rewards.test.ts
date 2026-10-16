@@ -3,6 +3,10 @@ import type { PrismaClient } from '@prisma/client'
 import type { Db } from './events'
 
 vi.mock('./subscribers', () => ({}))
+// The leaderboards are written after a commit, with their own tests (leaderboard-write.test.ts).
+const recordBoardXp = vi.fn().mockResolvedValue(undefined)
+vi.mock('./leaderboard-write', () => ({ recordBoardXp: (...args: unknown[]) => recordBoardXp(...args) }))
+vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 const track = vi.fn().mockResolvedValue(undefined)
 vi.mock('./infra/analytics', () => ({ track: (...args: unknown[]) => track(...args) }))
 
@@ -99,6 +103,7 @@ const project = (id: string) => ({ sourceType: 'PROJECT' as const, sourceId: id,
 
 beforeEach(() => {
   track.mockClear()
+  recordBoardXp.mockClear()
   setCache(new MemoryCache())
 })
 
@@ -543,6 +548,41 @@ describe('grant', () => {
       const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
       await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
       expect(db.tx.season.findFirst).toHaveBeenCalledWith({ where: { active: true }, orderBy: { number: 'desc' }, select: { id: true } })
+    })
+  })
+
+  describe('the leaderboards', () => {
+    it('are given each award after the transaction commits, with the season it was stamped with', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } }, { season: { id: 'season-7' } })
+      const at = new Date('2026-03-10T10:00:00Z')
+      await transactWithEvents(db.client, async (tx) => {
+        await grant(tx, 'u1', 'PROJECT_CREATED', { ...project('p1'), now: at })
+        expect(recordBoardXp).not.toHaveBeenCalled()
+      })
+      expect(recordBoardXp).toHaveBeenCalledTimes(1)
+      expect(recordBoardXp.mock.calls[0][2]).toEqual({ userId: 'u1', amount: 50, at, seasonId: 'season-7' })
+    })
+
+    it('hear nothing about an award that rolled back or paid nothing', async () => {
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      await expect(
+        transactWithEvents(db.client, async (tx) => {
+          await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))
+          throw new Error('later step failed')
+        })
+      ).rejects.toThrow()
+      expect(recordBoardXp).not.toHaveBeenCalled()
+
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p2'))))
+      await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p2'))))
+      expect(recordBoardXp).toHaveBeenCalledTimes(1)
+    })
+
+    it('failing to update them does not fail the award', async () => {
+      recordBoardXp.mockRejectedValueOnce(new Error('redis is down'))
+      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
+      const { scope } = await transactWithEvents(db.client, async (tx) => void (await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))))
+      expect((await scope.rewardsFor(db.tx, 'u1')).xpGained).toBe(50)
     })
   })
 

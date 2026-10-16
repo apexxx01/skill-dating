@@ -32,6 +32,20 @@ export async function blockedUserIds(db: Db, userId: string): Promise<string[]> 
 }
 
 /**
+ * Only the people `userId` has blocked or been blocked by: the same as blockedUserIds without the accounts
+ * that were deleted. For lists that already leave deleted accounts out by themselves (the leaderboards
+ * drop a deleted member when they show the board), where adding every deleted account ever would make
+ * the list grow without bound.
+ */
+export async function blockedPeerIds(db: Db, userId: string): Promise<string[]> {
+  const rows = await db.block.findMany({
+    where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
+    select: { blockerId: true, blockedId: true },
+  })
+  return [...new Set(rows.map((row) => (row.blockerId === userId ? row.blockedId : row.blockerId)))]
+}
+
+/**
  * The block relationship between two users from `me`'s point of view, or null.
  * If both directions exist, "blocked by me" wins: the caller's own decision is
  * what they can act on.

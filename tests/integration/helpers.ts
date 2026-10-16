@@ -127,3 +127,13 @@ export function uniqueSuffix(): string {
   counter += 1
   return `${Date.now()}${counter}`
 }
+
+/**
+ * Rebuilds the leaderboards from the XP log, the way the nightly job does. For tests that put XP rows straight
+ * into the database: the boards are a fast copy kept up to date by awards made through the engine, so a row
+ * written behind its back shows up on them only after a rebuild.
+ */
+export async function reconcileLeaderboards(adminJar: Jar): Promise<void> {
+  const res = await req(adminJar, 'POST', '/api/admin/jobs/leaderboards/reconcile')
+  if (res.status !== 200) throw new Error('leaderboard rebuild failed: ' + JSON.stringify(res))
+}

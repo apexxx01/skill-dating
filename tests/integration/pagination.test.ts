@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { INTEGRATION_BASE_URL } from './config'
-import { registerAndLogin, uniqueSuffix, req, type TestUser } from './helpers'
+import { registerAndLogin, uniqueSuffix, req, reconcileLeaderboards, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 
 // Every list endpoint takes `cursor` and answers `nextCursor`. For each one: walking
@@ -240,6 +240,8 @@ describe('cursor pagination', () => {
     for (let index = 0; index < 5; index++) {
       await testPrisma.xPEvent.create({ data: { userId: others[index], type: 'PROJECT_CREATED', amount: 1_000_000 + (index < 2 ? 5 : index), description: 'seed' } })
     }
+    // The rows went straight into the log, so the boards (a copy of it) are rebuilt first, as the nightly job does.
+    await reconcileLeaderboards(admin.jar)
     // Viewed by the admin: the owner has blocked some of these people and would not see them.
     const first = await get(admin, '/api/leaderboard?limit=2')
     expect(first.status).toBe(200)

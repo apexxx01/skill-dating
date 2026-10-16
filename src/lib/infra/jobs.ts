@@ -58,6 +58,31 @@ export const jobs = {
     retries: 2,
     handler: async () => (await import('@/lib/achievement-rarity')).runRarityJob(),
   }),
+  // Rebuilds every leaderboard of the current periods from the XP log and swaps each in whole
+  // (src/lib/leaderboard-write.ts). Nightly, and once when boards are found never to have been built.
+  'leaderboards/reconcile': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 4 * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/leaderboard-write')).runReconcileJob(),
+  }),
+  // Moves one person's entries after they changed where they are or switched leaderboards off or on.
+  // `previous` is what they were before, so the boards they have left can be cleared.
+  'leaderboards/refresh-user': defineJob({
+    schema: z.object({
+      userId: z.string().min(1).max(64),
+      previous: z
+        .object({
+          hidden: z.boolean(),
+          countryCode: z.string().max(2).nullable(),
+          cityKey: z.string().max(100).nullable(),
+          campusKey: z.string().max(100).nullable(),
+        })
+        .nullable()
+        .default(null),
+    }),
+    handler: async ({ data }) => (await import('@/lib/leaderboard-write')).runRefreshUserJob(data.userId, data.previous),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

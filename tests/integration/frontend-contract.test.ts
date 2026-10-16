@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
+import { req, registerAndLogin, reconcileLeaderboards, uniqueSuffix, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 
 // Pins the response shapes promised in docs/FRONTEND_CONTRACT.md and typed in
@@ -180,11 +180,17 @@ describe('frontend contract', () => {
     const top = await user('lt')
     await testPrisma.xPEvent.create({ data: { userId: a.userId, type: 'PROJECT_CREATED', amount: 100, description: 'seed' } })
     await testPrisma.xPEvent.create({ data: { userId: top.userId, type: 'PROJECT_CREATED', amount: 900000, description: 'seed' } })
+    // The rows went straight into the log; the boards (a copy of it) are rebuilt, as the nightly job does.
+    const operator = await user('lo')
+    await promoteToAdmin(operator.userId)
+    await reconcileLeaderboards(operator.jar)
 
     const before = await req(a.jar, 'GET', '/api/leaderboard?limit=100')
     expect(before.data.me.xp).toBe(100)
+    expect(before.data.me.score).toBe(100)
     expect(before.data.me.rank).toBeGreaterThan(1)
-    for (const key of ['rank', 'xp', 'user']) expect(before.data.entries[0], key).toHaveProperty(key)
+    for (const key of ['rank', 'score', 'xp', 'level', 'tier', 'user']) expect(before.data.entries[0], key).toHaveProperty(key)
+    for (const key of ['period', 'scope', 'season', 'me', 'around', 'myScopes', 'nextCursor']) expect(before.data, key).toHaveProperty(key)
 
     await req(a.jar, 'POST', '/api/blocks', { userId: top.userId })
     const after = await req(a.jar, 'GET', '/api/leaderboard?limit=100')
