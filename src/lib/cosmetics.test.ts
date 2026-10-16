@@ -248,9 +248,9 @@ describe('cosmetics are only ever earned', () => {
   })
 
   it('does find the writes inside the module, so the scan is not blind', () => {
-    const module = text(path.join(SRC, 'lib', 'cosmetics.ts'))
-    expect(WRITES_INVENTORY.test(module)).toBe(true)
-    expect(WRITES_CATALOG.test(module)).toBe(true)
+    const source = text(path.join(SRC, 'lib', 'cosmetics.ts'))
+    expect(WRITES_INVENTORY.test(source)).toBe(true)
+    expect(WRITES_CATALOG.test(source)).toBe(true)
     expect(WRITES_INVENTORY.test('await tx.userCosmetic.createMany({ data })')).toBe(true)
     expect(WRITES_INVENTORY.test('prisma.userCosmetic.upsert({})')).toBe(true)
     expect(WRITES_CATALOG.test('await tx.cosmetic.upsert({})')).toBe(true)
