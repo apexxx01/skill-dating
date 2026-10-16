@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { nodeEnv } from '@/lib/env'
+import { nodeEnv, prismaQueryLog } from '@/lib/env'
 import { withUtcSession } from '@/lib/database-url'
 
 const globalForPrisma = globalThis as unknown as {
@@ -13,7 +13,7 @@ const databaseUrl = process.env.DATABASE_URL
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({
   // Every connection runs in UTC (src/lib/database-url.ts).
   ...(databaseUrl ? { datasourceUrl: withUtcSession(databaseUrl) } : {}),
-  log: nodeEnv === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  log: nodeEnv === 'development' && prismaQueryLog() === 'on' ? ['query', 'error', 'warn'] : ['error'],
 })
 
 if (nodeEnv !== 'production') globalForPrisma.prisma = prisma

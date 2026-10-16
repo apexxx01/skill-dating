@@ -12,6 +12,9 @@ import { jobs, runJob } from '../src/lib/infra/jobs'
 import { checkEnvironment, PostdeployError, runPostdeploy } from '../src/lib/postdeploy'
 
 async function main() {
+  // The Prisma client prints every query in development; a deploy script's output is its progress report, not that.
+  process.env.PRISMA_QUERY_LOG = 'off'
+
   const flags = process.argv.slice(2)
   const dryRun = flags.includes('--dry-run')
   const production = flags.includes('--production')

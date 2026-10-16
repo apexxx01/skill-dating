@@ -37,6 +37,9 @@ In this order, stopping at the first failure:
 Every step is idempotent: a second run finds the season running, rebuilds the same boards, and grants nothing new. Running it twice, or
 two deploys at once, does no harm (the season step takes a database lock; two rebuilds each swap in a complete board).
 
+The script prints its own progress only: it switches the database client's query logging off for itself (`PRISMA_QUERY_LOG=off`), so
+a run from a development environment is not buried under one line per query.
+
 Options (`npm run postdeploy -- <option>`):
 
 - `--dry-run` runs the environment and database checks and says what each other step would do, changing nothing. Production without
