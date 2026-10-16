@@ -520,7 +520,7 @@ Unmatch and report in one call. Honours `Idempotency-Key`. **Body:** `{ reason: 
 A new match sends the notification type `MATCH` (`metadata: { kind: "MATCH_CREATED", matchId, conversationId, connectionType }`) to both people and publishes `match.created` `{ matchId, conversationId, connectionType }` on each `user:{id}` channel. An ended match publishes `match.ended` `{ matchId }` to the other person. `POST /api/blocks` also ends the open matches between the two and answers `endedMatches`.
 
 ### Jobs
-`drops/generate` (hourly; payload `{ userIds?: string[] }` generates for exactly those people, whether or not they are due) and `drops/expire` (hourly) are run on demand with `POST /api/admin/jobs/drops/generate` and `/expire`. A payload the job's own schema refuses is `400 VALIDATION_FAILED`.
+`drops/generate` (hourly; payload `{ userIds?: string[] }` generates for exactly those people, whether or not they are due), `drops/expire` (hourly) and `drops/second-look` (Mondays 07:15 UTC; payload `{ userIds?: string[] }`; gives each person at most one previously passed candidate who has grown, as an extra drop with `secondLook: true`) are run on demand with `POST /api/admin/jobs/drops/generate`, `/expire` and `/second-look`. A payload the job's own schema refuses is `400 VALIDATION_FAILED`.
 
 ## Realtime
 

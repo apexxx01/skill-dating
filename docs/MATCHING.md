@@ -210,3 +210,13 @@ pay nothing themselves: `first-match`, `matches-10` and `match-teamed` ("Better 
   skills and offers its members' skills, so "You need ML, they have 3 verified ML projects" reads the same as in a drop. Two things differ from a drop:
   somebody shown to the caller in the last week, or already sparked or matched with them, is **not** left out (a matched person is a good person to invite).
 - **Inviting** reuses the invitation flow: `POST /api/teams/{id}/invitations { userId }`. Nothing here sends anything.
+
+## Second look (weekly)
+
+The job `drops/second-look` (Mondays, 07:15 UTC; safe to repeat) gives each person **at most one** previously passed candidate a week, as an extra drop
+flagged `secondLook: true`, when that candidate **has grown since the pass**: a higher tier, or more verified evidence than the snapshot taken when the
+drop was passed (`Drop.passSnapshot`). It looks at passes between 14 and 120 days old, picks the candidate who grew most (a tier counts as five pieces of
+evidence; ties go to the more recent pass), and checks them against the same pool rules as any drop (still eligible, not blocked, not matched, dating
+eligibility for dating) except that the 30-day cooldown after a pass does not apply: that is the point. The drop is for the person's current local day, has a
+fresh score and reasons with the growth first ("Since you last saw them they moved up to Gold"), is **extra** (it does not use up the daily allowance), and a
+person gets one a **local week** (Monday to Sunday), however often the job runs.

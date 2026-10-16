@@ -98,6 +98,14 @@ export const jobs = {
     retries: 1,
     handler: async ({ data }) => (await import('@/lib/matching/drops')).runDropGenerationJob(data),
   }),
+  // Once a week brings back, for each person, one previously passed candidate who has grown since (a higher tier or more verified evidence), as an extra drop
+  // flagged secondLook (src/lib/matching/second-look.ts). Mondays, after the weekend's passes are in; safe to repeat. Pass `userIds` to run for those people only.
+  'drops/second-look': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
+    schedule: '15 7 * * 1',
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/matching/second-look')).runSecondLookJob(data),
+  }),
   // Marks drops nobody answered by the end of their day as EXPIRED.
   'drops/expire': defineJob({
     schema: z.object({}).default({}),

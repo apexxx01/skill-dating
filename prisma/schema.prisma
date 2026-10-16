@@ -1288,6 +1288,8 @@ model Drop {
   @@index([candidateId, createdAt])
   // The expiry job.
   @@index([status, expiresAt])
+  // The weekly second look: passes of a certain age.
+  @@index([status, updatedAt])
 }
 
 enum SparkStatus {
