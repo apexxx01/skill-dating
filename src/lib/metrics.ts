@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import type { DomainEventName, DomainEvents, Db } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
+import { utcTimestamp } from '@/lib/sql'
 
 // What the platform counts for each user. A metric is a named count of one kind of thing a
 // person did ("projects shipped"); achievements unlock when a metric reaches a number and quests
@@ -113,8 +114,8 @@ export async function recordTick(db: Db, tick: Tick, now: Date = new Date()): Pr
   if (inserted.count === 0) return null
   const [row] = await tx.$queryRaw<{ value: number }[]>`
     INSERT INTO "UserCounter" ("id", "userId", "key", "value", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${tick.userId}, ${tick.metric}, 1, ${now})
-    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = "UserCounter"."value" + 1, "updatedAt" = ${now}
+    VALUES (gen_random_uuid()::text, ${tick.userId}, ${tick.metric}, 1, ${utcTimestamp(now)})
+    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = "UserCounter"."value" + 1, "updatedAt" = ${utcTimestamp(now)}
     RETURNING "value"
   `
   return row.value

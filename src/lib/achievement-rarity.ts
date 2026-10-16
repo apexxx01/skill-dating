@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
+import { utcTimestamp } from '@/lib/sql'
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SLUGS } from '@/lib/achievement-definitions'
 
 // Rarity: the share of recently active users who have an achievement, 0 to 1. "Recently active"
@@ -22,7 +23,7 @@ export async function recomputeRarity(prisma: PrismaClient, now: Date = new Date
 
   const since = new Date(now.getTime() - RARITY_WINDOW_DAYS * 24 * 60 * 60 * 1000)
   const [{ active }] = await prisma.$queryRaw<{ active: bigint }[]>`
-    SELECT COUNT(*) AS "active" FROM "User" WHERE "lastActiveAt" >= ${since} AND "deletedAt" IS NULL
+    SELECT COUNT(*) AS "active" FROM "User" WHERE "lastActiveAt" >= ${utcTimestamp(since)} AND "deletedAt" IS NULL
   `
   const activeUsers = Number(active)
 
@@ -32,11 +33,11 @@ export async function recomputeRarity(prisma: PrismaClient, now: Date = new Date
           WHEN ${activeUsers} = 0 THEN NULL
           ELSE LEAST(1.0, (
             SELECT COUNT(*) FROM "UserAchievement" ua
-            JOIN "User" u ON u."id" = ua."userId" AND u."lastActiveAt" >= ${since} AND u."deletedAt" IS NULL
+            JOIN "User" u ON u."id" = ua."userId" AND u."lastActiveAt" >= ${utcTimestamp(since)} AND u."deletedAt" IS NULL
             WHERE ua."achievementId" = a."id"
           )::float / ${activeUsers})
         END,
-        "rarityUpdatedAt" = ${now}
+        "rarityUpdatedAt" = ${utcTimestamp(now)}
   `
   return { achievements: updated, activeUsers }
 }

@@ -73,7 +73,7 @@ export async function markConversationRead(
     : Prisma.empty
   return db.$executeRaw`
     INSERT INTO "MessageRead" ("id", "messageId", "userId", "readAt")
-    SELECT gen_random_uuid()::text, m.id, ${userId}, now()
+    SELECT gen_random_uuid()::text, m.id, ${userId}, (now() AT TIME ZONE 'UTC')
     FROM "Message" m
     WHERE m."conversationId" = ${conversationId}
       AND m."senderId" <> ${userId}

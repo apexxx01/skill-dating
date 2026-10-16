@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import type { PrismaClient } from '@prisma/client'
 import type { HeatmapDay } from '@/types/api'
 import { DERIVED_XP_TYPES } from '@/lib/rewards-config'
+import { utcTimestamp } from '@/lib/sql'
 import { addDaysToDateKey, localDateKey, localDateStart, resolveTimeZone } from '@/lib/time'
 
 // The contribution heatmap: the XP a person earned on each local day of their own time zone.
@@ -37,7 +38,7 @@ export async function loadHeatmap(db: Pick<PrismaClient, '$queryRaw'>, userId: s
            SUM("amount") AS "xp",
            COUNT(*) FILTER (WHERE "type" NOT IN (${Prisma.join(DERIVED_XP_TYPES)})) AS "actions"
     FROM "XPEvent"
-    WHERE "userId" = ${userId} AND "createdAt" >= ${range.since}
+    WHERE "userId" = ${userId} AND "createdAt" >= ${utcTimestamp(range.since)}
     GROUP BY 1
     ORDER BY 1
   `
