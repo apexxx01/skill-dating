@@ -193,3 +193,20 @@ Checked, in order, before anything is written (`src/lib/matching/opener.ts` and 
 pay nothing themselves: `first-match`, `matches-10` and `match-teamed` ("Better Together": a team with someone you matched with). See
 [GAMIFICATION.md](GAMIFICATION.md#achievements). Analytics events: `drop_viewed`, `spark_sent` (`matched` says whether it completed a pair),
 `match_created` (one per person) and `unmatch`.
+
+## Gap finder (teams)
+
+`GET /api/teams/{id}/gaps` (the team's owner or an admin of the team, or a platform admin) says what a team is missing and who could fill it.
+
+- **Declared needs.** `Team.lookingFor` and the project's `lookingFor`, set against what the members can do. A need that is a **skill of the
+  catalog** (matched by name or slug, ignoring case) is covered when a member has that skill; anything else is a **role** ("Designer"), covered when a
+  member's own `builderRole` contains it (or is contained by it). The project's **stack** counts as skills too: a technology that is a catalog skill should be
+  known by somebody on the team; one that is not (a hosting product) cannot be checked and is only listed (`unmatchedStack`). Each need keeps where it
+  came from (`TEAM_NEEDS`, `PROJECT_NEEDS`, `PROJECT_STACK`). The analysis is a pure function (`src/lib/matching/gaps.ts`).
+- **Top 5 candidates**, from the same pool query and the same scorer as the daily drops, so the same people are left out: paused, deleted and
+  untrusted accounts, anyone blocked with the caller, anyone the caller passed in the last 30 days, anyone over the daily exposure cap, anyone who ended a
+  match with the caller, and every current member and applicant. The candidates are people who chose a type that fits the team: `HACKATHON_TEAMMATE` for a team
+  of a hackathon, otherwise `COLLABORATOR` or `COFOUNDER`. **Dating is never part of it.** The team is scored as a viewer who is looking for its missing
+  skills and offers its members' skills, so "You need ML, they have 3 verified ML projects" reads the same as in a drop. Two things differ from a drop:
+  somebody shown to the caller in the last week, or already sparked or matched with them, is **not** left out (a matched person is a good person to invite).
+- **Inviting** reuses the invitation flow: `POST /api/teams/{id}/invitations { userId }`. Nothing here sends anything.

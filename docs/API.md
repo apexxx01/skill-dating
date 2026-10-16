@@ -158,6 +158,9 @@ Atomically flips `Team.ownerId`, promotes the new owner's `TeamMember.role` to `
 ### `GET /api/teams/[id]/candidates`
 **Auth:** owner or `ADMIN`. Recommends non-member, non-applicant users ranked by compatibility with the team's `lookingFor` list.
 
+### `GET /api/teams/[id]/gaps`
+**Auth:** the team's owner or an admin of the team (or a platform admin); `403 FORBIDDEN` for anyone else, `404 TEAM_NOT_FOUND`. What the team is missing and who could fill it (see [MATCHING.md](MATCHING.md#gap-finder-teams)): `{ team: { id, name, maxSize, memberCount, openSlots }, needs: { team, project, stack }, missing: { skills, roles }, covered: { skills, roles }, unmatchedStack, candidates }`. `needs` are the team's `lookingFor`, its project's `lookingFor` and its project's tech stack, as written. A need that is a skill of the catalog is a **skill** need (`{ name, slug, sources }`, covered when a member has it; `covered` entries add `memberIds`), anything else is a **role** (`{ name, sources }`, covered when a member's `builderRole` matches); `sources` say where it came from (`TEAM_NEEDS`, `PROJECT_NEEDS`, `PROJECT_STACK`). `unmatchedStack` lists technologies that are not catalog skills. `candidates` are at most five `{ person: MatchPerson, connectionType, score, reasons, fills }`, best first, from the same pool and scorer as the daily drops (so paused, deleted, untrusted and blocked people, and the team's members and applicants, are left out; people who chose only dating never appear); `fills` names the missing skills the person has. Invite one with the existing `POST /api/teams/[id]/invitations`.
+
 ### `POST /api/teams/[id]/applications`
 Apply to join. **Errors:** `400` team not recruiting or already full (pre-check against `maxSize`), `400` already a member, `400` already applied.
 **Body:** `{ message?: string }`

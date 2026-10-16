@@ -1033,3 +1033,37 @@ export interface ReceivedSparks {
   sparks: ReceivedSparkItem[]
   nextCursor: string | null
 }
+
+/** A skill or role a team asked for or builds with, and where the need came from. */
+export interface TeamGapNeed {
+  name: string
+  /** Set for a skill of the catalog; roles ("Designer") have no slug. */
+  slug?: string
+  sources: ('TEAM_NEEDS' | 'PROJECT_NEEDS' | 'PROJECT_STACK')[]
+}
+
+/** One person who could fill what a team is missing. */
+export interface TeamGapCandidate {
+  person: MatchPerson
+  /** The kind of teammate they would be: HACKATHON_TEAMMATE for a hackathon team, COLLABORATOR or COFOUNDER otherwise. Never DATING. */
+  connectionType: MatchTypeName
+  /** 0 to 100, from the same scorer as the daily drops. */
+  score: number
+  /** At most three lines saying why. */
+  reasons: string[]
+  /** Names of the team's missing skills this person has. */
+  fills: string[]
+}
+
+/** GET /api/teams/{id}/gaps (the team's owner or admin). */
+export interface TeamGapsResponse {
+  team: { id: string; name: string; maxSize: number; memberCount: number; openSlots: number }
+  /** What was asked for, as written: the team's `lookingFor`, its project's `lookingFor`, and its project's tech stack. */
+  needs: { team: string[]; project: string[]; stack: string[] }
+  missing: { skills: TeamGapNeed[]; roles: TeamGapNeed[] }
+  covered: { skills: (TeamGapNeed & { memberIds: string[] })[]; roles: (TeamGapNeed & { memberIds: string[] })[] }
+  /** Technologies of the project that are not skills of the catalog, so cannot be checked against anyone. */
+  unmatchedStack: string[]
+  /** The five best fits, best first. Invite one with POST /api/teams/{id}/invitations. */
+  candidates: TeamGapCandidate[]
+}

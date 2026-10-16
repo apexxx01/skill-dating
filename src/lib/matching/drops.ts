@@ -4,7 +4,7 @@ import { limit, subjectFor } from '@/lib/entitlements'
 import { log } from '@/lib/log'
 import { advisoryLock } from '@/lib/progress'
 import { isValidTimeZone, localDateKey, localDayEnd, localTimeKey } from '@/lib/time'
-import { findCandidateIds, type Viewer } from './candidates'
+import { findCandidateIds, viewerFor } from './candidates'
 import { DROP_CONFIG } from './config'
 import { datingBlockers } from './dating'
 import { loadScoringProfiles, type ProfileCache } from './loader'
@@ -135,14 +135,13 @@ export async function generateDropsForUser(
   if (room > 0 && types.length > 0) {
     const [self] = await loadScoringProfiles(db, [userId], now, options.cache)
     if (self) {
-      const wanted = stored.lookingForSkills.length > 0 ? await db.skill.findMany({ where: { slug: { in: stored.lookingForSkills } }, select: { id: true } }) : []
-      const viewer: Viewer = {
+      const viewer = await viewerFor(db, {
         userId,
         cityOnly: stored.cityOnly,
         cityKey: user.profile?.cityKey ?? null,
-        lookingForSkillIds: wanted.map((skill) => skill.id),
+        lookingForSkills: stored.lookingForSkills,
         skillSlugs: user.skills.map((row) => row.skill.slug),
-      }
+      })
       for (const type of types) {
         const ids = await findCandidateIds(db, viewer, type, now)
         for (let from = 0; from < ids.length; from += DROP_CONFIG.scoreBatch) {

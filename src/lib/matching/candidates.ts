@@ -36,6 +36,24 @@ export interface Viewer {
   skillSlugs: readonly string[]
 }
 
+/**
+ * How the pool differs from a plain daily drop. All of it narrows or widens what is remembered about the viewer's past with a person; nothing here
+ * loosens who may be shown (blocks, trust, pausing, dating and the exposure cap always apply).
+ */
+export interface PoolOptions {
+  /** Only these people (a second look at someone already known). */
+  onlyIds?: readonly string[]
+  /** Never these people (a team's members and applicants). */
+  excludeIds?: readonly string[]
+  /** Forget what the viewer was shown or passed lately: the second look is exactly about somebody they passed. */
+  ignoreHistory?: boolean
+  /**
+   * For suggestions to a team's owner rather than a drop: somebody shown lately, already sparked or currently matched with them stays in (a matched person is a
+   * good person to invite), while a match that ended is still final, and somebody they passed in the last 30 days is still left out.
+   */
+  teamSuggestion?: boolean
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /** The first instant of the UTC day that `now` is in: the window the exposure cap counts in. */
@@ -43,7 +61,14 @@ export function utcDayStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 }
 
-export async function findCandidateIds(db: Db, viewer: Viewer, type: MatchType, now: Date, config: typeof DROP_CONFIG = DROP_CONFIG): Promise<string[]> {
+export async function findCandidateIds(
+  db: Db,
+  viewer: Viewer,
+  type: MatchType,
+  now: Date,
+  config: typeof DROP_CONFIG = DROP_CONFIG,
+  options: PoolOptions = {}
+): Promise<string[]> {
   const counterpart = counterpartType(type)
   const trustedBefore = utcTimestamp(new Date(now.getTime() - MIN_TRUSTED_ACCOUNT_AGE_DAYS * DAY_MS))
   const activeSince = utcTimestamp(new Date(now.getTime() - config.activeWithinDays * DAY_MS))
@@ -53,6 +78,19 @@ export async function findCandidateIds(db: Db, viewer: Viewer, type: MatchType, 
   const dating = type === 'DATING' ? datingEligibleSql('u', now) : Prisma.sql`TRUE`
   const wants = [...viewer.lookingForSkillIds]
   const has = [...viewer.skillSlugs]
+
+  const team = options.teamSuggestion === true
+  const only = options.onlyIds ? Prisma.sql`AND u."id" = ANY(${[...options.onlyIds]}::text[])` : Prisma.empty
+  const except = options.excludeIds && options.excludeIds.length > 0 ? Prisma.sql`AND NOT (u."id" = ANY(${[...options.excludeIds]}::text[]))` : Prisma.empty
+  // A match that ended is final everywhere; one that is open (or a spark already sent) only keeps the person out of a drop.
+  const matchClause = team ? Prisma.sql`AND m."endedAt" IS NOT NULL` : Prisma.empty
+  const sparkClause = team ? Prisma.sql`AND FALSE` : Prisma.empty
+  // What the viewer was shown and passed: a team suggestion keeps only the 30 day pass; a second look keeps nothing.
+  const historyClause = options.ignoreHistory
+    ? Prisma.sql`AND FALSE`
+    : team
+      ? Prisma.sql`AND d."status" = 'PASSED' AND d."updatedAt" >= ${passedSince}`
+      : Prisma.sql`AND (d."createdAt" >= ${repeatSince} OR (d."status" = 'PASSED' AND d."updatedAt" >= ${passedSince}))`
 
   // Three steps, so the expensive per-candidate work only ever sees a bounded set:
   //   base   - the cheap filters, as hash joins and anti-joins: the cost is the number of people of this type who were active lately;
@@ -80,16 +118,17 @@ export async function findCandidateIds(db: Db, viewer: Viewer, type: MatchType, 
           WHERE (b."blockerId" = ${viewer.userId} AND b."blockedId" = u."id") OR (b."blockerId" = u."id" AND b."blockedId" = ${viewer.userId})
         )
         AND NOT EXISTS (
-          SELECT 1 FROM "Match" m WHERE m."userAId" = LEAST(${viewer.userId}, u."id") AND m."userBId" = GREATEST(${viewer.userId}, u."id")
+          SELECT 1 FROM "Match" m WHERE m."userAId" = LEAST(${viewer.userId}, u."id") AND m."userBId" = GREATEST(${viewer.userId}, u."id") ${matchClause}
         )
         AND NOT EXISTS (
-          SELECT 1 FROM "Spark" sp WHERE sp."fromId" = ${viewer.userId} AND sp."toId" = u."id"
+          SELECT 1 FROM "Spark" sp WHERE sp."fromId" = ${viewer.userId} AND sp."toId" = u."id" ${sparkClause}
         )
         AND NOT EXISTS (
           SELECT 1 FROM "Drop" d
-          WHERE d."userId" = ${viewer.userId} AND d."candidateId" = u."id"
-            AND (d."createdAt" >= ${repeatSince} OR (d."status" = 'PASSED' AND d."updatedAt" >= ${passedSince}))
+          WHERE d."userId" = ${viewer.userId} AND d."candidateId" = u."id" ${historyClause}
         )
+        ${only}
+        ${except}
     ),
     hits AS (
       SELECT us."userId", COUNT(*) AS "n" FROM "UserSkill" us WHERE us."skillId" = ANY(${wants}::text[]) GROUP BY us."userId"
@@ -107,4 +146,13 @@ export async function findCandidateIds(db: Db, viewer: Viewer, type: MatchType, 
     LIMIT ${config.candidatePoolPerType}
   `
   return rows.map((row) => row.id)
+}
+
+/** A Viewer from a person's matching profile: the skills they look for are looked up by slug once, so the pool query ranks by id. */
+export async function viewerFor(
+  db: Pick<PrismaClient, 'skill'>,
+  person: { userId: string; cityOnly: boolean; cityKey: string | null; lookingForSkills: readonly string[]; skillSlugs: readonly string[] }
+): Promise<Viewer> {
+  const wanted = person.lookingForSkills.length > 0 ? await db.skill.findMany({ where: { slug: { in: [...person.lookingForSkills] } }, select: { id: true } }) : []
+  return { userId: person.userId, cityOnly: person.cityOnly, cityKey: person.cityKey, lookingForSkillIds: wanted.map((skill) => skill.id), skillSlugs: person.skillSlugs }
 }

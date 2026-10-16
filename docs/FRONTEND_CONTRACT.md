@@ -546,6 +546,17 @@ shown this person for (a MENTEE is shown mentors as `MENTEE`). Show at most one 
 for "your next drops arrive in…" (it is to the hour). `status` is `NEW` until the user acts: grey out `PASSED` and `SPARKED`, hide `EXPIRED`.
 The old `compatibility` number on `/api/discover` and the dashboard keeps its shape.
 
+### Team gap finder (`/teams/{id}`, owner view)
+
+| Need | Call |
+| --- | --- |
+| What is missing, and who could fill it | `GET /api/teams/{id}/gaps` → `TeamGapsResponse` (owner or team admin only; `403` otherwise: hide the panel) |
+| Invite a suggestion | `POST /api/teams/{id}/invitations { userId }` (**write**, as today) |
+
+Show `missing.skills` and `missing.roles` as "Your team needs…" chips (`sources` says whether the team or the project asked), `covered.*` as ticked, and `candidates` (five at most, best first)
+as cards with `reasons`, `fills` and an Invite button. `unmatchedStack` is informational ("we can't check Vercel"). An empty `candidates` is normal for a team whose needs nobody fits; a team that
+asked for nothing has nothing missing. Suggestions are not drops: opening this panel shows no one to the other person, and nobody is notified until you invite.
+
 ### Sparks (`/sparks`, and the Spark button on a drop or a profile)
 
 | Need | Call |
