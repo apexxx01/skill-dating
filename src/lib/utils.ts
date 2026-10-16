@@ -65,31 +65,6 @@ export function getInitials(name: string): string {
     .slice(0, 2)
 }
 
-export function calculateXpForLevel(level: number): number {
-  return Math.floor(100 * Math.pow(1.5, level - 1))
-}
-
-export function calculateLevelFromXp(xp: number): number {
-  let level = 1
-  let remainingXp = xp
-  while (remainingXp >= calculateXpForLevel(level)) {
-    remainingXp -= calculateXpForLevel(level)
-    level++
-  }
-  return level
-}
-
-export function calculateXpProgress(xp: number): { level: number; currentLevelXp: number; nextLevelXp: number; progress: number } {
-  const level = calculateLevelFromXp(xp)
-  let currentLevelXp = 0
-  for (let i = 1; i < level; i++) {
-    currentLevelXp += calculateXpForLevel(i)
-  }
-  const nextLevelXp = calculateXpForLevel(level)
-  const progress = ((xp - currentLevelXp) / nextLevelXp) * 100
-  return { level, currentLevelXp, nextLevelXp, progress: Math.min(100, Math.max(0, progress)) }
-}
-
 export function calculateCompatibility(userSkills: { skillId: string; level: number }[], targetSkills: { skillId: string; level: number }[]): number {
   if (userSkills.length === 0 || targetSkills.length === 0) return 0
   
