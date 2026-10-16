@@ -7,8 +7,8 @@ describe('emptyEnvelope', () => {
     expect(emptyEnvelope(150)).toEqual({
       xpGained: 0,
       totalXp: 150,
-      oldLevel: 2,
-      newLevel: 2,
+      oldLevel: 5,
+      newLevel: 5,
       leveledUp: false,
       oldTier: 'BRONZE',
       newTier: 'BRONZE',
@@ -22,18 +22,18 @@ describe('emptyEnvelope', () => {
 
 describe('envelopeForGain', () => {
   it('stays on the level when the gain does not reach the next one', () => {
-    const envelope = envelopeForGain(0, 50)
-    expect(envelope).toMatchObject({ xpGained: 50, totalXp: 50, oldLevel: 1, newLevel: 1, leveledUp: false, tierChanged: false })
+    const envelope = envelopeForGain(10, 5)
+    expect(envelope).toMatchObject({ xpGained: 5, totalXp: 15, oldLevel: 2, newLevel: 2, leveledUp: false, tierChanged: false })
   })
 
   it('levels up on exactly the threshold, not one XP before', () => {
-    expect(envelopeForGain(0, 59).leveledUp).toBe(false)
-    expect(envelopeForGain(0, 60)).toMatchObject({ oldLevel: 1, newLevel: 2, leveledUp: true })
-    expect(envelopeForGain(59, 1)).toMatchObject({ oldLevel: 1, newLevel: 2, leveledUp: true })
+    expect(envelopeForGain(0, 4).leveledUp).toBe(false)
+    expect(envelopeForGain(0, 5)).toMatchObject({ oldLevel: 1, newLevel: 2, leveledUp: true })
+    expect(envelopeForGain(4, 1)).toMatchObject({ oldLevel: 1, newLevel: 2, leveledUp: true })
   })
 
   it('can skip several levels in one gain', () => {
-    expect(envelopeForGain(0, 1000)).toMatchObject({ oldLevel: 1, newLevel: 5, leveledUp: true })
+    expect(envelopeForGain(0, 1000)).toMatchObject({ oldLevel: 1, newLevel: 9, leveledUp: true })
   })
 
   it('changes tier at the tier boundary only', () => {
@@ -56,17 +56,17 @@ describe('envelopeForGain', () => {
 
 describe('mergeEnvelopes', () => {
   it('adds the XP, keeps the first start and the last end, and unions the achievements', () => {
-    const first = envelopeForGain(10, 50, [{ slug: 'a', name: 'A' }])
-    const second = envelopeForGain(60, 25, [{ slug: 'b', name: 'B' }])
+    const first = envelopeForGain(0, 50, [{ slug: 'a', name: 'A' }])
+    const second = envelopeForGain(50, 25, [{ slug: 'b', name: 'B' }])
     const merged = mergeEnvelopes(first, second)
-    expect(merged).toMatchObject({ xpGained: 75, totalXp: 85, oldLevel: 1, newLevel: 2, leveledUp: true })
+    expect(merged).toMatchObject({ xpGained: 75, totalXp: 75, oldLevel: 1, newLevel: 4, leveledUp: true })
     expect(merged.achievements.map((item) => item.slug)).toEqual(['a', 'b'])
   })
 
   it('does not report a level-up that cancelled out', () => {
     // Same start and end level even though the middle total is higher.
     const merged = mergeEnvelopes(envelopeForGain(10, 5), envelopeForGain(15, 5))
-    expect(merged).toMatchObject({ xpGained: 10, oldLevel: 1, newLevel: 1, leveledUp: false })
+    expect(merged).toMatchObject({ xpGained: 10, oldLevel: 2, newLevel: 2, leveledUp: false })
   })
 
   it('lists an achievement once', () => {

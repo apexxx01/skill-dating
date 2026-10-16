@@ -3,7 +3,7 @@
 //
 // A level's size is the XP needed to move from that level to the next one:
 //
-//   xpForLevel(n) = round(60 * n^1.25)        (60 for level 1, 143 for level 2, ...)
+//   xpForLevel(n) = round(5 * n^1.85)         (5 for level 1, 18 for level 2, ...)
 //
 // Level 1 starts at 0 XP, so the XP at which a level begins is the sum of the
 // sizes of all the levels before it. The top level (MAX_LEVEL) has no next level.
@@ -36,7 +36,7 @@ export interface LevelInfo {
 
 /** XP needed to get from `level` to `level + 1`. */
 export function xpForLevel(level: number): number {
-  return Math.round(60 * Math.pow(level, 1.25))
+  return Math.round(5 * Math.pow(level, 1.85))
 }
 
 // cumulative[n - 1] = XP at which level n begins (cumulative[0] = 0).

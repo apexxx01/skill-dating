@@ -78,7 +78,7 @@ describe('grant', () => {
     const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
     const result = await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
     expect(result.granted).toBe(true)
-    expect(result.envelope).toMatchObject({ xpGained: 50, totalXp: 50, oldLevel: 1, newLevel: 1, leveledUp: false })
+    expect(result.envelope).toMatchObject({ xpGained: 50, totalXp: 50, oldLevel: 1, newLevel: 3, leveledUp: true })
     expect(db.rows).toEqual([expect.objectContaining({ userId: 'u1', type: 'PROJECT_CREATED', amount: 50, dedupeKey: 'project:p1' })])
     expect(db.tx.xPEvent.createMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: [expect.objectContaining({ sourceType: 'PROJECT', sourceId: 'p1', description: 'Created project p1' })], skipDuplicates: true })
@@ -254,16 +254,16 @@ describe('grant', () => {
 
   describe('levels, tiers and notifications', () => {
     it('reports a level-up on the exact threshold and notifies once', async () => {
-      const db = fakeDatabase({ u1: { xp: 50, timezone: null } })
+      const db = fakeDatabase({ u1: { xp: xpAtLevelStart(7) - 50, timezone: null } })
       const result = await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
-      expect(result.envelope).toMatchObject({ xpGained: 50, totalXp: 100, oldLevel: 1, newLevel: 2, leveledUp: true, tierChanged: false })
+      expect(result.envelope).toMatchObject({ xpGained: 50, totalXp: xpAtLevelStart(7), oldLevel: 6, newLevel: 7, leveledUp: true, tierChanged: false })
       expect(db.notifications.map((n) => n.metadata.kind)).toEqual(['LEVEL_UP'])
     })
 
     it('does not level up one XP short', async () => {
-      const db = fakeDatabase({ u1: { xp: 9, timezone: null } })
+      const db = fakeDatabase({ u1: { xp: xpAtLevelStart(7) - 51, timezone: null } })
       const result = await grant(db.tx, 'u1', 'PROJECT_CREATED', project('p1'))
-      expect(result.envelope).toMatchObject({ totalXp: 59, leveledUp: false })
+      expect(result.envelope).toMatchObject({ totalXp: xpAtLevelStart(7) - 1, oldLevel: 6, newLevel: 6, leveledUp: false })
       expect(db.notifications).toEqual([])
     })
 
@@ -315,7 +315,7 @@ describe('grant', () => {
         await grant(tx, 'u1', 'PROJECT_CREATED', project('p1'))
         await grant(tx, 'u1', 'HACKATHON_JOIN', { sourceType: 'HACKATHON', sourceId: 'h1', description: 'Joined' })
       })
-      expect(await scope.rewardsFor(db.tx, 'u1')).toMatchObject({ xpGained: 150, totalXp: 150, oldLevel: 1, newLevel: 2, leveledUp: true })
+      expect(await scope.rewardsFor(db.tx, 'u1')).toMatchObject({ xpGained: 150, totalXp: 150, oldLevel: 1, newLevel: 5, leveledUp: true })
     })
 
     it('reports nothing earned, at the current total, for a duplicate', async () => {

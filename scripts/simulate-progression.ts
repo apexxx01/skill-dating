@@ -107,7 +107,7 @@ export const TARGETS: { persona: string; level: number; label: string; from: num
   { persona: 'Power', level: 35, label: 'Platinum in 9-12 months', from: 274, to: 365 },
 ]
 
-/** After the first project (50 XP) and its achievement (25 XP), the user must be at level 2, not still at 1 or past it. */
+/** The level a user is on after their first project (50 XP) and its achievement (25 XP): the onboarding moment. */
 export function levelAfterFirstProject(levelOf: (xp: number) => number = (xp) => levelFor(xp).level): number {
   const ledger = new Ledger()
   ledger.emit(1, 'PROJECT_CREATED', 0)
@@ -247,7 +247,7 @@ export function yearlyXp(persona: Persona): number {
 export function renderTargets(rows: { persona: Persona; reached: Map<number, number> }[]): string {
   const lines = ['| Target | Wanted | Simulated | XP a day: needed / earned | |', '| --- | --- | --- | --- | --- |']
   const firstProject = levelAfterFirstProject()
-  lines.push(`| First project and its achievement | level 2 | level ${firstProject} | | ${firstProject === 2 ? 'met' : 'MISSED'} |`)
+  lines.push(`| First project and its achievement | level 4 | level ${firstProject} | | ${firstProject === 4 ? 'met' : 'MISSED'} |`)
   for (const target of TARGETS) {
     const reached = rows.find((row) => row.persona.name === target.persona)?.reached.get(target.level)
     const verdict = reached === undefined ? 'MISSED' : reached < target.from ? 'MISSED (too fast)' : reached > target.to ? 'MISSED (too slow)' : 'met'

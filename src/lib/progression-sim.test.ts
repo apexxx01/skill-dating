@@ -9,8 +9,8 @@ import { xpAtLevelStart } from './levels'
 describe('progression simulator', () => {
   const reached = (name: string) => daysToLevels([...PERSONAS, CEILING].find((persona) => persona.name === name)!)
 
-  it('puts a new user at level 2 after their first project and its achievement', () => {
-    expect(levelAfterFirstProject()).toBe(2)
+  it('puts a new user at level 4 after their first project and its achievement', () => {
+    expect(levelAfterFirstProject()).toBe(4)
   })
 
   it('never reaches a level before the ones below it', () => {
@@ -38,9 +38,9 @@ describe('progression simulator', () => {
 
   it('pays only 3 project creations a day however many are made', () => {
     const farmer = { name: 'Farmer', description: '', perWeek: { PROJECT_CREATED: 7 * 100 } }
-    // Day one: 3 projects (150 XP) and First Project (25) is 175 XP, still level 2 (level 3 starts at 203).
-    expect(xpAtLevelStart(3)).toBeGreaterThan(175)
-    expect(Math.max(...daysToLevels(farmer, 1).keys())).toBe(2)
+    // Day one: 3 projects (150 XP) and First Project (25) is 175 XP, still level 5 (level 6 starts at 224).
+    expect(xpAtLevelStart(6)).toBeGreaterThan(175)
+    expect(Math.max(...daysToLevels(farmer, 1).keys())).toBe(5)
   })
 
   it('renders every report level for every user, and says "never" for a level not reached', () => {

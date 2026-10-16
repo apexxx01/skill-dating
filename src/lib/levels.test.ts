@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { levelFor, xpForLevel, xpAtLevelStart, tierForLevel, MAX_LEVEL, TIERS, TIER_START_LEVEL } from './levels'
 
 describe('xpForLevel', () => {
-  it('is round(60 * n^1.25)', () => {
-    expect(xpForLevel(1)).toBe(60)
-    expect(xpForLevel(2)).toBe(143)
-    expect(xpForLevel(4)).toBe(339)
-    expect(xpForLevel(9)).toBe(935)
-    expect(xpForLevel(100)).toBe(18974)
+  it('is round(5 * n^1.85)', () => {
+    expect(xpForLevel(1)).toBe(5)
+    expect(xpForLevel(2)).toBe(18)
+    expect(xpForLevel(4)).toBe(65)
+    expect(xpForLevel(9)).toBe(291)
+    expect(xpForLevel(100)).toBe(25059)
   })
 
   it('grows with every level', () => {
@@ -20,8 +20,8 @@ describe('xpForLevel', () => {
 describe('xpAtLevelStart', () => {
   it('starts level 1 at zero and adds each level size', () => {
     expect(xpAtLevelStart(1)).toBe(0)
-    expect(xpAtLevelStart(2)).toBe(60)
-    expect(xpAtLevelStart(3)).toBe(203)
+    expect(xpAtLevelStart(2)).toBe(5)
+    expect(xpAtLevelStart(3)).toBe(23)
     for (let level = 1; level < MAX_LEVEL; level++) {
       expect(xpAtLevelStart(level + 1) - xpAtLevelStart(level)).toBe(xpForLevel(level))
     }
@@ -36,19 +36,19 @@ describe('xpAtLevelStart', () => {
 
 describe('levelFor', () => {
   it('puts a new account at level 1, no progress', () => {
-    expect(levelFor(0)).toEqual({ level: 1, tier: 'BRONZE', xpIntoLevel: 0, xpForNextLevel: 60, progress: 0 })
+    expect(levelFor(0)).toEqual({ level: 1, tier: 'BRONZE', xpIntoLevel: 0, xpForNextLevel: 5, progress: 0 })
   })
 
   it('stays on a level until its last XP, and advances on the exact threshold', () => {
-    expect(levelFor(59)).toMatchObject({ level: 1, xpIntoLevel: 59, xpForNextLevel: 60 })
-    expect(levelFor(60)).toMatchObject({ level: 2, xpIntoLevel: 0, xpForNextLevel: 143, progress: 0 })
-    expect(levelFor(202)).toMatchObject({ level: 2, xpIntoLevel: 142 })
-    expect(levelFor(203)).toMatchObject({ level: 3, xpIntoLevel: 0 })
+    expect(levelFor(4)).toMatchObject({ level: 1, xpIntoLevel: 4, xpForNextLevel: 5 })
+    expect(levelFor(5)).toMatchObject({ level: 2, xpIntoLevel: 0, xpForNextLevel: 18, progress: 0 })
+    expect(levelFor(22)).toMatchObject({ level: 2, xpIntoLevel: 17 })
+    expect(levelFor(23)).toMatchObject({ level: 3, xpIntoLevel: 0 })
   })
 
   it('reports progress as a fraction of the level', () => {
-    expect(levelFor(30).progress).toBeCloseTo(0.5)
-    expect(levelFor(60 + 143 / 2).progress).toBeCloseTo(0.5, 1)
+    expect(levelFor(2).progress).toBeCloseTo(0.4)
+    expect(levelFor(5 + 9).progress).toBeCloseTo(0.5, 1)
   })
 
   it('agrees with the thresholds at every level boundary', () => {
@@ -81,7 +81,7 @@ describe('levelFor', () => {
   it('treats negative, fractional and non-finite XP safely', () => {
     expect(levelFor(-50).level).toBe(1)
     expect(levelFor(-50).xpIntoLevel).toBe(0)
-    expect(levelFor(59.9)).toMatchObject({ level: 1, xpIntoLevel: 59 })
+    expect(levelFor(4.9)).toMatchObject({ level: 1, xpIntoLevel: 4 })
     expect(levelFor(Number.NaN).level).toBe(1)
     expect(levelFor(Number.POSITIVE_INFINITY).level).toBe(1)
   })

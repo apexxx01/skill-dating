@@ -220,7 +220,7 @@ describe('rewards in a scope', () => {
       bus.recordReward(tx, 'u2', envelopeForGain(0, 10))
     })
     const reward = await scope.rewardsFor({} as Db, 'u1')
-    expect(reward).toMatchObject({ xpGained: 110, totalXp: 110, oldLevel: 1, newLevel: 2, leveledUp: true })
+    expect(reward).toMatchObject({ xpGained: 110, totalXp: 110, oldLevel: 1, newLevel: 4, leveledUp: true })
     expect(reward.achievements).toEqual([{ slug: 'a', name: 'A' }])
     expect((await scope.rewardsFor({} as Db, 'u2')).xpGained).toBe(10)
   })
@@ -229,7 +229,7 @@ describe('rewards in a scope', () => {
     const bus = new EventBus()
     const { client, tx } = fakeClient(150)
     const { scope } = await bus.transact(client, async () => undefined)
-    expect(await scope.rewardsFor(tx, 'u1')).toMatchObject({ xpGained: 0, totalXp: 150, oldLevel: 2, newLevel: 2, leveledUp: false })
+    expect(await scope.rewardsFor(tx, 'u1')).toMatchObject({ xpGained: 0, totalXp: 150, oldLevel: 5, newLevel: 5, leveledUp: false })
   })
 
   it('ignores a reward recorded outside a transaction', () => {
