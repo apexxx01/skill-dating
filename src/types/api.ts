@@ -640,10 +640,23 @@ export interface RewardsEnvelope {
   tierChanged: boolean
   /** Achievements unlocked by this request. */
   achievements: { slug: string; name: string }[]
-  /** Quests completed by this request. Always empty until quests ship. */
+  /** Quests completed by this request. */
   questsCompleted: { slug: string; name: string }[]
-  /** Streak state after this request. Always null until streaks ship. */
-  streak: null
+  /** The user's streak after this request. */
+  streak: StreakStatus
+}
+
+/**
+ * A daily streak: consecutive local days (in the user's time zone) on which they earned XP from an
+ * action of their own. `current` is what to show now: 0 once a day was missed with no freeze to cover it.
+ */
+export interface StreakStatus {
+  current: number
+  longest: number
+  /** This request is the first of the local day to count, and the streak grew (or started) because of it. */
+  extended: boolean
+  /** A banked freeze covered a missed day to keep the streak alive. */
+  freezeUsed: boolean
 }
 
 /** A mutation response that also reports what it earned. */

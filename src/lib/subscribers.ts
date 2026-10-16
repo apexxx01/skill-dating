@@ -49,7 +49,8 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     // users take their locks in the same order and cannot deadlock each other.
     const recipients = reward.xp.recipients ? [...new Set(reward.xp.recipients(payload))].sort() : [userId]
     for (const recipient of recipients) {
-      const result = await grant(context.tx, recipient, reward.xp.action, { ...source, description })
+      // Of the people a connection pays, only the one who accepted acted; the other just received it.
+      const result = await grant(context.tx, recipient, reward.xp.action, { ...source, description, actor: recipient === userId })
       if (result.granted) rewarded = true
     }
   }

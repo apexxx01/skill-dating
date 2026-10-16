@@ -1,10 +1,9 @@
-import type { RewardsEnvelope } from '@/types/api'
 import { ACHIEVEMENT_DEFINITIONS, type AchievementSlug } from './achievement-definitions'
 import { afterCommit, recordReward, type Db } from './events'
 import { track } from './infra/analytics'
 import { recordActivity } from './activity'
 import { grant } from './rewards'
-import { emptyEnvelope } from './rewards-envelope'
+import { emptyEnvelope, type EnvelopeDraft } from './rewards-envelope'
 
 /**
  * Grants an achievement to a user, idempotently. Always call this from
@@ -26,7 +25,7 @@ export async function grantAchievement(
   tx: Db,
   userId: string,
   slug: AchievementSlug
-): Promise<{ granted: boolean; envelope?: RewardsEnvelope }> {
+): Promise<{ granted: boolean; envelope?: EnvelopeDraft }> {
   const def = ACHIEVEMENT_DEFINITIONS[slug]
 
   const achievement = await tx.achievement.upsert({
@@ -77,7 +76,7 @@ export async function grantAchievement(
   })
 
   // The XP part was recorded by grant(); this adds the unlock itself to what the request reports.
-  const envelope: RewardsEnvelope = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
+  const envelope: EnvelopeDraft = { ...emptyEnvelope(totalXp), achievements: [{ slug, name: achievement.name }] }
   recordReward(tx, userId, envelope)
   afterCommit(tx, () => track(userId, 'achievement_earned', { slug, xpReward: achievement.xpReward }))
 

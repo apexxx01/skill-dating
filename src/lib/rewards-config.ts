@@ -46,33 +46,40 @@ export interface RewardRule {
   oncePer: 'source'
   /** Most awards of this action per local calendar day of the user. Null: no cap. */
   dailyCap: number | null
+  /**
+   * Whether an award counts as an action of the user's own for their streak. False for what other
+   * people give them (endorsements, an accepted application, a win recorded by an organiser) and
+   * for rewards that only exist because of an earlier one (an achievement), so a streak cannot be
+   * kept alive by someone else, or by a reward that is itself paid for doing nothing that day.
+   */
+  streak: boolean
 }
 
 export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   // Once per project, at most 3 a day: creating and deleting projects in a loop stops paying after the third.
-  PROJECT_CREATED: { amount: 50, sourceType: 'PROJECT', oncePer: 'source', dailyCap: 3 },
+  PROJECT_CREATED: { amount: 50, sourceType: 'PROJECT', oncePer: 'source', dailyCap: 3, streak: true },
   // Once per project ever (shippedAt is the gate, see canAwardShipXp). The cap stops a create-ship-delete loop.
-  PROJECT_SHIP: { amount: 200, sourceType: 'PROJECT', oncePer: 'source', dailyCap: 3 },
-  HACKATHON_JOIN: { amount: 100, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null },
-  TEAM_FORMED: { amount: 50, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null },
-  HACKATHON_WIN: { amount: 500, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null },
+  PROJECT_SHIP: { amount: 200, sourceType: 'PROJECT', oncePer: 'source', dailyCap: 3, streak: true },
+  HACKATHON_JOIN: { amount: 100, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: true },
+  TEAM_FORMED: { amount: 50, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: true },
+  HACKATHON_WIN: { amount: 500, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: false },
   // Once per achievement, which UserAchievement also guarantees. The amount is the achievement's xpReward.
-  ACHIEVEMENT_EARNED: { amount: null, sourceType: 'ACHIEVEMENT', oncePer: 'source', dailyCap: null },
+  ACHIEVEMENT_EARNED: { amount: null, sourceType: 'ACHIEVEMENT', oncePer: 'source', dailyCap: null, streak: false },
   // Once per milestone (completing, reopening and completing again pays once), at most 5 a day.
-  MILESTONE_COMPLETED: { amount: 30, sourceType: 'MILESTONE', oncePer: 'source', dailyCap: 5 },
+  MILESTONE_COMPLETED: { amount: 30, sourceType: 'MILESTONE', oncePer: 'source', dailyCap: 5, streak: true },
   // Every update is its own source, so the cap is what limits posting for XP.
-  PROJECT_UPDATE_POSTED: { amount: 15, sourceType: 'PROJECT_UPDATE', oncePer: 'source', dailyCap: 3 },
+  PROJECT_UPDATE_POSTED: { amount: 15, sourceType: 'PROJECT_UPDATE', oncePer: 'source', dailyCap: 3, streak: true },
   // Once per piece of evidence, at most 3 a day.
-  EVIDENCE_ADDED: { amount: 20, sourceType: 'EVIDENCE', oncePer: 'source', dailyCap: 3 },
+  EVIDENCE_ADDED: { amount: 20, sourceType: 'EVIDENCE', oncePer: 'source', dailyCap: 3, streak: true },
   // Paid to the owner of the evidence, once per (evidence, endorser) pair, at most 10 a day.
-  EVIDENCE_ENDORSED: { amount: 10, sourceType: 'ENDORSEMENT', oncePer: 'source', dailyCap: 10 },
+  EVIDENCE_ENDORSED: { amount: 10, sourceType: 'ENDORSEMENT', oncePer: 'source', dailyCap: 10, streak: false },
   // Paid to both people, once per connection, at most 5 a day each.
-  CONNECTION_ACCEPTED: { amount: 10, sourceType: 'CONNECTION', oncePer: 'source', dailyCap: 5 },
+  CONNECTION_ACCEPTED: { amount: 10, sourceType: 'CONNECTION', oncePer: 'source', dailyCap: 5, streak: true },
   // Paid to the sender, once per conversation, at most 5 a day.
-  MESSAGE_SENT_FIRST_IN_CONNECTION: { amount: 5, sourceType: 'CONVERSATION', oncePer: 'source', dailyCap: 5 },
+  MESSAGE_SENT_FIRST_IN_CONNECTION: { amount: 5, sourceType: 'CONVERSATION', oncePer: 'source', dailyCap: 5, streak: true },
   // Paid to the applicant, once per application, at most 3 a day. Only for an account old enough and with a
   // verified email (see applicantRewardEligible): two throwaway accounts could otherwise apply to and accept each other.
-  TEAM_APPLICATION_ACCEPTED: { amount: 50, sourceType: 'TEAM_APPLICATION', oncePer: 'source', dailyCap: 3 },
+  TEAM_APPLICATION_ACCEPTED: { amount: 50, sourceType: 'TEAM_APPLICATION', oncePer: 'source', dailyCap: 3, streak: false },
 }
 
 /** An account younger than this earns nothing from having a team application accepted. */
@@ -89,6 +96,12 @@ export function applicantRewardEligible(user: { createdAt: Date; isEmailVerified
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]
+
+/**
+ * XP that is paid because of an earlier reward rather than for something the user did: it adds to a
+ * day's XP in the heatmap but is not counted as an action.
+ */
+export const DERIVED_XP_TYPES: readonly string[] = ['ACHIEVEMENT_EARNED', 'QUEST_COMPLETED']
 
 export interface RewardSource {
   sourceType: RewardSourceType
@@ -209,6 +222,9 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
       description: () => 'Started a conversation with a connection',
     },
   },
+  // Announced by the rewards engine itself. They pay nothing of their own; achievements and quests listen.
+  STREAK_EXTENDED: {},
+  USER_COMEBACK: {},
 }
 
 /**
