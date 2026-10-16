@@ -241,8 +241,8 @@ describe('rebuildBoards: XP that lands while it runs', () => {
     expect(await score(cache, allTime, 'g', 'b')).toBe(50)
   })
 
-  it('counts an award once whichever step of the last period it lands in, except after the final read of the log', async () => {
-    for (const moment of ['cutoff', 'aggregated', 'replaying', 'swapping'] as const) {
+  it('counts an award once whichever step of the last period it lands in, including during the swap', async () => {
+    for (const moment of ['cutoff', 'aggregated', 'replaying', 'swapping', 'settling'] as const) {
       const log = new FakeLog()
       log.earn('a', 100, NOW - HOUR)
       const cache = new MemoryCache()
@@ -256,12 +256,72 @@ describe('rebuildBoards: XP that lands while it runs', () => {
         },
       })
       expect(landed, moment).toBe(true)
-      // The other periods were swapped in before it landed, so the award reached them as it normally does: once.
-      for (const period of [weekly, monthly, seasonal]) expect(await score(cache, period, 'g', 'a'), `${moment} / ${period.key}`).toBe(125)
-      // Landing after the last read of the log and before the swap is the one window the design cannot close: the award
-      // went to the old board, which the swap replaces (the next run repairs it). Every earlier step is exact.
-      expect(await score(cache, allTime, 'g', 'a'), moment).toBe(moment === 'swapping' ? 100 : 125)
+      // Landing during the swap moves the old board, which the rename replaces: the final pass puts it back.
+      for (const period of [weekly, monthly, seasonal, allTime]) expect(await score(cache, period, 'g', 'a'), `${moment} / ${period.key}`).toBe(125)
     }
+  })
+
+  it('puts back an award that landed on the old board during the swap, and says it corrected one person', async () => {
+    const log = new FakeLog()
+    log.earn('a', 100, NOW - HOUR)
+    const cache = new MemoryCache()
+    let landed = false
+    const result = await rebuild(log, cache, {
+      onStep: async ({ name, period }) => {
+        if (name === 'swapping' && period.key === allTime.key && !landed) {
+          landed = true
+          await land(log, cache, 'a', 25, NOW - 1000)
+        }
+      },
+    })
+    expect(result.settled).toBe(1)
+    expect(await score(cache, allTime, 'g', 'a')).toBe(125)
+  })
+
+  it('settles someone who earned for the first time during the swap, on the boards of their place', async () => {
+    const log = new FakeLog().person({ id: 'new', countryCode: 'IN', cityKey: 'pune' })
+    log.earn('a', 100, NOW - HOUR)
+    const cache = new MemoryCache()
+    let landed = false
+    await rebuild(log, cache, {
+      onStep: async ({ name, period }) => {
+        if (name === 'swapping' && period.key === allTime.key && !landed) {
+          landed = true
+          log.earn('new', 40, NOW - 1000)
+          await cache.zincr(boardKey(allTime.key, 'g'), 'new', 40)
+        }
+      },
+    })
+    expect(await score(cache, allTime, 'g', 'new')).toBe(40)
+    expect(await score(cache, allTime, 'c:IN', 'new')).toBe(40)
+  })
+
+  it('takes someone off the live boards who opted out during the swap', async () => {
+    const log = new FakeLog().person({ id: 'a', countryCode: 'IN' })
+    log.earn('a', 100, NOW - HOUR)
+    const cache = new MemoryCache()
+    await rebuild(log, cache)
+    let landed = false
+    await rebuild(log, cache, {
+      onStep: async ({ name, period }) => {
+        if (name === 'swapping' && period.key === allTime.key && !landed) {
+          landed = true
+          log.person({ id: 'a', countryCode: 'IN', hidden: true })
+          log.earn('a', 1, NOW - 1000)
+        }
+      },
+    })
+    expect(await score(cache, allTime, 'g', 'a')).toBeNull()
+    expect(await score(cache, allTime, 'c:IN', 'a')).toBeNull()
+  })
+
+  it('settles nobody on a quiet log, and twice in a row changes nothing', async () => {
+    const log = new FakeLog()
+    log.earn('a', 100, NOW - HOUR)
+    const cache = new MemoryCache()
+    expect((await rebuild(log, cache)).settled).toBe(0)
+    expect((await rebuild(log, cache)).settled).toBe(0)
+    expect(await score(cache, allTime, 'g', 'a')).toBe(100)
   })
 
   it('does not count an award twice that the aggregate already took and the replay sees again', async () => {
