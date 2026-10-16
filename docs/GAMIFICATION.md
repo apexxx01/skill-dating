@@ -31,7 +31,7 @@ An action that rolls back pays nothing, and a reward that fails rolls the action
 | `EVIDENCE_ENDORSED` | someone else endorses the user's evidence (paid to the **owner**) | 10 | evidence and endorser | 10 a day |
 | `CONNECTION_ACCEPTED` | a connection request is accepted (paid to **both** people) | 10 | connection | 5 a day, each |
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the user sends the first message of a direct conversation with a connection (paid to the **sender**) | 5 | conversation | 5 a day |
-| `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | none |
+| `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | 3 a day |
 
 Who is **not** paid: the milestone update post that completing a milestone creates is not an
 update the user posted, so it pays nothing as one; nobody is paid for endorsing their own
@@ -57,6 +57,13 @@ conversation is not a first message.
 An achievement unlocks once per user. Its XP is paid as an `ACHIEVEMENT_EARNED`
 award, so it counts toward levels like any other XP, and a level-up it causes is
 reported too.
+
+**Accepted applications** are the other reward someone else decides, so they are gated too
+(`applicantRewardEligible` in `src/lib/rewards-config.ts`, applied in `src/lib/subscribers.ts`): an
+applicant whose account is younger than 7 days, or whose email is not verified, is accepted
+onto the team as usual but is paid nothing, XP and the `team-player` achievement alike. Together
+with the 3-a-day cap this makes two throwaway accounts that apply to and accept each other worth
+very little.
 
 **Endorsements** are the one reward other people can trigger, so they are gated
 before they pay, XP and achievement alike (`endorsementRewardAllowed` in

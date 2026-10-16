@@ -142,7 +142,7 @@ describe('grant', () => {
       ['EVIDENCE_ENDORSED', 'ENDORSEMENT', 10, 10],
       ['CONNECTION_ACCEPTED', 'CONNECTION', 10, 5],
       ['MESSAGE_SENT_FIRST_IN_CONNECTION', 'CONVERSATION', 5, 5],
-      ['TEAM_APPLICATION_ACCEPTED', 'TEAM_APPLICATION', 50, null],
+      ['TEAM_APPLICATION_ACCEPTED', 'TEAM_APPLICATION', 50, 3],
     ] as const
     const source = (sourceType: (typeof actions)[number][1], id: string) => ({ sourceType, sourceId: id, description: `award ${id}` })
 
@@ -178,13 +178,6 @@ describe('grant', () => {
       // 18:30Z is Kolkata midnight.
       const nextDay = new Date('2026-03-10T18:30:00Z')
       expect((await grant(db.tx, 'u1', action, { ...source(sourceType, 'tomorrow'), now: nextDay })).granted).toBe(true)
-    })
-
-    it('does not cap a team application, however many are accepted in a day', async () => {
-      const db = fakeDatabase({ u1: { xp: 0, timezone: null } })
-      for (let index = 0; index < 8; index++) {
-        expect((await grant(db.tx, 'u1', 'TEAM_APPLICATION_ACCEPTED', source('TEAM_APPLICATION', `a${index}`))).granted).toBe(true)
-      }
     })
 
     it('counts each action and each person separately against a cap', async () => {

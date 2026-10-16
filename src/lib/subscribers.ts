@@ -2,7 +2,7 @@ import { bus, type DomainEventName, type EmitResult, type EventBus, type Transac
 import { grantAchievement } from '@/lib/achievements'
 import { track } from '@/lib/infra/analytics'
 import { grant } from '@/lib/rewards'
-import { EVENT_REWARDS } from '@/lib/rewards-config'
+import { applicantRewardEligible, EVENT_REWARDS } from '@/lib/rewards-config'
 import { endorsementRewardAllowed } from '@/lib/skill-evidence'
 
 // Who listens to what. This module is loaded by the bus before the first event
@@ -33,6 +33,12 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     if (!(await endorsementRewardAllowed(context.tx as Parameters<typeof endorsementRewardAllowed>[0], userId, endorserId))) {
       return { rewarded: false }
     }
+  }
+
+  // Accepted applications pay the applicant, XP and achievement alike, only when the account passes the age and email checks.
+  if (context.name === 'TEAM_APPLICATION_ACCEPTED') {
+    const applicant = await context.tx.user.findUnique({ where: { id: userId }, select: { createdAt: true, isEmailVerified: true } })
+    if (!applicant || !applicantRewardEligible(applicant)) return { rewarded: false }
   }
 
   if (reward.xp) {

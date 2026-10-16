@@ -262,19 +262,32 @@ describe('XP for progress and community actions', () => {
     expect(await rows(sender.userId, 'MESSAGE_SENT_FIRST_IN_CONNECTION')).toHaveLength(0)
   })
 
-  it('TEAM_APPLICATION_ACCEPTED: 50 XP to the applicant for each accepted application', async () => {
+  // Accepted applications only pay accounts that are at least seven days old and have a verified email.
+  const matured = (u: TestUser, over: { ageDays?: number; verified?: boolean } = {}) =>
+    testPrisma.user.update({
+      where: { id: u.userId },
+      data: {
+        createdAt: new Date(Date.now() - (over.ageDays ?? 8) * 24 * 60 * 60 * 1000),
+        isEmailVerified: over.verified ?? true,
+      },
+    })
+
+  const acceptApplication = async (lead: TestUser, applicant: TestUser, teamName: string) => {
+    const team = await req(lead.jar, 'POST', '/api/teams', { name: `${teamName} ${suffix}${n++}` })
+    expect(team.status).toBe(201)
+    const application = await req(applicant.jar, 'POST', `/api/teams/${team.data.id}/applications`, {})
+    expect(application.status).toBe(201)
+    const path = `/api/teams/${team.data.id}/applications/${application.data.id}`
+    const accepted = await req(lead.jar, 'PATCH', path, { status: 'ACCEPTED' })
+    expect(accepted.status).toBe(200)
+    return { path, applicationId: application.data.id as string }
+  }
+
+  it('TEAM_APPLICATION_ACCEPTED: 50 XP to the applicant for each accepted application, 3 a day', async () => {
     const lead = await user('tl')
     const applicant = await user('ta')
-    const accept = async (teamName: string) => {
-      const team = await req(lead.jar, 'POST', '/api/teams', { name: `${teamName} ${suffix}${n++}` })
-      expect(team.status).toBe(201)
-      const application = await req(applicant.jar, 'POST', `/api/teams/${team.data.id}/applications`, {})
-      expect(application.status).toBe(201)
-      const path = `/api/teams/${team.data.id}/applications/${application.data.id}`
-      const accepted = await req(lead.jar, 'PATCH', path, { status: 'ACCEPTED' })
-      expect(accepted.status).toBe(200)
-      return { path, applicationId: application.data.id as string }
-    }
+    await matured(applicant)
+    const accept = (teamName: string) => acceptApplication(lead, applicant, teamName)
 
     const first = await accept('Alpha')
     expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toEqual([
@@ -286,12 +299,42 @@ describe('XP for progress and community actions', () => {
     expect((await req(lead.jar, 'PATCH', first.path, { status: 'ACCEPTED' })).status).toBeGreaterThanOrEqual(400)
     expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(1)
 
-    // A different application is a different award, and there is no daily cap.
+    // A different application is a different award, up to the daily cap of three.
     await accept('Beta')
     await accept('Gamma')
+    await accept('Delta')
+    expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(3)
     expect(await total(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toBe(150)
     // The person who accepted is not paid for it.
     expect(await rows(lead.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(0)
+  })
+
+  it('TEAM_APPLICATION_ACCEPTED: an account younger than 7 days is accepted but paid nothing, the achievement included', async () => {
+    const lead = await user('yl')
+    const applicant = await user('ya')
+    await matured(applicant, { ageDays: 6 })
+    await acceptApplication(lead, applicant, 'Young')
+
+    expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(0)
+    expect(await testPrisma.userAchievement.count({ where: { userId: applicant.userId, achievement: { slug: 'team-player' } } })).toBe(0)
+    expect(await xpOf(applicant.userId)).toBe(0)
+    // They are still on the team.
+    expect(await testPrisma.teamMember.count({ where: { userId: applicant.userId } })).toBe(1)
+  })
+
+  it('TEAM_APPLICATION_ACCEPTED: an old account whose email is not verified is paid nothing', async () => {
+    const lead = await user('ul')
+    const applicant = await user('ua')
+    await matured(applicant, { ageDays: 60, verified: false })
+    await acceptApplication(lead, applicant, 'Unverified')
+
+    expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(0)
+    expect(await xpOf(applicant.userId)).toBe(0)
+
+    // Once the email is verified the next acceptance pays.
+    await matured(applicant, { ageDays: 60, verified: true })
+    await acceptApplication(lead, applicant, 'Verified')
+    expect(await rows(applicant.userId, 'TEAM_APPLICATION_ACCEPTED')).toHaveLength(1)
   })
 
   it('TEAM_APPLICATION_ACCEPTED: a rejected application pays nothing', async () => {

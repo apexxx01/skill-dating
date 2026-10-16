@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canAwardShipXp, dedupeKeyFor, EVENT_REWARDS, REWARD_ACTIONS, REWARD_RULES } from './rewards-config'
+import { applicantRewardEligible, canAwardShipXp, dedupeKeyFor, EVENT_REWARDS, MIN_ACCOUNT_AGE_DAYS_FOR_APPLICATION_REWARD, REWARD_ACTIONS, REWARD_RULES } from './rewards-config'
 import { DOMAIN_EVENT_NAMES } from './events'
 import { ACHIEVEMENT_DEFINITIONS } from './achievement-definitions'
 
@@ -43,7 +43,7 @@ describe('REWARD_RULES', () => {
       EVIDENCE_ENDORSED: [10, 10],
       CONNECTION_ACCEPTED: [10, 5],
       MESSAGE_SENT_FIRST_IN_CONNECTION: [5, 5],
-      TEAM_APPLICATION_ACCEPTED: [50, null],
+      TEAM_APPLICATION_ACCEPTED: [50, 3],
     } as const
     for (const [action, [amount, cap]] of Object.entries(table)) {
       const rule = REWARD_RULES[action as keyof typeof table]
@@ -161,5 +161,32 @@ describe('EVENT_REWARDS', () => {
   it('keys an endorsement by the evidence and the endorser, so each pair pays once', () => {
     const source = EVENT_REWARDS.EVIDENCE_ENDORSED.xp!.source({ userId: 'owner', endorserId: 'u2', evidenceId: 'e1' })
     expect(source).toEqual({ sourceType: 'ENDORSEMENT', sourceId: 'e1:u2' })
+  })
+})
+
+describe('applicantRewardEligible', () => {
+  const now = new Date('2026-06-15T12:00:00Z')
+  const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+
+  it('asks for seven days', () => {
+    expect(MIN_ACCOUNT_AGE_DAYS_FOR_APPLICATION_REWARD).toBe(7)
+  })
+
+  it('pays an old enough account with a verified email', () => {
+    expect(applicantRewardEligible({ createdAt: daysAgo(30), isEmailVerified: true }, now)).toBe(true)
+  })
+
+  it('pays on the exact seven day mark and not a millisecond before', () => {
+    expect(applicantRewardEligible({ createdAt: daysAgo(7), isEmailVerified: true }, now)).toBe(true)
+    expect(applicantRewardEligible({ createdAt: new Date(daysAgo(7).getTime() + 1), isEmailVerified: true }, now)).toBe(false)
+  })
+
+  it('pays nothing to a new account, however verified', () => {
+    expect(applicantRewardEligible({ createdAt: daysAgo(0), isEmailVerified: true }, now)).toBe(false)
+    expect(applicantRewardEligible({ createdAt: daysAgo(6.9), isEmailVerified: true }, now)).toBe(false)
+  })
+
+  it('pays nothing to an account whose email is not verified, however old', () => {
+    expect(applicantRewardEligible({ createdAt: daysAgo(400), isEmailVerified: false }, now)).toBe(false)
   })
 })
