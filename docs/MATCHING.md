@@ -220,3 +220,32 @@ evidence; ties go to the more recent pass), and checks them against the same poo
 eligibility for dating) except that the 30-day cooldown after a pass does not apply: that is the point. The drop is for the person's current local day, has a
 fresh score and reasons with the growth first ("Since you last saw them they moved up to Gold"), is **extra** (it does not use up the daily allowance), and a
 person gets one a **local week** (Monday to Sunday), however often the job runs.
+
+## Scale: complexity and timings
+
+**What one person's drops cost** (`generateDropsForUser`), for a viewer who chose *k* types (usually 1 or 2, at most 6):
+
+| Step | Work | Why it is bounded |
+| --- | --- | --- |
+| Pool, one SQL query per type | `MatchingProfile ⋈ User ⋈ Profile` with the cheap filters as hash joins and anti-joins (type, paused, deleted, trusted, active in 60 days, dating, city, blocks, matches, sparks, recent drops), then one index scan of `UserSkill(skillId)` for the viewer's wanted skills, a top-N sort, and the exposure cap checked for the best 600 only | Linear in *M*, the people who hold the counterpart type and were active lately (about 0.4 µs a row), plus the holders of the wanted skills. Returns at most 300 ids per type. |
+| Load the pool | 4 queries for 300 candidates (users with their profile, skills, current build and projects; verified evidence grouped; counters), never one per person; a person who is a candidate for many viewers is loaded once per run | 300 per batch |
+| Score | `scoreCompatibility` for each: pure arithmetic over a few dozen numbers, about 5 µs each | 300 per type |
+| Write | one transaction under a per-person lock | at most the daily allowance |
+
+So a person costs *O(k · (M + 300))* and **the work does not grow with the number of accounts that ever signed up**, only with the active, trusted people of the type, which the 60 day window bounds. The hourly run is *O(due people × that)*. People are processed one after another on purpose
+(the exposure cap sees the people before them), in an order that changes every day.
+
+**Measured** with `npm run bench:matching` (seeds synthetic people with skills, evidence, builds, blocks and mixed types, then generates drops for viewers on a FREE plan, so 3 each; one sequential worker; PostgreSQL 16 on the same Apple M5 laptop as the script, so add about a millisecond per query for a network hop in production):
+
+| People | Viewers measured | Whole person (mean / p50 / p95) | Pool query (mean) | Load a 300 pool (mean) | Score a 300 pool (mean) | Everybody, one after another |
+| ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| 1,000 | 1,000 | 53 / 44 / 109 ms | 8 ms | 13 ms | 1.2 ms | 53 s |
+| 10,000 | 1,000 (a tenth) | 96 / 106 / 154 ms | 29 ms | 25 ms | 1.9 ms | about 16 min |
+
+The pool query is the part that grows (8 ms at 1,000 people, 29 ms at 10,000: about linear in *M*); everything else is bounded by the pool size. For the hourly job this is comfortable well past this size, because
+people are due in the hour after their own local drop time, so a day's people arrive spread across the time zones. The worst case is one dense time zone at one popular drop time (everyone at 09:00 in the same city): 10,000 such people take about 16 minutes on one worker.
+
+**Where it goes next** when one dense hour no longer fits in an hour (not needed at this size, and none of it changes the rules): shard the due people across several job workers by a hash of the user id (the per-person lock and the unique key already make that safe, and the exposure cap tolerates a small overshoot);
+precompute each person's skill set as an indexed array on `MatchingProfile` so the relevance rank is one GIN lookup; and put the exposure counters in Redis rather than counting `Drop` rows.
+
+Every query path has an index: `MatchingProfile(connectionTypes)` (GIN) and `(paused, dropTimeLocal)`; `Drop(userId, localDate)`, `(userId, candidateId, createdAt)`, `(candidateId, createdAt)`, `(status, expiresAt)` and `(status, updatedAt)`; `UserSkill(skillId)`; `Spark(toId, status, createdAt)`, `(fromId, createdAt)` and `(openerHash, createdAt)`; `Match(userAId, endedAt)`, `(userBId, endedAt)`. The numbers above are re-measured with that script; the seeding is described at the top of `scripts/bench-matching.ts`.
