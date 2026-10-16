@@ -20,7 +20,7 @@ come back, and every field the mocks invent that the API does not provide.
 | Rewards | Every request that can earn XP returns `rewards` (`RewardsEnvelope`) next to its normal body, also when nothing was earned. See the next section. |
 | Retrying creates | Send an `Idempotency-Key` header (any UUID, one per user action, reused on a retry) on creating `POST`s. A retry then returns the first response (`Idempotent-Replayed: true`) and creates nothing. Same key with a different body is `409 IDEMPOTENCY_KEY_REUSED`; while the first call is still running, `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` (wait a second, retry). Do not reuse a key for a new action. |
 | Request id | Every response has `X-Request-Id`. Show it in "something went wrong" screens and send it with bug reports. |
-| Time zones | Set `timezone` (an IANA name such as `Europe/Paris`) on the profile with `PATCH /api/users`; anything that is "per day" (XP caps now, streaks later) follows the user's local midnight. An invalid zone is `400`. Dates stay UTC ISO strings. |
+| Time zones | Set `timezone` (an IANA name such as `Europe/Paris`) on the profile with `PATCH /api/users`; anything that is "per day" (XP caps, streaks, quests, the heatmap) follows the user's local midnight and "per week" (quests) the local Monday. Weekly and monthly leaderboards are UTC. An invalid zone is `400`. Dates stay UTC ISO strings. |
 | Feature flags | `GET /api/flags` returns `{ flags: { key: boolean } }` for the signed-in user. Read it once per session and gate unreleased UI on it; a key that is missing is off. |
 | Rate limits | Per signed-in user, per route family. Over the limit gives `429 RATE_LIMITED` (`error.params.retryAfter` is the seconds to wait) with a `Retry-After` header. If the limiter store is down you may see `503 SERVICE_UNAVAILABLE` with `Retry-After`. Back off and retry; do not hammer. |
 | Dates | ISO 8601 strings. |
@@ -230,11 +230,10 @@ by any endpoint.
 
 ### Achievements
 
-`achievements[]` is `{ id, earnedAt, achievement: { name, slug, description,
-icon, category, xpReward, isSecret } }`. `icon` is a string name (for example
-`"rocket"`), not a component: map it to an icon in the UI. Only
-earned achievements are listed; the full catalogue is not exposed, so a
-locked-badge grid has no API behind it.
+`achievements[]` on the profile is `{ id, earnedAt, achievement: { name, slug, description,
+icon, category, xpReward, isSecret } }`: **earned** achievements only. `icon` is a string name (for example
+`"rocket"`), not a component: map it to an icon in the UI. For the whole catalogue with progress, rarity and the
+locked grid use `GET /api/users/{id}/achievements` (see Progress pages below).
 
 ### Activity (`ActivityResponse`)
 
@@ -391,9 +390,11 @@ notification badge: use `GET /api/notifications?unreadOnly=true` and
 
 | Mock field | Status |
 | --- | --- |
-| Streaks and "weekly goal" | **No API.** |
-| Stat tiles (projects, connections, XP) | `xp` from the profile/leaderboard `me`; counts from list `pagination.total`. |
-| Leaderboard position | `GET /api/leaderboard` → `me.rank` (`null` when you have no XP yet). |
+| Streaks | `streak` of `GET /api/users/{id}/stats` (your own id), and `rewards.streak` on every action. |
+| "Weekly goal" | `weekly.quests` of `GET /api/quests`: three weekly quests with progress and `resetsAt`. |
+| Stat tiles (projects, connections, XP) | `xp`, `level`, `counts` from `GET /api/users/{id}/stats`; counts of lists from `pagination.total`. |
+| Leaderboard position | `GET /api/leaderboard` → `me.rank` (`null` when you have no XP yet), or `ranks` on the stats call. |
+| `userQuests` in this response | Legacy rows of quests that were started, not the current ones. Use `GET /api/quests`. |
 
 ---
 
@@ -409,7 +410,8 @@ Everything that earns XP returns `rewards` (type `RewardsEnvelope` in
 | `leveledUp`, `oldLevel`, `newLevel` | Level-up celebration. |
 | `tierChanged`, `oldTier`, `newTier` | Tier celebration (`BRONZE`, `SILVER`, `GOLD`, `PLATINUM`, `DIAMOND`, `MYTHIC`). |
 | `achievements[]` | `{ slug, name }` of badges unlocked by this request. |
-| `questsCompleted[]`, `streak` | Always `[]` and `null` for now. Ignore until quests and streaks ship. |
+| `questsCompleted[]` | `{ slug, name }` of quests this request completed: "Quest complete" toast, the XP is already in `xpGained`. |
+| `streak` | `{ current, longest, extended, freezeUsed }`. Always present. `extended` is true on the first counting action of the local day: flash the flame. `freezeUsed` means a banked freeze just saved the streak. `current` is 0 for a lapsed streak. |
 
 Where it comes back: `POST /api/projects`, `PATCH /api/projects/{id}`,
 `POST /api/projects/{id}/updates`, `PATCH /api/projects/{id}/milestones/{milestoneId}`,
@@ -419,7 +421,7 @@ Where it comes back: `POST /api/projects`, `PATCH /api/projects/{id}`,
 When someone else is rewarded (a hackathon winner, an accepted applicant, the owner of endorsed
 evidence) they find out from a notification: level-ups, tier changes and unlocked
 achievements create a `Notification` of type `ACHIEVEMENT` whose `metadata.kind` is `LEVEL_UP`,
-`TIER_UP` or `ACHIEVEMENT_UNLOCKED`.
+`TIER_UP`, `ACHIEVEMENT_UNLOCKED`, `QUEST_COMPLETED` or `COSMETIC_UNLOCKED`.
 
 Level progress for a progress bar is not in the envelope; compute it from the user's `xp` with the
 curve in [GAMIFICATION.md](GAMIFICATION.md#level-curve) (`levelFor()` in `src/lib/levels.ts` is pure
@@ -435,12 +437,75 @@ the other person in a connection is told by notification.
 
 ---
 
-## Leaderboard
+## Progress pages: Home, Passport, Leaderboards, Quests, Achievements
 
-`GET /api/leaderboard?page=&cursor=&limit=` returns
-`{ entries: [{ rank, xp, user }], me: { xp, rank | null }, nextCursor, pagination? }`.
-Ranks are computed live from the XP log, among users you can see. `me.rank` is
-`null` until you have earned XP.
+Every call here is read only except where marked. Types are in `src/types/api.ts`. Days, weeks, streaks and quests
+follow the **user's** time zone (`PATCH /api/users` `timezone`, or `PATCH /api/users/me/profile`); weekly and monthly leaderboards are UTC.
+
+### Home (`/dashboard`)
+
+| Need | Call |
+| --- | --- |
+| Level, tier, XP bar, streak, rank, counts | `GET /api/users/{me}/stats` (`PlayerCard`): `level`, `tier`, `progress.fraction`, `streak.current`, `ranks.global`, `counts` |
+| Today's quests, "resets in 5h" | `GET /api/quests` → `daily.quests[]` and `daily.resetsAt` |
+| This week's quests | `GET /api/quests` → `weekly.quests[]`, `weekly.resetsAt` |
+| Contribution calendar | `GET /api/users/{me}/heatmap?days=365` → `items[]` (only days with activity; draw the rest empty) |
+| "What changed" after any action | the `rewards` envelope of that action (XP, level, streak, achievements, quests) |
+| Where I stand now | `GET /api/leaderboard?period=weekly` → `me` and `around` (the two above and below) |
+
+When a request comes back with `rewards.streak.extended`, update the flame without another call. `rewards.questsCompleted`
+tells you which quest to tick. After a completed action you can refetch `/api/quests` (cheap, nothing is written), but you
+do not need to: the response already says what completed.
+
+### Passport (`/profile`, `/profile/{id}`)
+
+| Need | Call |
+| --- | --- |
+| Header: title, frame, banner, level, tier, rank, streak | `GET /api/users/{id}/stats`: `equipped.{title,frame,banner}` are `{ slug, name }`, `ranks` are absolute places (null where not on a board), `streak` is `null` on someone else's page when they keep their activity private |
+| Rarest badges | `stats.topAchievements` (three, rarest first, with `rarity`) |
+| Badge wall | `GET /api/users/{id}/achievements` (see Achievements) |
+| Contribution calendar | `GET /api/users/{id}/heatmap?days=365`; `hidden: true` means the owner keeps it private: show nothing |
+| My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner? }` (**write**) |
+| Settings: where I am, privacy | `GET`/`PATCH /api/users/me/profile` `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }` (**write**) |
+
+Cosmetics are only earned: there is nothing to buy and no "unlock" button, only `requirement` text on the locked ones. A
+cosmetic earned by a secret achievement is `masked` until owned (show a mystery tile). Equipping something you do not own is
+`403 COSMETIC_NOT_OWNED`, so disable the control for locked items. Tell the user why a rank is missing: `hideFromLeaderboards`,
+no XP yet, or no country/city set.
+
+### Leaderboards (`/leaderboard`)
+
+`GET /api/leaderboard?period=&scope=&scopeId=&cursor=&limit=` returns
+`{ period, scope, season, entries: [{ rank, score, level, tier, user }], me: { rank, score, hidden }, around, myScopes, nextCursor, pagination? }`.
+
+| Control | Value |
+| --- | --- |
+| Period tabs | `weekly`, `monthly`, `season` (shows `season.name` and `season.endsAt`), `all-time` |
+| Scope picker | `global`, `country`, `city`, `campus`, `crew`. Build it from `myScopes`: a scope whose id is `null` needs the user to set a place first (offer the profile settings), and asking without one is `400` with `details.scopeId`. For `crew` pass the team id as `scopeId` |
+| Infinite scroll | send `nextCursor` back as `cursor` until it is `null`. Ranks keep continuing even if scores move. Do not store cursors |
+| "You" row | `me.rank` (`null`: not on this board) and `around`; pin them under the list |
+
+Ranks are consecutive over the people **you** can see (blocked people are left out), so two viewers can see different ranks
+for the same person, and the player card's `ranks` (absolute) can differ from a board's. People who turned leaderboards off
+are on no board. Weekly and monthly boards reset at UTC midnight on Monday and on the 1st.
+
+### Quests (`/quests`)
+
+`GET /api/quests` → `{ enabled, timezone, daily: { periodKey, resetsAt, quests }, weekly: { ... } }`, three of each.
+Each quest: `{ slug, name, description, xpReward, target, current, completed, completedAt }`. Render `current / target`, and
+`resetsAt` as a countdown. The quests are the same all period and on every device: do not cache them past `resetsAt`. There
+is no "claim": doing the action counts, and the XP arrives with that action's `rewards.questsCompleted`. Reading earns nothing
+and no quest asks the user to open or visit anything. If `enabled` is false, hide the page (an operator paused quests).
+
+### Achievements (`/achievements`)
+
+`GET /api/achievements` (yours) or `GET /api/users/{id}/achievements` → `{ achievements: [...40], earned, total }`, in display
+order, each `{ slug, name, description, icon, category, xpReward, secret, masked, earned, earnedAt, progress: { current, target }, rarity, order }`.
+Group by `category` (`BUILDING`, `HACKATHON`, `TEAM`, `REPUTATION`, `STREAK`, `SECRET`); tiered families share a category and read
+naturally by `order`. Show `progress` as a bar for locked ones. `rarity` is the share of recently active users who have it (0.02 = 2%);
+format it as "2% of builders" and treat `null` as "not measured yet". A `masked` item is a secret achievement not yet earned:
+show a mystery tile with `name` and `description` as given and nothing else. Unlock events arrive in `rewards.achievements`
+and as a notification of kind `ACHIEVEMENT_UNLOCKED`.
 
 ---
 
@@ -457,7 +522,8 @@ Ranks are computed live from the XP log, among users you can see. `me.rank` is
 | Progress features had no endpoints | updates and milestones under `/api/projects/{id}/` |
 | Evidence and endorsements | `/api/evidence` and `/api/evidence/{id}/endorse` |
 | Blocking | `/api/blocks`, enforced across every list and interaction |
-| Reward feedback after an action | `rewards` envelope on the awarding routes; level-up, tier and achievement notifications |
+| Reward feedback after an action | `rewards` envelope on the awarding routes (streak, achievements, quests included); level-up, tier, achievement, quest and cosmetic notifications |
+| Streaks, quests, achievements, cosmetics, seasons, location leaderboards | Stage 1B: see Progress pages above |
 | Infinite scroll and retries | `cursor` / `nextCursor` on every list; `Idempotency-Key` on creating POSTs |
 
 ## Still missing (no backend, needs a product decision)
@@ -467,5 +533,4 @@ Ranks are computed live from the XP log, among users you can see. `me.rank` is
 | Presence / typing indicators | Needs a realtime channel. |
 | Project stars and forks | No data model. |
 | Followers and following | Only symmetric connections exist. |
-| Streaks and weekly goals | No data model yet (`rewards.streak` is `null` until they exist). |
 | Team and project logos | Only `Project.thumbnail` exists; upload storage is not built. |
