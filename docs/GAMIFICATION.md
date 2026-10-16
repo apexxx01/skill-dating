@@ -110,21 +110,25 @@ parallel requests cannot all slip under the cap.
 The size of a level is the XP needed to get from level `n` to level `n + 1`. Level 1 starts at
 0 XP. The maximum level is 100, which has no next level.
 
-- **Levels 1 to 55:** `xpForLevel(n) = round(5 × n^1.85)`.
-- **Levels 56 to 99:** `xpForLevel(n) = 4100 + 50 × (n − 56)`, a straight line: 4,100 XP for level 56,
-  5,300 for level 80, 6,250 for level 99.
+- **Levels 1 to 35:** `xpForLevel(n) = round(5 × n^1.85)`. Unchanged since the first version: every
+  threshold up to the start of level 36 (45,941 XP) is what it always was.
+- **Levels 36 to 100:** an eased curve. It starts from the power law's size at level 35 (3,593 XP) and
+  grows by the same amount per level the power law did there (about 190), but the growth falls in a
+  straight line to nothing over 22 levels (a parabola), so the size levels off at 5,683 XP from
+  level 57 on. `xpForLevel` never goes down from one level to the next, anywhere (a unit test checks all
+  100 levels), and no level is more than about 190 XP bigger than the one before it.
 
 The early levels are deliberately cheap: level 2 starts at 5 XP and level 4 at 61, so a first
 project (50 XP) with its *First Project* achievement (25 XP) takes a new user to **level 4**,
 the onboarding moment, and level 5 starts at 126. The power law then steepens, which is what keeps
 the Silver, Gold and Platinum tiers on schedule (see the simulation below).
 
-Left alone, the power law makes Mythic (level 80) a nine year goal even for a power user, so
-past Diamond (level 55) the size of a level stops growing with the square and grows by a fixed 50
-XP a level instead. Nothing up to level 55 changed (`xpForLevel` and every threshold up to the start of
-level 56 are the same as before), and the size of a level steps **down** once, at level 56, from 8,292 to
-4,100 XP, because that is where the old curve was the problem. Getting from level 55 to 56 still costs
-8,292 XP; from there a level takes a power user about a month instead of two to four.
+Left alone, the power law makes Mythic (level 80) a nine year goal even for a power user, because
+the size of a level keeps growing with the square (8,292 XP at level 55, 16,700 by level 80). From
+level 36 the growth is eased off instead, which brings Diamond to about two and a half years and Mythic to
+about five for a power user. A fixed plateau is what makes both possible without a step: a curve that
+never decreases and still reaches Mythic in five years cannot ask for much more per level at 55 than it
+does at 80.
 
 | Level | Size of the level | Total XP where it starts |
 | ---: | ---: | ---: |
@@ -136,10 +140,12 @@ level 56 are the same as before), and the size of a level steps **down** once, a
 | 10 | 354 | 1,070 |
 | 20 | 1,276 | 8,326 |
 | 35 | 3,593 | 42,348 |
-| 55 | 8,292 | 155,891 |
-| 56 | 4,100 | 164,183 |
-| 80 | 5,300 | 276,383 |
-| 100 | 6,300 | 391,883 |
+| 36 | 3,779 | 45,941 |
+| 45 | 5,061 | 85,598 |
+| 55 | 5,666 | 139,643 |
+| 57 | 5,683 | 150,988 |
+| 80 | 5,683 | 281,697 |
+| 100 | 5,683 | 395,357 |
 
 `levelFor(xp)` returns `{ level, tier, xpIntoLevel, xpForNextLevel, progress }`, where
 `progress` is `xpIntoLevel / xpForNextLevel` (0 to 1; always 1 at level 100, where
@@ -468,10 +474,10 @@ Days until the user first reaches each level (a tier starts at levels 10, 20, 35
 | User | Level 2 | Level 5 | Level 10 | Level 20 | Level 35 | Level 55 | Level 80 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Casual | 10 d | 14 d (2.0 wk) | 42 d (6.0 wk) | 327 d (10.8 mo) | 1671 d (4.6 yr) | never (10 yr+) | never (10 yr+) |
-| Active | 2 d | 3 d | 14 d (2.0 wk) | 105 d (3.5 mo) | 572 d (1.6 yr) | 2180 d (6.0 yr) | never (10 yr+) |
-| Power | 1 d | 1 d | 7 d | 50 d (7.1 wk) | 273 d (9.0 mo) | 1026 d (2.8 yr) | 1839 d (5.0 yr) |
-| Power + wins | 1 d | 1 d | 7 d | 50 d (7.1 wk) | 266 d (8.8 mo) | 987 d (2.7 yr) | 1785 d (4.9 yr) |
-| Ceiling | 1 d | 1 d | 1 d | 6 d | 34 d (4.9 wk) | 128 d (4.2 mo) | 229 d (7.5 mo) |
+| Active | 2 d | 3 d | 14 d (2.0 wk) | 105 d (3.5 mo) | 572 d (1.6 yr) | 1950 d (5.3 yr) | never (10 yr+) |
+| Power | 1 d | 1 d | 7 d | 50 d (7.1 wk) | 273 d (9.0 mo) | 915 d (2.5 yr) | 1876 d (5.1 yr) |
+| Power + wins | 1 d | 1 d | 7 d | 50 d (7.1 wk) | 266 d (8.8 mo) | 889 d (2.4 yr) | 1820 d (5.0 yr) |
+| Ceiling | 1 d | 1 d | 1 d | 6 d | 34 d (4.9 wk) | 115 d (3.8 mo) | 233 d (7.7 mo) |
 
 What the curve is tuned against:
 
@@ -481,9 +487,10 @@ What the curve is tuned against:
 | Casual: Silver in 6-8 weeks | 42-56 d | 42 d (6.0 wk) | 22 / 26 | met |
 | Active: Gold in 3-4 months | 91-122 d | 105 d (3.5 mo) | 78 / 76 | met |
 | Power: Platinum in 9-12 months | 274-365 d | 273 d (9.0 mo) | 133 / 159 | met |
-| Power: Mythic in 5-6 years | 1825-2190 d | 1839 d (5.0 yr) | 138 / 159 | met |
-| Power + wins: Mythic in 3-5 years | 1095-1825 d | 1785 d (4.9 yr) | 189 / 165 | met |
-| Mythic is top-0.1% territory | not within 3 years of steady play | Power: 1839 d (5.0 yr) | | met |
+| Power: Diamond in 2.5-3 years | 913-1095 d | 915 d (2.5 yr) | 139 / 159 | met |
+| Power: Mythic in about 5 years | 1734-1916 d | 1876 d (5.1 yr) | 154 / 159 | met |
+| Power + wins: Mythic in about 5 years, a little sooner than Power | 1095-1825 d | 1820 d (5.0 yr) | 193 / 165 | met |
+| Mythic is top-0.1% territory | not within 3 years of steady play | Power: 1876 d (5.1 yr) | | met |
 
 Notes on the targets:
 
@@ -491,16 +498,17 @@ Notes on the targets:
   below and kept the first project on level 2 does not exist among `round(a × n^p)` curves; the
   closest, `round(24 × n^1.2)`, puts power at about 6 months to Platinum instead of 9 to 12. Cheap early levels and a steep later
   curve were chosen over that.
-- **Mythic is a multi-year goal.** The power user reaches Diamond (level 55) in under 3 years and
-  Mythic (level 80) in about 5. The power user who also wins about four hackathons a year is only
-  a few percent faster, because a win is 500 XP in a year of about 58,000: wins alone do not move anyone
-  a year closer. The two windows (3 to 5 years for the top competitor, 5 to 6 for the plain power user)
-  meet at five years, which is where both sit. The *Ceiling* is not a person: it hits every daily
-  cap every day, and reaches Mythic in about 7 months.
+- **Mythic is a multi-year goal.** The power user reaches Diamond (level 55) in about 2.5 years and
+  Mythic (level 80) in about 5. The power user who also wins about four hackathons a year gets there a few
+  weeks sooner, not years: a win is 500 XP in a year of about 58,000, so wins alone do not move anyone
+  a year closer. The *Ceiling* is not a person: it hits every daily cap every day, and reaches Mythic in
+  about 8 months.
+  Diamond and Mythic pull against each other, because the curve cannot get smaller as levels go up: Diamond
+  any sooner than 2.5 years would push Mythic past five.
 - **The new rewards were sized to keep the early tiers on schedule.** Achievements, streaks and quests add about 12% to what a
   power user earns (159 XP a day against 142 before), and their amounts were trimmed until Silver, Gold and Platinum stayed inside the
-  windows the curve was tuned for. Quest XP is the smallest slice. Because the curve below level 56 is not touched, any
-  further XP source brings the tiers in: re-run the script after touching `REWARD_RULES`, the achievements or the quests.
+  windows the curve was tuned for. Quest XP is the smallest slice. Because the curve up to level 35 is not touched, any
+  further XP source brings the early tiers in: re-run the script after touching `REWARD_RULES`, the achievements or the quests.
 - Casual and active sit at the early edge of their windows (42 days of 42 to 56, 105 days of 91 to 122), so a
   cut to an XP amount slows them past the target.
 
