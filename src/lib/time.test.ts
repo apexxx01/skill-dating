@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  utcOffsetMinutes,
   addDaysToDateKey,
   daysBetweenDateKeys,
   isLocalWeekend,
@@ -245,5 +246,20 @@ describe('weeks', () => {
   it('names the local week at an instant, using the local date', () => {
     expect(localWeekKey(at('2026-06-21T20:00:00Z'), 'UTC')).toBe('2026-W25')
     expect(localWeekKey(at('2026-06-21T20:00:00Z'), 'Asia/Kolkata')).toBe('2026-W26')
+  })
+})
+
+describe('utcOffsetMinutes', () => {
+  it('is minutes east of UTC, with half hours and daylight saving', () => {
+    expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), 'Asia/Kolkata')).toBe(330)
+    expect(utcOffsetMinutes(new Date('2026-07-01T12:00:00Z'), 'America/Los_Angeles')).toBe(-420)
+    expect(utcOffsetMinutes(new Date('2026-12-01T12:00:00Z'), 'America/Los_Angeles')).toBe(-480)
+    expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), 'Pacific/Kiritimati')).toBe(840)
+    expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), 'UTC')).toBe(0)
+  })
+
+  it('is UTC for a missing or unknown zone', () => {
+    expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), null)).toBe(0)
+    expect(utcOffsetMinutes(new Date('2026-10-16T12:00:00Z'), 'Not/AZone')).toBe(0)
   })
 })

@@ -71,6 +71,11 @@ function offsetMs(instant: Date, timeZone: string): number {
   return asUtc - Math.floor(instant.getTime() / 1000) * 1000
 }
 
+/** Minutes east of UTC that the zone is at `instant` (330 for Asia/Kolkata, -420 for Los Angeles in summer). */
+export function utcOffsetMinutes(instant: Date, timeZone: string | null | undefined): number {
+  return Math.round(offsetMs(instant, resolveTimeZone(timeZone)) / 60_000)
+}
+
 /** The calendar date at `instant` in the zone, as YYYY-MM-DD. */
 export function localDateKey(instant: Date, timeZone: string | null | undefined): string {
   const wall = wallClock(instant, resolveTimeZone(timeZone))
