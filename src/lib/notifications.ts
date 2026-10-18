@@ -56,3 +56,34 @@ export async function createNotification(db: Db, input: NotifyInput): Promise<No
     },
   })
 }
+
+/** Notifications of the same kind about the same thing within this long are one notification with a count. */
+export const COALESCE_WINDOW_MS = 60 * 60 * 1000
+
+export interface CoalesceInput extends Omit<NotifyInput, 'message'> {
+  /** What the notification is about, e.g. "props:<postId>". Together with the time window it is the row's key. */
+  subject: string
+  /** The text for a count: "12 people gave Props to X". */
+  message: (count: number) => string
+  now?: Date
+}
+
+/**
+ * A notification that stands for several events. The first event in a window creates it; the next ones in the same window only raise its count, rewrite its text and make it unread
+ * and recent again, so 12 Props on a post in an hour are one line, "12 people gave Props to X", not twelve. A person who switched the kind off gets none. Call inside the
+ * transaction of the event: the row is locked while it is counted, so parallel events do not lose counts.
+ */
+export async function coalesceNotification(tx: Prisma.TransactionClient, input: CoalesceInput): Promise<Notification | null> {
+  if (!(await wantsNotification(tx, input.userId, input.kind))) return null
+  const now = input.now ?? new Date()
+  const key = `${input.subject}:${Math.floor(now.getTime() / COALESCE_WINDOW_MS)}`
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`notify:${input.userId}:${key}`}, 0))`
+  const existing = await tx.notification.findUnique({ where: { userId_coalesceKey: { userId: input.userId, coalesceKey: key } } })
+  const metadata = { kind: input.kind, ...(input.metadata ?? {}) } as Prisma.InputJsonValue
+  if (existing) {
+    return tx.notification.update({ where: { id: existing.id }, data: { count: existing.count + 1, message: input.message(existing.count + 1), isRead: false, createdAt: now, metadata } })
+  }
+  return tx.notification.create({
+    data: { userId: input.userId, type: KIND_SPECS[input.kind].type, title: input.title, message: input.message(1), link: input.link, metadata, coalesceKey: key, count: 1, createdAt: now },
+  })
+}
