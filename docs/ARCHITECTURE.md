@@ -97,6 +97,7 @@ implements the interface and changing one factory. Nothing else moves.
 | Cache | `Cache` in `cache.ts` | `RedisCache` over Upstash REST | `MemoryCache` (`cache.memory.ts`) | `UPSTASH_REDIS_REST_URL` and `_TOKEN` set |
 | Jobs | `JobQueue` in `jobs.ts` | `InngestJobQueue` | `MemoryJobQueue` (`jobs.memory.ts`) | `INNGEST_EVENT_KEY` and `_SIGNING_KEY` set |
 | Realtime | `Realtime` in `realtime.ts` | `AblyRealtime` | `MemoryRealtime` (`realtime.memory.ts`) | `ABLY_API_KEY` set |
+| Storage | `Storage` in `storage.ts` | `S3Storage` (any S3-compatible store, signed with `sigv4.ts`) | `MemoryStorage` (`storage.memory.ts`); in production without a bucket `UnavailableStorage`, which refuses | `STORAGE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY` set |
 
 Each getter is process-wide and survives dev-server reloads; `setCache`, `setJobQueue` and
 `setRealtime` replace it in tests.
@@ -144,12 +145,24 @@ them. Handlers import their module lazily, so the registry stays light.
 | `cosmetics/backfill` | event, once | `src/lib/cosmetics.ts`: grandfather cosmetics for existing users |
 | `drops/generate` | hourly (:05) | `src/lib/matching/drops.ts`: finds everyone whose chosen local time has passed and enqueues a `drops/generate-batch` job for each chunk of 250 in each time zone (dispatch only) |
 | `drops/generate-batch` | event, 8 at a time | `src/lib/matching/drops.ts`: daily drops for one batch of people; safe to run twice |
+| `media/cleanup` | daily (04:50) | `src/lib/media-assets.ts`: removes uploads nobody finished (declared and never confirmed for a day, or rejected), with their objects |
 | `sparks/digest` | hourly (:35) | `src/lib/matching/spark-digest.ts`: once a local day from 09:00, "N people sparked you" (a count, no names) for plans that do not show who |
 | `drops/expire` | hourly (:20) | `src/lib/matching/drops.ts`: mark unanswered drops past their day EXPIRED |
 | `drops/second-look` | Mondays 07:15 | `src/lib/matching/second-look.ts`: one grown, previously passed candidate per person per week |
 
 To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
 test the handler through `runJob` or a `MemoryJobQueue`.
+
+### Storage (uploads)
+
+Uploads never pass through the application. `src/lib/media.ts` is the rulebook (types, sizes, dimensions, duration; a romance photo is stricter), `src/lib/media-assets.ts` the flow, and
+`src/lib/infra/storage.ts` the adapter: **declare** the file (type, size, dimensions, SHA-256) with `POST /api/media/uploads`, which checks the declaration and returns a **presigned PUT** for exactly that key and content
+type; the client uploads straight to the bucket; **confirm** with `POST /api/media/{id}/complete`, which `HEAD`s the real object and compares its size and type with the declaration (a mismatch deletes the object and
+rejects the asset). Only a `READY` asset can be used in a post or as a photo. The key is `posts|romance/<owner>/<sha256>.<ext>`, and `(owner, purpose, sha256)` is unique, which is the **content-hash dedupe**: declaring a file
+already uploaded and confirmed answers `duplicate: true` with nothing to upload. Signing is AWS Signature V4 query-string authentication done by hand (`sigv4.ts`, no SDK; the unit test reproduces AWS's published example byte
+for byte), so S3, R2 and MinIO all work. Private objects (romance photos) are only ever read through a short-lived signed GET made after the access rule is satisfied; post media uses `STORAGE_PUBLIC_BASE_URL` when the
+bucket is public. With no `STORAGE_*` settings development uses `MemoryStorage`, whose "bucket" is `PUT /api/media/dev-upload/{key}` of this server (it exists only while that stand-in is in use), and production uses
+`UnavailableStorage`: every call is refused with `503 STORAGE_UNAVAILABLE` rather than pretending to keep files in memory it would lose.
 
 ### Realtime
 

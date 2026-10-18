@@ -54,6 +54,16 @@ const envSchema = z.object({
       .regex(/^[^.\s]+\.[^:\s]+:\S+$/, 'must look like appId.keyId:secret')
       .optional(),
 
+    // Object storage for uploads (post media, romance photos): any S3-compatible store (AWS S3, Cloudflare R2, MinIO), addressed path-style as
+    // <endpoint>/<bucket>/<key>. Optional: without it development keeps uploads in memory and production refuses them (503 STORAGE_UNAVAILABLE).
+    STORAGE_ENDPOINT: z.string().url('must be a URL').optional(),
+    STORAGE_BUCKET: z.string().min(1).optional(),
+    STORAGE_REGION: z.string().min(1).default('auto'),
+    STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+    STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    // Where objects are served publicly, if the bucket is (a CDN or the bucket's public domain). Without it every read is a short-lived signed URL.
+    STORAGE_PUBLIC_BASE_URL: z.string().url('must be a URL').optional(),
+
     // Whether finishing onboarding needs a date of birth (the platform age policy, docs/SAFETY.md). On by default; the switch exists so a deploy that
     // reaches users before the onboarding screen asks for the date can be rolled out in two steps.
     BIRTH_DATE_REQUIRED: flag('true'),
@@ -85,6 +95,10 @@ type Setting = keyof z.input<typeof envSchema>
 const CREDENTIAL_PAIRS: [Setting, Setting][] = [
   ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
   ['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'],
+  // Object storage needs all four (chained, so any one set requires the rest).
+  ['STORAGE_ENDPOINT', 'STORAGE_BUCKET'],
+  ['STORAGE_ENDPOINT', 'STORAGE_ACCESS_KEY_ID'],
+  ['STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'],
 ]
 
 // Services the in-memory stand-ins replace when they are not configured. Each

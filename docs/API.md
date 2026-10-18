@@ -347,6 +347,22 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 ### `POST /api/admin/users/[id]/birthdate`
 **Auth:** `ADMIN` only. **Body:** `{ birthDate: "YYYY-MM-DD", reason }` (`reason` 10 to 1000 characters, required; unknown keys are refused). Corrects a person's locked date of birth, whatever it was before (or was not), and clears a refusal for being under 16. The old and the new date and the reason go into the audit trail (`BIRTH_DATE_CORRECTED`); the response never carries a date: `{ id, ageBand: "MINOR"|"ADULT", isMinor, changed }`. A date that would put the person under 16 is not applied (`403 AGE_BELOW_MINIMUM`: a correction cannot admit a child; the account is dealt with through moderation). A correction to 16 or 17 clears the place down to a country. `404 USER_NOT_FOUND`.
 
+## Media
+
+Uploads go straight to object storage with a presigned URL; see ARCHITECTURE.md ("Storage"). Three steps: declare, PUT, confirm.
+
+### `POST /api/media/uploads`
+Honours `Idempotency-Key`. **Body:** `{ purpose: "POST_MEDIA"|"ROMANCE_PHOTO", contentType, bytes, width, height, durationMs?, sha256 }` (`sha256` is the lower-case hex SHA-256 of the file; unknown keys are refused). The rules: JPEG, PNG or WebP (IMAGE, at most 10 MB), GIF (at most 15 MB) or MP4/WebM video (at most 100 MB and 120 seconds, `durationMs` required; a duration for anything else is refused); each side 16 to 8000 pixels; a `ROMANCE_PHOTO` must be a JPEG, PNG or WebP of at most 8 MB and at least 400 by 400. **Response `201`:** `{ asset: { id, purpose, status: "PENDING", type, width, height, durationMs }, upload: { method: "PUT", url, headers, expiresAt }, duplicate: false }`; PUT the bytes to `upload.url` with exactly `upload.headers` (they are part of the signature; the URL is good for 10 minutes). If the caller already has a confirmed file with the same hash and purpose: `200 { asset (with url), upload: null, duplicate: true }` and nothing to upload. **Errors:** `400 MEDIA_INVALID` (`details.problems: [{ problem, message }]`, with `problem` one of `TYPE_NOT_ALLOWED`, `TOO_LARGE`, `DIMENSIONS_OUT_OF_RANGE`, `TOO_SMALL`, `DURATION_REQUIRED`, `DURATION_TOO_LONG`, `DURATION_NOT_ALLOWED`, `PURPOSE_TYPE_MISMATCH`), `400 VALIDATION_FAILED`, `429 MEDIA_PENDING_LIMIT` (20 unfinished uploads), `503 STORAGE_UNAVAILABLE`.
+
+### `POST /api/media/[id]/complete`
+After the PUT. The server reads the real object and compares its size and type with the declaration. **Response:** `{ id, purpose, status: "READY", type, width, height, durationMs, url }`. Safe to repeat. **Errors:** `404 MEDIA_NOT_FOUND` (also somebody else's), `409 MEDIA_NOT_UPLOADED`, `422 MEDIA_MISMATCH` (`details: { declared, found }`; the object is deleted and the asset rejected, and the same file can be declared again), `503 STORAGE_UNAVAILABLE`.
+
+### `GET /api/media/[id]`
+One of the caller's own uploads and where it stands (`url` once `READY`). `404 MEDIA_NOT_FOUND` for anyone else's.
+
+### `PUT /api/media/dev-upload/[...key]`
+Development only: the "bucket" of the in-memory storage stand-in (404 `MEDIA_NOT_FOUND` whenever a real bucket is configured or in production). Body: the file's bytes, with its `Content-Type`; the key must start `posts/<callerId>/` or `romance/<callerId>/`. Only the size and type are kept.
+
 ## Leaderboard
 
 ### `GET /api/leaderboard`
@@ -712,6 +728,12 @@ and a unit test fails if a code is missing here.
 | `BIRTH_DATE_REQUIRED` | 400 | Your date of birth is required |
 | `MINOR_LOCATION_LIMITED` | 400 | Accounts for people under 18 can share a country, not a city, campus or place |
 | `BIRTHDATE_CORRECTION_SELF_ONLY` | 400 | A date of birth correction is a request about your own account |
+| `STORAGE_UNAVAILABLE` | 503 | Uploads are not available right now |
+| `MEDIA_NOT_FOUND` | 404 | Media not found |
+| `MEDIA_INVALID` | 400 | That file cannot be uploaded |
+| `MEDIA_PENDING_LIMIT` | 429 | You have too many unfinished uploads. Finish or wait for them to expire |
+| `MEDIA_NOT_UPLOADED` | 409 | The file has not been uploaded yet |
+| `MEDIA_MISMATCH` | 422 | The uploaded file is not what was declared |
 | `DROP_NOT_FOUND` | 404 | Drop not found |
 | `DROP_NOT_PENDING` | 409 | This drop has already been answered or has expired |
 | `CANNOT_SPARK_SELF` | 400 | You cannot spark yourself |

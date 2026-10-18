@@ -240,6 +240,7 @@ model User {
   matchesAsA          Match[]                @relation("MatchesAsA")
   matchesAsB          Match[]                @relation("MatchesAsB")
   notificationPrefs   NotificationPreference[]
+  mediaAssets         MediaAsset[]
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -1381,3 +1382,51 @@ model Match {
   @@index([userBId, endedAt])
   @@index([userAId, endedAt])
 }
+
+enum MediaPurpose {
+  POST_MEDIA
+  ROMANCE_PHOTO
+}
+
+enum MediaKind {
+  IMAGE
+  GIF
+  VIDEO
+}
+
+enum MediaStatus {
+  // Declared and a presigned upload issued; the object has not been checked yet.
+  PENDING
+  // Uploaded, and its real size and type matched the declaration.
+  READY
+  // Uploaded but not what was declared; the object is deleted.
+  REJECTED
+}
+
+// A file a person uploaded or is about to (src/lib/media-assets.ts). The server never receives the bytes: it checks a declaration (type, size, dimensions, hash),
+// signs an upload straight to the bucket, and then looks at the real object. `key` is where it lives in the bucket; (ownerId, purpose, sha256) is unique, which
+// is the content-hash dedupe: uploading the same file twice is one object.
+model MediaAsset {
+  id          String       @id @default(cuid())
+  ownerId     String
+  purpose     MediaPurpose
+  kind        MediaKind
+  key         String       @unique
+  contentType String
+  bytes       Int
+  width       Int
+  height      Int
+  durationMs  Int?
+  sha256      String
+  status      MediaStatus  @default(PENDING)
+  createdAt   DateTime     @default(now())
+  confirmedAt DateTime?
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, purpose, sha256])
+  // A person's unfinished uploads, and the cleanup of abandoned ones.
+  @@index([ownerId, status])
+  @@index([status, createdAt])
+}
+

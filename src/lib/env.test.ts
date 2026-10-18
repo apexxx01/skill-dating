@@ -232,3 +232,37 @@ describe('PRISMA_QUERY_LOG', () => {
     expect(problems({ ...base, PRISMA_QUERY_LOG: 'maybe' }).join('\n')).toContain('PRISMA_QUERY_LOG')
   })
 })
+
+describe('object storage settings', () => {
+  const storage = {
+    STORAGE_ENDPOINT: 'https://acct.r2.cloudflarestorage.com',
+    STORAGE_BUCKET: 'skill-dating',
+    STORAGE_ACCESS_KEY_ID: 'akid',
+    STORAGE_SECRET_ACCESS_KEY: 'secret',
+  }
+
+  it('is optional, and the region defaults to auto', () => {
+    const env = parseEnv(base)
+    expect(env.STORAGE_ENDPOINT).toBeUndefined()
+    expect(env.STORAGE_REGION).toBe('auto')
+    expect(parseEnv({ ...base, ...storage, STORAGE_REGION: 'eu-west-1', STORAGE_PUBLIC_BASE_URL: 'https://cdn.example.com' })).toMatchObject({ STORAGE_REGION: 'eu-west-1', STORAGE_PUBLIC_BASE_URL: 'https://cdn.example.com' })
+  })
+
+  it('is not required in production: without it uploads are refused, not the boot', () => {
+    expect(() => parseEnv(production)).not.toThrow()
+  })
+
+  it('needs all four settings together', () => {
+    expect(problems({ ...base, STORAGE_ENDPOINT: storage.STORAGE_ENDPOINT })).toEqual(
+      expect.arrayContaining(['STORAGE_BUCKET: is required when STORAGE_ENDPOINT is set', 'STORAGE_ACCESS_KEY_ID: is required when STORAGE_ENDPOINT is set'])
+    )
+    expect(problems({ ...base, STORAGE_ACCESS_KEY_ID: 'akid' })).toEqual(expect.arrayContaining(['STORAGE_SECRET_ACCESS_KEY: is required when STORAGE_ACCESS_KEY_ID is set']))
+    expect(problems({ ...base, STORAGE_SECRET_ACCESS_KEY: 'secret' })).toEqual(expect.arrayContaining(['STORAGE_ACCESS_KEY_ID: is required when STORAGE_SECRET_ACCESS_KEY is set']))
+  })
+
+  it('never puts a secret in a problem message', () => {
+    const found = problems({ ...base, ...storage, STORAGE_ENDPOINT: 'not a url' }).join('\n')
+    expect(found).toContain('STORAGE_ENDPOINT')
+    expect(found).not.toContain('secret')
+  })
+})

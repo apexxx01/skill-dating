@@ -126,6 +126,13 @@ export const jobs = {
     retries: 1,
     handler: async () => (await import('@/lib/matching/spark-digest')).runSparkDigestJob(),
   }),
+  // Removes uploads nobody finished (declared and never confirmed for a day, or rejected), with their objects (src/lib/media-assets.ts). Daily.
+  'media/cleanup': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '50 4 * * *',
+    retries: 1,
+    handler: async () => (await import('@/lib/media-assets')).runMediaCleanupJob(),
+  }),
   // Marks drops nobody answered by the end of their day as EXPIRED.
   'drops/expire': defineJob({
     schema: z.object({}).default({}),

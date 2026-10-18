@@ -149,6 +149,14 @@ export const ERROR_CATALOG = {
   MATCH_ENDED: { status: 409, message: 'This match has ended and cannot be started again' },
   CONVERSATION_CLOSED: { status: 409, message: 'This conversation has been closed' },
 
+  // --- Media ----------------------------------------------------------------------------
+  STORAGE_UNAVAILABLE: { status: 503, message: 'Uploads are not available right now' },
+  MEDIA_NOT_FOUND: { status: 404, message: 'Media not found' },
+  MEDIA_INVALID: { status: 400, message: 'That file cannot be uploaded' },
+  MEDIA_PENDING_LIMIT: { status: 429, message: 'You have too many unfinished uploads. Finish or wait for them to expire' },
+  MEDIA_NOT_UPLOADED: { status: 409, message: 'The file has not been uploaded yet' },
+  MEDIA_MISMATCH: { status: 422, message: 'The uploaded file is not what was declared' },
+
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },
   HACKATHON_ALREADY_REGISTERED: { status: 400, message: 'Already registered' },
