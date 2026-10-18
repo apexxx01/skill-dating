@@ -363,6 +363,19 @@ One of the caller's own uploads and where it stands (`url` once `READY`). `404 M
 ### `PUT /api/media/dev-upload/[...key]`
 Development only: the "bucket" of the in-memory storage stand-in (404 `MEDIA_NOT_FOUND` whenever a real bucket is configured or in production). Body: the file's bytes, with its `Content-Type`; the key must start `posts/<callerId>/` or `romance/<callerId>/`. Only the size and type are kept.
 
+## Romance
+
+The romance mode (docs/ROMANCE.md): opt-in, 18+, work first with private filters underneath. Its name in the interface comes from one constant (`modeLabel`, `ROMANCE_MODE_LABEL` in `src/lib/romance/config.ts`); the routes, tables and analytics say "romance". Nothing here is ever part of a professional response (docs/SAFETY.md).
+
+### `GET /api/romance/profile`
+The caller's own romance profile. **Response:** `{ modeLabel, exists, profile, photos, eligibility, options }`. `profile` is `null` until they join; otherwise `{ promptObsessed, promptBuild, promptWeekend, ambition (1-4), ambitionLabel, direction, rhythm, obsessions[], private: { gender, genderSelfDescribe, interestedIn[], ageMin, ageMax, scope, minEndorsements }, paused, createdAt, updatedAt }`. **`profile.private` is returned to its owner and to nobody else, anywhere**; its only effect on others is that someone it refuses is never shown. `photos` are the caller's own, with a (signed, short-lived) `url` each. `eligibility` is `{ eligible, blockers[], minAge }` (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`). `options` is the vocabulary of the form (labelled values for `ambition`, `direction`, `rhythm`, `gender`, `scope`, and the `limits`).
+
+### `PUT /api/romance/profile`
+Saves the whole profile (what is left out takes its default); the first call joins the mode (`201`), later ones replace it (`200`). **Body (unknown keys refused):** `{ promptObsessed, promptBuild, promptWeekend (each 20 to 500 characters), ambition (1-4), direction ("founder"|"craft"|"research"|"steady-career"|"nomad"|"open"), rhythm ("night-owl"|"early-bird"|"bursty"|"steady"), obsessions?: string[] (up to 12, 2 to 40 characters each, lower-cased, each once), gender ("WOMAN"|"MAN"|"NON_BINARY"|"SELF_DESCRIBED"), genderSelfDescribe? (2 to 40 characters; required exactly when gender is SELF_DESCRIBED), interestedIn: gender[] (at least one, each once), ageMin (18 to 99), ageMax (ageMin to 99), scope ("CITY"|"COUNTRY"|"ANYWHERE"), minEndorsements? (0 to 5, default 0), paused? }`. **Errors:** `403 DATING_BIRTH_DATE_REQUIRED` / `DATING_UNDERAGE` / `DATING_VERIFICATION_REQUIRED` (the 18+ gate; `details.blockers`), `400 VALIDATION_FAILED` (a scope of `CITY` or `COUNTRY` needs a city or a country in the profile settings: `details.scope`).
+
+### `DELETE /api/romance/profile`
+Leaves the mode: the profile, its photos (and their uploads), every drop for or of the caller and every pending romance spark of theirs are removed, and their open romance matches are **ended for good and silently** (the conversation is closed for both; nobody is notified). **Response:** `{ left: true, hadProfile, matchesEnded }`. Safe to repeat. Being removed for an admin correction of the date of birth to 16 or 17, or by deleting the account, does the same.
+
 ## Leaderboard
 
 ### `GET /api/leaderboard`

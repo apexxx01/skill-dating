@@ -5,6 +5,8 @@ import { isCurrentUsernameFor, resolveUsername } from '@/lib/username'
 import { applyVerification } from '@/lib/verification'
 import { track } from '@/lib/infra/analytics'
 import { log } from '@/lib/log'
+import { getStorage } from '@/lib/infra/storage'
+import { purgeRomance, removeObjects } from '@/lib/romance/lifecycle'
 
 // Keeps the local User row in step with the Clerk account. Two entry points use
 // this: the first authenticated request (lazy upsert) and the Clerk webhook.
@@ -237,7 +239,8 @@ export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma): P
  * Returns false when there is no local row for that Clerk id.
  */
 export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = prisma): Promise<boolean> {
-  return db.$transaction(async (tx) => {
+  let objectKeys: string[] = []
+  const found = await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'clerk-sync:' + clerkId}, 0))`
     const row = await tx.user.findUnique({ where: { clerkId }, select: { id: true } })
     if (!row) return false
@@ -274,6 +277,8 @@ export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = pri
       },
     })
     await tx.matchingProfile.deleteMany({ where: { userId: row.id } })
+    // The romance mode goes with the person: profile, photos, drops, pending sparks, and their open romance matches are ended (src/lib/romance/lifecycle.ts).
+    objectKeys = (await purgeRomance(tx, row.id)).objectKeys
     await tx.account.deleteMany({ where: { userId: row.id } })
     await tx.session.deleteMany({ where: { userId: row.id } })
     await tx.profile.deleteMany({ where: { userId: row.id } })
@@ -283,4 +288,7 @@ export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = pri
     })
     return true
   })
+  // The photos' objects in the bucket, once the rows that pointed to them are gone.
+  if (found && objectKeys.length > 0) await removeObjects(getStorage(), objectKeys)
+  return found
 }
