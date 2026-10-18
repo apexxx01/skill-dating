@@ -178,10 +178,15 @@ describe('clerk authentication', () => {
       expect(isRedirect(signin.status)).toBe(true)
       expect(signin.location).toContain('/dashboard')
 
-      // Onboarded (a headline and at least one skill): /onboarding sends them on.
+      // Not onboarded without a date of birth either, even with a headline and a skill.
       const skill = await testPrisma.skill.create({ data: { name: `Mw Skill ${suffix}`, slug: `mw-skill-${suffix}`, category: 'Test' } })
       await testPrisma.user.update({ where: { id: A.userId }, data: { headline: 'Builder' } })
       await testPrisma.userSkill.create({ data: { userId: A.userId, skillId: skill.id } })
+      const incomplete = await req(A.jar, 'GET', '/api/users/me')
+      expect(incomplete.data).toMatchObject({ onboardingComplete: false, birthDateRequired: true })
+
+      // Onboarded (a headline, at least one skill and a date of birth): /onboarding sends them on.
+      await testPrisma.user.update({ where: { id: A.userId }, data: { birthDate: new Date('1995-06-15T00:00:00Z') } })
       const me = await req(A.jar, 'GET', '/api/users/me')
       expect(me.data.onboardingComplete).toBe(true)
       const after = await page('/onboarding', await auth())
@@ -199,7 +204,7 @@ describe('clerk authentication', () => {
       async function onboardedUser(label: string) {
         const U = await registerAndLogin(email(label), name(label))
         const skill = await testPrisma.skill.create({ data: { name: `${label} Skill ${suffix}`, slug: `${label}-skill-${suffix}`, category: 'Test' } })
-        await testPrisma.user.update({ where: { id: U.userId }, data: { headline: 'Builder' } })
+        await testPrisma.user.update({ where: { id: U.userId }, data: { headline: 'Builder', birthDate: new Date('1995-06-15T00:00:00Z') } })
         await testPrisma.userSkill.create({ data: { userId: U.userId, skillId: skill.id } })
         const me = await req(U.jar, 'GET', '/api/users/me')
         expect(me.data.onboardingComplete).toBe(true)

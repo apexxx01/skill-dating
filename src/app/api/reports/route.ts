@@ -12,13 +12,22 @@ const REPORT_REASONS = [
   'SCAM',
   'COPYRIGHT',
   'OTHER',
+  // A person asking for their own locked date of birth to be corrected. The report is filed against themselves; an admin decides (docs/SAFETY.md).
+  'BIRTHDATE_CORRECTION',
 ] as const
 
-const createReportSchema = z.object({
-  reportedId: z.string().min(1),
-  reason: z.enum(REPORT_REASONS),
-  description: z.string().max(5000).optional(),
-})
+const createReportSchema = z
+  .object({
+    reportedId: z.string().min(1),
+    reason: z.enum(REPORT_REASONS),
+    description: z.string().max(5000).optional(),
+  })
+  .superRefine((value, ctx) => {
+    // The one report that needs the words: an admin has to know what is wrong and what it should be.
+    if (value.reason === 'BIRTHDATE_CORRECTION' && (value.description?.trim().length ?? 0) < 10) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['description'], message: 'Say what is wrong and what it should be (at least 10 characters)' })
+    }
+  })
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -34,7 +43,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (bodyResult instanceof Response) return bodyResult
   const { reportedId, reason, description } = bodyResult.data
 
-  if (reportedId === user.id) {
+  // A correction request is about one's own account and nobody else's; every other report is about somebody else.
+  if (reason === 'BIRTHDATE_CORRECTION') {
+    if (reportedId !== user.id) return createApiError('BIRTHDATE_CORRECTION_SELF_ONLY')
+  } else if (reportedId === user.id) {
     return createApiError('CANNOT_REPORT_SELF')
   }
 

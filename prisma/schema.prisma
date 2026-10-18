@@ -121,6 +121,8 @@ enum ReportReason {
   SCAM
   COPYRIGHT
   OTHER
+  // A person asking for their own locked date of birth to be corrected (the report is filed against themselves; an admin decides).
+  BIRTHDATE_CORRECTION
 }
 
 enum ReportStatus {
@@ -166,6 +168,9 @@ model User {
   // PRIVATE. Only ever read to check that someone is 18 or older for DATING, and returned to nobody but the owner on
   // their own profile read (GET /api/users/me/profile). Set once and then locked. Wiped when the account is deleted.
   birthDate            DateTime?         @db.Date
+  // Set when the person gave a date of birth that makes them younger than the platform minimum (src/lib/age-policy.ts). NOTHING else about it is
+  // kept, not the date: the account is closed to everything but asking for a correction, and an admin correction (which clears this) is the only way back.
+  birthDateRefusedAt   DateTime?
   // What the user wears: { title, frame, banner }, each the slug of a cosmetic they own (or absent).
   equipped             Json              @default("{}")
   // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their

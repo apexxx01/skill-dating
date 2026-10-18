@@ -1,14 +1,26 @@
 import type { PrismaClient } from '@prisma/client'
 import { getCache, type Cache } from '@/lib/infra/cache'
 import { track } from '@/lib/infra/analytics'
+import { env } from '@/lib/env'
 import { log } from '@/lib/log'
 
-// Onboarding is complete once the profile has a headline and at least one skill
+// Onboarding is complete once the profile has a headline, at least one skill and (while BIRTH_DATE_REQUIRED is on, the default) a date of birth on file
 // (the same rule GET /api/users/me reports and the middleware acts on). The product
 // event `onboarding_completed` is recorded the first time that becomes true.
-// Whatever sets either half of it calls this afterwards.
+// Whatever sets any part of it calls this afterwards.
 
 const CLAIM_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+export interface OnboardingFacts {
+  headline: string | null | undefined
+  skillCount: number
+  hasBirthDate: boolean
+}
+
+/** Whether the three parts of onboarding are done. `birthDateRequired` is the BIRTH_DATE_REQUIRED setting. */
+export function isOnboardingComplete(facts: OnboardingFacts, birthDateRequired: boolean): boolean {
+  return Boolean(facts.headline) && facts.skillCount > 0 && (!birthDateRequired || facts.hasBirthDate)
+}
 
 type Db = Pick<PrismaClient, 'user' | 'userSkill' | 'productEvent'>
 
@@ -16,10 +28,10 @@ type Db = Pick<PrismaClient, 'user' | 'userSkill' | 'productEvent'>
 export async function trackOnboardingIfComplete(db: Db, userId: string, cache: Cache = getCache()): Promise<boolean> {
   try {
     const [row, skillCount] = await Promise.all([
-      db.user.findUnique({ where: { id: userId }, select: { headline: true } }),
+      db.user.findUnique({ where: { id: userId }, select: { headline: true, birthDate: true } }),
       db.userSkill.count({ where: { userId } }),
     ])
-    if (!row?.headline || skillCount === 0) return false
+    if (!isOnboardingComplete({ headline: row?.headline, skillCount, hasBirthDate: Boolean(row?.birthDate) }, env.BIRTH_DATE_REQUIRED)) return false
 
     // Two requests can finish onboarding at once; the atomic counter lets one of them record it.
     if ((await cache.incr(`onboarding-tracked:${userId}`, { ttlMs: CLAIM_TTL_MS })) !== 1) return false

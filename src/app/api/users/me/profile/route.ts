@@ -5,7 +5,9 @@ import { loadMembership } from '@/lib/leaderboard-write'
 import { invalidateUserViews } from '@/lib/xp-views'
 import { log } from '@/lib/log'
 import { DEFAULT_PROFILE_SETTINGS, profileColumns, profileSettingsSchema, type ProfileSettings } from '@/lib/profile-settings'
-import { formatBirthDate, parseBirthDate } from '@/lib/matching/dating'
+import { formatBirthDate, parseBirthDate } from '@/lib/age'
+import { isMinor, MIN_PLATFORM_AGE } from '@/lib/age-policy'
+import { setBirthDate } from '@/lib/birth-date'
 
 // The caller's own location and privacy settings. The Profile row is created by the
 // first save; until then every setting has its default.
@@ -32,20 +34,20 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const columns = profileColumns(body.data)
   const before = await loadMembership(prisma, user.id)
 
-  // The date of birth is set once. Sending the same date again is fine; a different one is refused, so it cannot be changed to pass for an adult.
+  // The date of birth is set once (age-policy: under 16 is refused and kept out, 16 and 17 make a minor, a different date later is locked). Sending the same date again is fine.
   const birthDate = body.data.birthDate !== undefined ? parseBirthDate(body.data.birthDate) : null
   if (birthDate) {
-    const current = (await prisma.user.findUnique({ where: { id: user.id }, select: { birthDate: true } }))?.birthDate
-    if (current && current.getTime() !== birthDate.getTime()) return createApiError('BIRTH_DATE_LOCKED')
+    const outcome = await setBirthDate(prisma, user.id, birthDate)
+    if (outcome.kind === 'REFUSED') return createApiError('AGE_BELOW_MINIMUM', { params: { minAge: MIN_PLATFORM_AGE } })
+    if (outcome.kind === 'LOCKED') return createApiError('BIRTH_DATE_LOCKED')
   }
+  // A minor may share a country and nothing finer.
+  const stored = await prisma.user.findUnique({ where: { id: user.id }, select: { birthDate: true } })
+  if (isMinor(stored?.birthDate) && (columns.city || columns.campus)) return createApiError('MINOR_LOCATION_LIMITED')
 
   await prisma.$transaction(async (tx) => {
     if (body.data.timezone !== undefined) {
       await tx.user.update({ where: { id: user.id }, data: { timezone: body.data.timezone } })
-    }
-    if (birthDate) {
-      // Only while it is still empty: two requests racing cannot overwrite each other.
-      await tx.user.updateMany({ where: { id: user.id, birthDate: null }, data: { birthDate } })
     }
     if (Object.keys(columns).length > 0) {
       await tx.profile.upsert({ where: { userId: user.id }, create: { userId: user.id, ...columns }, update: columns })

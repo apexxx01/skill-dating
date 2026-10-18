@@ -24,6 +24,8 @@ export const SELECTED_USER_FIELDS = {
   image: true,
   role: true,
   deletedAt: true,
+  // Set for a person refused for being under the minimum age: withAuth closes every route but the few they need (src/lib/api/handler.ts).
+  birthDateRefusedAt: true,
 } satisfies Prisma.UserSelect
 
 export type LocalUser = Prisma.UserGetPayload<{ select: typeof SELECTED_USER_FIELDS }>

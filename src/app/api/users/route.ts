@@ -6,6 +6,10 @@ import { isValidTimeZone } from '@/lib/time'
 import type { Prisma } from '@prisma/client'
 import { cursorParam, paginate } from '@/lib/api/pagination'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
+import { parseBirthDate } from '@/lib/age'
+import { isMinor } from '@/lib/age-policy'
+import { setBirthDate } from '@/lib/birth-date'
+import { MIN_PLATFORM_AGE } from '@/lib/age-policy'
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -20,6 +24,8 @@ const updateProfileSchema = z.object({
   githubUsername: z.string().max(100).optional(),
   twitterUsername: z.string().max(100).optional(),
   linkedinUrl: z.string().url().optional().or(z.literal('')),
+  // PRIVATE, and required to finish onboarding (docs/SAFETY.md). Set once and then locked; under 16 is refused; nobody but the owner ever reads it back.
+  birthDate: z.string().refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15').optional(),
 })
 
 const querySchema = z.object({
@@ -117,9 +123,21 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const bodyResult = await validateBody(updateProfileSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
 
+  // The date of birth first: a person refused for their age changes nothing else, and a new minor's place is cleared before anything is written.
+  const { birthDate: birthDateText, ...fields } = bodyResult.data
+  if (birthDateText) {
+    const outcome = await setBirthDate(prisma, user.id, parseBirthDate(birthDateText)!)
+    if (outcome.kind === 'REFUSED') return createApiError('AGE_BELOW_MINIMUM', { params: { minAge: MIN_PLATFORM_AGE } })
+    if (outcome.kind === 'LOCKED') return createApiError('BIRTH_DATE_LOCKED')
+  }
+  // A minor may share a country and nothing finer, so no free-text place.
+  if (fields.location && isMinor((await prisma.user.findUnique({ where: { id: user.id }, select: { birthDate: true } }))?.birthDate)) {
+    return createApiError('MINOR_LOCATION_LIMITED')
+  }
+
   const updatedUser = await prisma.user.update({
     where: { id: user.id },
-    data: bodyResult.data,
+    data: fields,
     select: {
       id: true,
       name: true,
@@ -152,11 +170,12 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
       action: 'PROFILE_UPDATED',
       targetType: 'USER',
       targetId: user.id,
-      newValue: bodyResult.data,
+      // Never the date of birth: it is not for the log.
+      newValue: fields,
     }
   })
 
-  if (bodyResult.data.headline) await trackOnboardingIfComplete(prisma, user.id)
+  if (bodyResult.data.headline || birthDateText) await trackOnboardingIfComplete(prisma, user.id)
 
   return createApiResponse(updatedUser)
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'users:update' } })

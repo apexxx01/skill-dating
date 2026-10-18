@@ -49,7 +49,7 @@ legacy row clears its password hash and its OAuth accounts.
 **Auth:** none (answers `null` when signed out). Compatibility for the frozen UI, which polls this path through `useSession()` in `src/lib/session-client.tsx`. **Response:** `{ user: { id, name, email, image, role }, expires }` with the **local** user id, or `null`. Temporary: remove it when the UI moves to Clerk's hooks.
 
 ### `GET /api/users/me`
-The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, onboardingComplete }`. `onboardingComplete` is true with a headline and at least one skill; the middleware and the onboarding page use it, because Clerk's user id is not the local id.
+The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, birthDateRequired, isMinor, ageRefused, onboardingComplete }`. `onboardingComplete` is true with a headline, at least one skill and (while `BIRTH_DATE_REQUIRED` is on, the default) a date of birth on file; the middleware and the onboarding page use it, because Clerk's user id is not the local id. `birthDateRequired` says the date is still missing, `isMinor` that the account is a 16 or 17 year old's (docs/SAFETY.md), `ageRefused` that it was refused for being under 16. The date itself is never part of this response.
 
 ### `POST /api/webhooks/clerk`
 **Auth:** none; the credential is the Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`) over the raw body, made with `CLERK_WEBHOOK_SECRET`, and timestamps more than five minutes off are refused. `503` when the secret is not configured, `400` for any signature failure, `413` over 1 MB, `500` on a transient failure (Clerk then retries). Handles `user.created` and `user.updated` by fetching the user from Clerk and applying its **current** state (the payload is only a notification, so replays and reordering cannot roll anything back), and `user.deleted` by tombstoning: the local row is anonymised and detached from Clerk (email replaced, personal fields cleared, username `deleted_…`, `deletedAt` set) but never deleted, because projects, teams, messages and endorsements cascade from it. Tombstoned accounts are left out of every list and search and refused by the auth layer. Other event types are acknowledged and ignored. **Response `200`:** `{ status: 'synced' | 'tombstoned' | 'conflict' | 'ignored', ... }`.
@@ -64,7 +64,9 @@ Paginated user directory, excludes the caller and anyone blocked in either direc
 
 ### `PATCH /api/users`
 Updates the caller's own profile (no ID param — always self).
-**Body (all optional):** `name, bio, headline, location, timezone, availability, builderRole, website, githubUsername, twitterUsername, linkedinUrl`
+**Body (all optional):** `name, bio, headline, location, timezone, availability, builderRole, website, githubUsername, twitterUsername, linkedinUrl, birthDate`
+
+`birthDate` (`"YYYY-MM-DD"`, a real date in the past) is **required to finish onboarding** and is accepted here, with the headline. It is private (never returned by any route but the owner's `GET /api/users/me/profile`, and never written to the audit log), and it is set once: the same date again is fine, another is `409 BIRTH_DATE_LOCKED`. The platform age policy applies (docs/SAFETY.md): under 16 is refused with `403 AGE_BELOW_MINIMUM` (nothing but the moment is kept, and another date is not another chance: the account is closed to everything but `GET /api/users/me`, `GET /api/users/me/profile` and `POST /api/reports` until an admin corrects the date); 16 and 17 make the account a minor's, which clears any city, campus or free-text place already on the profile and refuses new ones (`400 MINOR_LOCATION_LIMITED`; `location` here, and `city` or `campus` in the settings). To correct a locked date a person files `POST /api/reports` with the reason `BIRTHDATE_CORRECTION`.
 
 ### `GET /api/users/[id]`
 Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus:
@@ -324,8 +326,8 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 ## Reports & Moderation
 
 ### `POST /api/reports`
-**Body:** `{ reportedId, reason, description? }`
-**Errors:** `400` self-report, `404` reported user not found, `409` an identical pending report from this reporter against this target already exists (returns the existing report in `details`).
+**Body:** `{ reportedId, reason, description? }`. `reason` is `SPAM`, `HARASSMENT`, `INAPPROPRIATE_CONTENT`, `FAKE_PROFILE`, `SCAM`, `COPYRIGHT`, `OTHER` or `BIRTHDATE_CORRECTION`. The last is a person asking for their own locked date of birth to be corrected: `reportedId` must be the caller (`400 BIRTHDATE_CORRECTION_SELF_ONLY` otherwise), `description` is required (at least 10 characters: what is wrong and what it should be), and it is the one report a person refused for their age may still file. An admin decides with `POST /api/admin/users/{id}/birthdate`.
+**Errors:** `400` self-report (every reason but the correction), `404` reported user not found, `409` an identical pending report from this reporter against this target already exists (returns the existing report in `details`).
 
 ### `GET /api/reports`
 **Auth:** `ADMIN`/`MODERATOR` only (`403` for everyone else, not an empty list). Query: `page, cursor, limit, status`.
@@ -335,6 +337,9 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 **Body:** `{ status, reason? }`
 
 ---
+
+### `POST /api/admin/users/[id]/birthdate`
+**Auth:** `ADMIN` only. **Body:** `{ birthDate: "YYYY-MM-DD", reason }` (`reason` 10 to 1000 characters, required; unknown keys are refused). Corrects a person's locked date of birth, whatever it was before (or was not), and clears a refusal for being under 16. The old and the new date and the reason go into the audit trail (`BIRTH_DATE_CORRECTED`); the response never carries a date: `{ id, ageBand: "MINOR"|"ADULT", isMinor, changed }`. A date that would put the person under 16 is not applied (`403 AGE_BELOW_MINIMUM`: a correction cannot admit a child; the account is dealt with through moderation). A correction to 16 or 17 clears the place down to a country. `404 USER_NOT_FOUND`.
 
 ## Leaderboard
 
@@ -697,6 +702,10 @@ and a unit test fails if a code is missing here.
 | `DATING_UNDERAGE` | 403 | Dating is only available to people who are 18 or older |
 | `DATING_VERIFICATION_REQUIRED` | 403 | Dating needs a verified email and either a verified phone number or a connected GitHub account |
 | `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
+| `AGE_BELOW_MINIMUM` | 403 | You need to be at least {minAge} to use Skill Dating |
+| `BIRTH_DATE_REQUIRED` | 400 | Your date of birth is required |
+| `MINOR_LOCATION_LIMITED` | 400 | Accounts for people under 18 can share a country, not a city, campus or place |
+| `BIRTHDATE_CORRECTION_SELF_ONLY` | 400 | A date of birth correction is a request about your own account |
 | `DROP_NOT_FOUND` | 404 | Drop not found |
 | `DROP_NOT_PENDING` | 409 | This drop has already been answered or has expired |
 | `CANNOT_SPARK_SELF` | 400 | You cannot spark yourself |

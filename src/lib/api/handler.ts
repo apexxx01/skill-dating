@@ -7,6 +7,16 @@ import { errorResponse, type ErrorCode, type ErrorOptions } from '@/lib/api/erro
 import { withIdempotency } from '@/lib/api/idempotency'
 import { getCache } from '@/lib/infra/cache'
 import { log, requestIdFrom, runWithRequestId } from '@/lib/log'
+import { MIN_PLATFORM_AGE } from '@/lib/age-policy'
+
+/**
+ * What a person refused for being under the platform's minimum age (User.birthDateRefusedAt) can still do: see who they are, ask for a correction of
+ * their date of birth through the report flow, and the rest of the plumbing a client needs to show that. Everything else answers AGE_BELOW_MINIMUM.
+ */
+export function ageRefusalAllows(method: string, pathname: string): boolean {
+  if (method === 'GET') return pathname === '/api/users/me' || pathname === '/api/users/me/profile' || pathname === '/api/auth/session' || pathname === '/api/health'
+  return method === 'POST' && pathname === '/api/reports'
+}
 
 export interface AuthenticatedUser {
   id: string
@@ -113,6 +123,10 @@ async function handleAuthenticated(
 
   const { user } = outcome
   onUser(user.id)
+
+  if (user.birthDateRefusedAt && !ageRefusalAllows(request.method, new URL(request.url).pathname)) {
+    return errorResponse('AGE_BELOW_MINIMUM', { params: { minAge: MIN_PLATFORM_AGE } })
+  }
 
   // Keyed on the LOCAL user id: it cannot be forged or shared, unlike an IP.
   if (options.rateLimit) {

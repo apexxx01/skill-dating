@@ -3,12 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const track = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/infra/analytics', () => ({ track: (...args: unknown[]) => track(...args) }))
 
-import { trackOnboardingIfComplete } from './onboarding'
+import { isOnboardingComplete, trackOnboardingIfComplete } from './onboarding'
 import { MemoryCache } from './infra/cache.memory'
 
-function db(state: { headline: string | null; skills: number; tracked?: boolean }) {
+function db(state: { headline: string | null; skills: number; tracked?: boolean; birthDate?: Date | null }) {
   return {
-    user: { findUnique: vi.fn().mockResolvedValue({ headline: state.headline }) },
+    user: { findUnique: vi.fn().mockResolvedValue({ headline: state.headline, birthDate: state.birthDate === undefined ? new Date('1995-06-15') : state.birthDate }) },
     userSkill: { count: vi.fn().mockResolvedValue(state.skills) },
     productEvent: { findFirst: vi.fn().mockResolvedValue(state.tracked ? { id: 'e1' } : null) },
   } as never
@@ -66,5 +66,21 @@ describe('trackOnboardingIfComplete', () => {
     const broken = { user: { findUnique: vi.fn().mockRejectedValue(new Error('db down')) }, userSkill: { count: vi.fn() }, productEvent: {} } as never
     expect(await trackOnboardingIfComplete(broken, 'u1', new MemoryCache())).toBe(false)
     warn.mockRestore()
+  })
+})
+
+describe('the date of birth is part of onboarding', () => {
+  it('records nothing for a person who has a headline and a skill but no date of birth', async () => {
+    expect(await trackOnboardingIfComplete(db({ headline: 'Builder', skills: 2, birthDate: null }), 'u1', new MemoryCache())).toBe(false)
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it('is complete with all three, and with two while the date is not required', () => {
+    expect(isOnboardingComplete({ headline: 'Builder', skillCount: 1, hasBirthDate: true }, true)).toBe(true)
+    expect(isOnboardingComplete({ headline: 'Builder', skillCount: 1, hasBirthDate: false }, true)).toBe(false)
+    expect(isOnboardingComplete({ headline: 'Builder', skillCount: 1, hasBirthDate: false }, false)).toBe(true)
+    expect(isOnboardingComplete({ headline: '', skillCount: 1, hasBirthDate: true }, true)).toBe(false)
+    expect(isOnboardingComplete({ headline: 'Builder', skillCount: 0, hasBirthDate: true }, true)).toBe(false)
+    expect(isOnboardingComplete({ headline: null, skillCount: 0, hasBirthDate: false }, false)).toBe(false)
   })
 })

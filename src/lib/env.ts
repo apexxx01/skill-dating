@@ -54,6 +54,10 @@ const envSchema = z.object({
       .regex(/^[^.\s]+\.[^:\s]+:\S+$/, 'must look like appId.keyId:secret')
       .optional(),
 
+    // Whether finishing onboarding needs a date of birth (the platform age policy, docs/SAFETY.md). On by default; the switch exists so a deploy that
+    // reaches users before the onboarding screen asks for the date can be rolled out in two steps.
+    BIRTH_DATE_REQUIRED: flag('true'),
+
     // Plan limits (src/lib/entitlements.ts). Off: every feature is open to everyone
     // and only the hard safety ceilings apply. On: the limits of the user's plan apply.
     ENTITLEMENTS_ENFORCED: flag('false'),
