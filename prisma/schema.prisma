@@ -89,6 +89,69 @@ enum SlotStatus {
   FILLED
 }
 
+// BUILDER: "Find my squad", for one requester. AUTO: the solo-pool auto-formation, for everybody who opted in.
+enum SquadProposalKind {
+  BUILDER
+  AUTO
+}
+
+// A BUILDER proposal is OPEN until its requester sends the invitations (INVITED) or it EXPIRES. An AUTO proposal is PROPOSED to its members, then
+// FORMED (enough accepted, the team exists) or FAILED.
+enum SquadProposalStatus {
+  OPEN
+  INVITED
+  PROPOSED
+  FORMED
+  FAILED
+  EXPIRED
+}
+
+enum ProposalResponse {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+// Where a hackathon lives: run here (NATIVE), or on another platform with this one as its team layer (EXTERNAL, docs/SQUADS.md).
+enum HackathonSource {
+  NATIVE
+  EXTERNAL
+}
+
+enum HackathonPlatform {
+  DEVFOLIO
+  DEVPOST
+  MLH
+  UNSTOP
+  LUMA
+  OTHER
+}
+
+enum HackathonMode {
+  ONLINE
+  IN_PERSON
+  HYBRID
+}
+
+// A commitment pledge: how a squad member will take part.
+enum AttendanceMode {
+  IN_PERSON
+  REMOTE
+}
+
+// A peer review: did the teammate show up.
+enum ShowedUp {
+  YES
+  PARTLY
+  NO
+}
+
+// A looking-for-group post: a person looking for a squad, or a team looking for people.
+enum LfgKind {
+  PERSON
+  TEAM
+}
+
 enum HackathonStatus {
   UPCOMING
   ACTIVE
@@ -235,6 +298,18 @@ model User {
   hackathons          HackathonParticipant[]
   hackathonTeams      HackathonTeamMember[]
   teamSlotsFilled     TeamSlot[]               @relation("TeamSlotsFilled")
+  squadProposals      SquadProposal[]          @relation("SquadProposalsRequested")
+  squadProposalSeats  SquadProposalMember[]
+  lfgPosts            LfgPost[]
+  hackathonsSubmitted Hackathon[]              @relation("HackathonsSubmitted")
+  pledges             CommitmentPledge[]
+  peerReviewsGiven    PeerReview[]             @relation("PeerReviewsGiven")
+  peerReviewsReceived PeerReview[]             @relation("PeerReviewsReceived")
+  reliability         UserReliability?
+  checklistAssigned   TeamChecklistItem[]      @relation("ChecklistAssigned")
+  checklistCreated    TeamChecklistItem[]      @relation("ChecklistCreated")
+  teamIdeas           TeamIdea[]
+  teamIdeaVotes       TeamIdeaVote[]
   challenges          ChallengeAttempt[]
   achievements        UserAchievement[]
   xpEvents            XPEvent[]
@@ -491,30 +566,38 @@ model Milestone {
 }
 
 model Team {
-  id           String   @id @default(cuid())
-  name         String
-  slug         String   @unique
-  description  String?  @db.Text
-  projectId    String?  @unique
-  hackathonId  String?
-  ownerId      String
-  maxSize      Int      @default(5)
-  isRecruiting Boolean  @default(true)
+  id             String    @id @default(cuid())
+  name           String
+  slug           String    @unique
+  description    String?   @db.Text
+  projectId      String?   @unique
+  hackathonId    String?
+  ownerId        String
+  maxSize        Int       @default(5)
+  isRecruiting   Boolean   @default(true)
   // DERIVED from the open slots (src/lib/squads/roles.ts derivedLookingFor), rewritten with every slot change, so clients and code that read it keep
   // working. A write to it from an old client is turned into OTHER slots.
-  lookingFor   String[] @default([])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  lookingFor     String[]  @default([])
+  // The hackathon tracks (by name) this squad goes for; the squad builder's role template follows them.
+  targetTracks   String[]  @default([])
+  // "Keep building": when this hackathon team became a permanent crew. It keeps its members and roles, and no longer locks with the hackathon.
+  keptBuildingAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  owner          User              @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members        TeamMember[]
-  slots          TeamSlot[]
-  applications   TeamApplication[]
-  project        Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  hackathon      Hackathon?        @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
-  hackathonTeams HackathonTeam[]
-  chat           Chat?
-  conversation   Conversation?
+  owner             User                @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members           TeamMember[]
+  slots             TeamSlot[]
+  applications      TeamApplication[]
+  project           Project?            @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  hackathon         Hackathon?          @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
+  hackathonTeams    HackathonTeam[]
+  chat              Chat?
+  conversation      Conversation?
+  SquadProposal     SquadProposal[]
+  LfgPost           LfgPost[]
+  TeamChecklistItem TeamChecklistItem[]
+  TeamIdea          TeamIdea[]
 }
 
 model TeamMember {
@@ -552,13 +635,16 @@ model TeamApplication {
   slotId      String?
   // Invitations expire (48h); applications do not (null).
   expiresAt   DateTime?
+  // The squad proposal (the squad builder's) this invitation was sent for.
+  proposalId  String?
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedBy User?     @relation("TeamInvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
-  slot      TeamSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User?          @relation("TeamInvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+  slot      TeamSlot?      @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  proposal  SquadProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
 
   @@unique([userId, teamId])
   @@index([teamId])
@@ -593,57 +679,84 @@ model TeamSlot {
 }
 
 model Hackathon {
-  id                   String          @id @default(cuid())
+  id                   String             @id @default(cuid())
   name                 String
-  slug                 String          @unique
-  description          String          @db.Text
+  slug                 String             @unique
+  description          String             @db.Text
   shortDesc            String?
   startDate            DateTime
   endDate              DateTime
   registrationDeadline DateTime?
   // When member changes stop (the team locks). Null: the end date.
   submissionDeadline   DateTime?
-  status               HackathonStatus @default(UPCOMING)
+  status               HackathonStatus    @default(UPCOMING)
   organizer            String?
   websiteUrl           String?
   prizePool            String?
-  rules                String?         @db.Text
-  technologies         String[]        @default([])
-  maxTeamSize          Int             @default(5)
-  minTeamSize          Int             @default(1)
+  rules                String?            @db.Text
+  technologies         String[]           @default([])
+  maxTeamSize          Int                @default(5)
+  minTeamSize          Int                @default(1)
   location             String? // ONLINE, HYBRID, or physical location
-  isPublic             Boolean         @default(true)
+  // [{ name, description }]: what squads can go for (src/lib/squads/tracks.ts). At most 20.
+  tracks               Json               @default("[]")
+  source               HackathonSource    @default(NATIVE)
+  // EXTERNAL: the page it lives on, normalised (src/lib/squads/external.ts), which is what duplicates are found by.
+  externalUrl          String?            @unique
+  platform             HackathonPlatform?
+  mode                 HackathonMode?
+  city                 String?
+  country              String?
+  // When results were first recorded: the peer-review window opens then (or at the end date, whichever is first).
+  resultsAt            DateTime?
+  // EXTERNAL: who submitted it, and when an admin verified it. Until then it is usable for squads but flagged UNVERIFIED, and pays no XP.
+  submittedById        String?
+  verifiedAt           DateTime?
+  isPublic             Boolean            @default(true)
   thumbnail            String?
   banner               String?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  participants   HackathonParticipant[]
-  hackathonTeams HackathonTeam[]
-  projects       Project[]
-  teams          Team[]
-  currentBuilds  CurrentBuild[]
-  chat           Chat?
-  conversation   Conversation?
+  submittedBy      User?                  @relation("HackathonsSubmitted", fields: [submittedById], references: [id], onDelete: SetNull)
+  participants     HackathonParticipant[]
+  hackathonTeams   HackathonTeam[]
+  projects         Project[]
+  teams            Team[]
+  squadProposals   SquadProposal[]
+  formationRuns    SquadFormationRun[]
+  lfgPosts         LfgPost[]
+  currentBuilds    CurrentBuild[]
+  chat             Chat?
+  conversation     Conversation?
+  CommitmentPledge CommitmentPledge[]
+  PeerReview       PeerReview[]
 }
 
 model HackathonParticipant {
-  id           String                     @id @default(cuid())
-  userId       String
-  hackathonId  String
-  status       HackathonParticipantStatus @default(REGISTERED)
-  teamId       String?
-  registeredAt DateTime                   @default(now())
+  id             String                     @id @default(cuid())
+  userId         String
+  hackathonId    String
+  status         HackathonParticipantStatus @default(REGISTERED)
+  teamId         String?
+  registeredAt   DateTime                   @default(now())
   // When they joined the squad they are in for this hackathon (time-to-team, the admin metric).
-  teamJoinedAt DateTime?
-  skills       String[]                   @default([])
-  lookingFor   String[]                   @default([])
+  teamJoinedAt   DateTime?
+  skills         String[]                   @default([])
+  lookingFor     String[]                   @default([])
+  // The solo pool (docs/SQUADS.md): looking for a team (the squad builder and the LFG board draw from these), the roles they would like to play,
+  // and whether the auto-formation may put them in a squad.
+  lookingForTeam Boolean                    @default(false)
+  preferredRoles SquadRole[]                @default([])
+  openToAutoTeam Boolean                    @default(false)
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
 
   @@unique([userId, hackathonId])
   @@index([hackathonId, teamId])
+  // The pool: teamless people of a hackathon who are looking.
+  @@index([hackathonId, lookingForTeam, teamId])
 }
 
 model HackathonTeam {
@@ -1850,4 +1963,222 @@ model ShipDayRecap {
   // { countries: [{ code, count }], cities: [{ key, count }], campuses: [{ key, count }] }
   places     Json     @default("{}")
   createdAt  DateTime @default(now())
+}
+
+// A complete squad the optimiser proposed (src/lib/squads/builder.ts, src/lib/squads/pool.ts): its members with the role each would play and why,
+// the squad strength it was proposed at, and the seed that makes it reproducible. A BUILDER proposal expires after 24 hours; an AUTO one is answered
+// by its members within 24 hours.
+model SquadProposal {
+  id          String              @id @default(cuid())
+  hackathonId String
+  kind        SquadProposalKind
+  status      SquadProposalStatus
+  // BUILDER: who asked. AUTO: null.
+  requesterId String?
+  // The team it became (or, for a requester who already had one, the team it completes).
+  teamId      String?
+  // AUTO: the formation round it belongs to.
+  runId       String?
+  seed        Int
+  size        Int
+  // Squad strength (0 to 100) when proposed, and its components and gaps.
+  strength    Int
+  detail      Json                @default("{}")
+  expiresAt   DateTime
+  decidedAt   DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  hackathon   Hackathon             @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  requester   User?                 @relation("SquadProposalsRequested", fields: [requesterId], references: [id], onDelete: SetNull)
+  team        Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  run         SquadFormationRun?    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  members     SquadProposalMember[]
+  invitations TeamApplication[]
+
+  // The settle sweep: AUTO proposals still PROPOSED past their time.
+  @@index([status, expiresAt])
+  @@index([hackathonId, kind, status])
+  // Rate limit and listing of a requester's proposals.
+  @@index([requesterId, createdAt])
+  @@index([runId])
+}
+
+model SquadProposalMember {
+  id          String           @id @default(cuid())
+  proposalId  String
+  userId      String
+  role        SquadRole
+  roleLabel   String?
+  // Why this person (from the pairwise score), at most three lines.
+  reasons     String[]         @default([])
+  position    Int              @default(0)
+  response    ProposalResponse @default(PENDING)
+  respondedAt DateTime?
+
+  proposal SquadProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, userId])
+  // "My proposals".
+  @@index([userId, response])
+}
+
+// One round of the solo-pool auto-formation for a hackathon (round 1 at registrationDeadline - 48h, round 2 for the people re-pooled once). The
+// unique (hackathonId, round) is what makes a run happen once however many times the job fires; its proposals are written in the same transaction.
+model SquadFormationRun {
+  id          String    @id @default(cuid())
+  hackathonId String
+  round       Int
+  poolSize    Int
+  squads      Int
+  leftovers   Int
+  createdAt   DateTime  @default(now())
+  // Set when every proposal of the round has been decided.
+  settledAt   DateTime?
+
+  hackathon Hackathon       @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  proposals SquadProposal[]
+
+  @@unique([hackathonId, round])
+}
+
+// The looking-for-group board of a hackathon (GET /api/hackathons/{id}/lfg). One ACTIVE post per person per hackathon, kept by the create route
+// under an advisory lock (src/lib/squads/lfg.ts). A post is active until it is closed (deleted by its author, or replaced) or its expiresAt passes.
+model LfgPost {
+  id          String      @id @default(cuid())
+  hackathonId String
+  authorId    String
+  kind        LfgKind
+  // TEAM posts: the team, which the author manages.
+  teamId      String?
+  roles       SquadRole[] @default([])
+  // Technologies, as written (compared without case).
+  stack       String[]    @default([])
+  // An IANA time zone.
+  timezone    String?
+  note        String
+  expiresAt   DateTime
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  // The board: a hackathon's open posts, newest first (the fit ranking is worked out on the page of candidates).
+  @@index([hackathonId, closedAt, expiresAt, createdAt])
+  @@index([authorId, hackathonId])
+  @@index([roles], type: Gin)
+  @@index([stack], type: Gin)
+}
+
+// The team space of a hackathon squad: a shared checklist (docs/SQUADS.md, "Team space").
+model TeamChecklistItem {
+  id          String    @id @default(cuid())
+  teamId      String
+  title       String
+  assigneeId  String?
+  done        Boolean   @default(false)
+  doneAt      DateTime?
+  createdById String
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  assignee  User? @relation("ChecklistAssigned", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy User  @relation("ChecklistCreated", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([teamId, position])
+}
+
+// The idea board of a squad: members post ideas and vote; one can be marked chosen (it becomes the project's description and the demo post's).
+model TeamIdea {
+  id          String    @id @default(cuid())
+  teamId      String
+  authorId    String
+  title       String
+  description String?
+  voteCount   Int       @default(0)
+  chosenAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  team   Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  author User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  votes  TeamIdeaVote[]
+
+  @@index([teamId, createdAt])
+}
+
+model TeamIdeaVote {
+  id        String   @id @default(cuid())
+  ideaId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  idea TeamIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ideaId, userId])
+}
+
+// Before a hackathon, each squad member confirms how they will take part. A member without one is flagged in squad strength.
+model CommitmentPledge {
+  id             String         @id @default(cuid())
+  hackathonId    String
+  teamId         String
+  userId         String
+  attendance     AttendanceMode
+  hoursAvailable Int
+  availableFrom  DateTime       @db.Date
+  availableUntil DateTime       @db.Date
+  confirmedAt    DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hackathonId, userId])
+  @@index([teamId])
+}
+
+// After a hackathon, each squad member privately reviews each teammate, once. Nobody but an admin ever sees a review (the note least of all); what
+// they add up to is UserReliability. `counted` is false for a review from an account the trust gate does not trust (src/lib/trust.ts): it is kept,
+// and changes nothing.
+model PeerReview {
+  id              String   @id @default(cuid())
+  hackathonId     String
+  teamId          String?
+  reviewerId      String
+  revieweeId      String
+  showedUp        ShowedUp
+  wouldBuildAgain Boolean
+  // Visible to admins only.
+  note            String?
+  counted         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  reviewer  User      @relation("PeerReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewee  User      @relation("PeerReviewsReceived", fields: [revieweeId], references: [id], onDelete: Cascade)
+
+  @@unique([hackathonId, reviewerId, revieweeId])
+  @@index([revieweeId, createdAt])
+  // What two people said about each other (chemistry, "never again").
+  @@index([reviewerId, revieweeId])
+}
+
+// A person's reliability as a teammate (src/lib/squads/reliability.ts), recomputed from their counted reviews whenever one arrives. Never shown as a
+// number; `badge` is the passport's "Reliable teammate".
+model UserReliability {
+  userId    String   @id
+  score     Float
+  reviews   Int
+  badge     Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
