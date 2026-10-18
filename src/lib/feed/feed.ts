@@ -113,7 +113,8 @@ export async function loadFeed(db: Db, viewerId: string, query: { tab: FeedTab; 
   if (cached) window = JSON.parse(cached) as WindowEntry[]
   else {
     window = await buildWindow(db, scope, query.tab, new Date(cursor.asOf))
-    await cache.set(key, JSON.stringify(window), { ttlMs: FEED_CONFIG.windowCacheMs * 2 }).catch(() => undefined)
+    // An empty window is not kept: nothing is saved by it, and a person who has just posted or followed would not see it for a minute.
+    if (window.length > 0) await cache.set(key, JSON.stringify(window), { ttlMs: FEED_CONFIG.windowCacheMs * 2 }).catch(() => undefined)
   }
 
   const networkFor = await networkOf(db, scope)

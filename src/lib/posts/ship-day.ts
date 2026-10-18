@@ -100,7 +100,8 @@ export async function writeShipDayRecap(db: Db, now: Date = new Date()): Promise
     )
     return rows.map((row) => ({ key: row.key, count: Number(row.n) }))
   }
-  const places = { countries: await group('countryCode'), cities: await group('cityKey'), campuses: await group('campusKey') }
+  const countries = (await group('countryCode')).map(({ key, count }) => ({ code: key, count }))
+  const places = { countries, cities: await group('cityKey'), campuses: await group('campusKey') }
   const made = await db.shipDayRecap.createMany({
     data: [{ weekKey, dateKey, totalPosts, topPosts: top.map((p) => ({ postId: p.id, authorId: p.authorId, propsScore: p.propsScore, title: p.title })), places }],
     skipDuplicates: true,
