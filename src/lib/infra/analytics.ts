@@ -25,6 +25,10 @@ export const ANALYTICS_EVENTS = [
   'spark_sent',
   'match_created',
   'unmatch',
+  'post_created',
+  'props_given',
+  'comment_created',
+  'follow_created',
   // The romance mode's own events (named "romance", never by its product name: docs/ROMANCE.md).
   'romance_joined',
   'romance_left',

@@ -142,6 +142,19 @@ export const jobs = {
     concurrency: 8,
     handler: async ({ data }) => (await import('@/lib/romance/drops')).runRomanceBatchJob(data),
   }),
+  // Tells the people who watch a project about a new post on it, in batches of 500 that continue themselves (src/lib/posts/watchers.ts).
+  'posts/notify-watchers': defineJob({
+    schema: z.object({ postId: z.string().min(1).max(64), after: z.string().min(1).max(64).optional() }),
+    retries: 2,
+    handler: async ({ data }) => (await import('@/lib/posts/watchers')).runNotifyWatchersJob(data),
+  }),
+  // Saturday 12:30 UTC, when the last time zone (UTC-12) has left Friday: writes the Ship Day recap of the week, once (src/lib/posts/ship-day.ts).
+  'posts/ship-day-recap': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '30 12 * * 6',
+    retries: 2,
+    handler: async () => (await import('@/lib/posts/ship-day')).runShipDayRecapJob(),
+  }),
   // Removes uploads nobody finished (declared and never confirmed for a day, or rejected), with their objects (src/lib/media-assets.ts). Daily.
   'media/cleanup': defineJob({
     schema: z.object({}).default({}),

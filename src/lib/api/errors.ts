@@ -163,6 +163,16 @@ export const ERROR_CATALOG = {
   MEDIA_NOT_UPLOADED: { status: 409, message: 'The file has not been uploaded yet' },
   MEDIA_MISMATCH: { status: 422, message: 'The uploaded file is not what was declared' },
 
+  // --- Posts, Props, comments, follows ------------------------------------------------------
+  POST_NOT_FOUND: { status: 404, message: 'Post not found' },
+  POST_INVALID_CONTEXT: { status: 400, message: 'The project or crew does not fit this post' },
+  POST_COAUTHOR_NOT_MEMBER: { status: 400, message: 'Co-authors must be members of the project or crew' },
+  CANNOT_PROP_OWN_POST: { status: 403, message: 'You cannot give Props to your own post' },
+  COMMENT_NOT_FOUND: { status: 404, message: 'Comment not found' },
+  COMMENT_REPLY_DEPTH: { status: 400, message: 'You can reply to a comment, not to a reply' },
+  COMMENT_EDIT_WINDOW_CLOSED: { status: 403, message: 'A comment can only be edited for {minutes} minutes after it is posted' },
+  CANNOT_FOLLOW_SELF: { status: 400, message: 'You cannot follow yourself' },
+
   // --- Hackathons ---------------------------------------------------------------------
   HACKATHON_REGISTRATION_REQUIRED: { status: 400, message: 'You must be registered for this hackathon' },
   HACKATHON_ALREADY_REGISTERED: { status: 400, message: 'Already registered' },
