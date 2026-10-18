@@ -415,6 +415,52 @@ Dissolves the caller's Duo, or declines or cancels a pending one, at once and fo
 ### `DELETE /api/romance/profile`
 Leaves the mode: the profile, its photos (and their uploads), every drop for or of the caller and every pending romance spark of theirs are removed, and their open romance matches are **ended for good and silently** (the conversation is closed for both; nobody is notified). **Response:** `{ left: true, hadProfile, matchesEnded }`. Safe to repeat. Being removed for an admin correction of the date of birth to 16 or 17, or by deleting the account, does the same.
 
+## Posts & Feed
+
+Long form in `docs/FEED.md`. A post is `{ id, kind, title, body, links, media[], stackTags, visibility, shipDay, author, coAuthors[], project, teamId, propsScore, propsCount, commentCount, yourProps, revision, createdAt, editedAt }`; the body is sanitized markdown (no raw HTML, only http and https links). Anything the caller may not see (followers-only, crew-only, a block either way, deleted) is `404 POST_NOT_FOUND`.
+
+### `POST /api/posts`
+Honours `Idempotency-Key`. **Body:** `{ kind: SHIP|UPDATE|DEVLOG|DEMO, title (3-120), body (1-10000), projectId?, teamId?, links? (5), mediaIds? (confirmed POST_MEDIA uploads of the caller), stackTags? (10), coAuthorIds? (5, members of the project or crew), visibility?: PUBLIC|FOLLOWERS|CREW }` (unknown keys refused). A `SHIP` post needs a `projectId`; the first one for a project ships it and pays once through the one ship gate, later ones are plain posts. An `UPDATE` or `DEVLOG` on a project is a project update (its XP and daily cap). `CREW` needs a project or crew. The author must belong to the project or crew. A post made on the author's Friday carries the `shipday` tag. **Response `201`:** `{ post, shipped }`. **Errors:** `400 POST_INVALID_CONTEXT`, `400 POST_COAUTHOR_NOT_MEMBER`, `404 MEDIA_NOT_FOUND`, `400 VALIDATION_FAILED`.
+
+### `GET /api/posts`
+The caller's own posts, newest first. **Query:** `cursor?`, `limit?` (1-50, default 20). **Response:** `{ posts, nextCursor }`.
+
+### `GET /api/posts/[id]`
+One post. `404 POST_NOT_FOUND`.
+
+### `PATCH /api/posts/[id]`
+Author only. **Body:** any of `title, body, links, stackTags, visibility`. Counts a revision (`revision`, `editedAt`). A co-author is `403 FORBIDDEN`; anyone else `404 POST_NOT_FOUND`.
+
+### `DELETE /api/posts/[id]`
+Soft delete by the author or an admin. **Response:** `{ deleted: true }`; `404 POST_NOT_FOUND` otherwise.
+
+### `POST /api/posts/[id]/props` and `DELETE /api/posts/[id]/props`
+Give or take back Props. Honours `Idempotency-Key`; giving twice answers `200` with `created: false`. **Response:** `{ propsScore, propsCount, yourProps, created? }`. `403 CANNOT_PROP_OWN_POST`, `404 POST_NOT_FOUND`. A giver the trust gate does not trust adds no weight and earns the author nothing.
+
+### `GET /api/posts/[id]/comments` and `POST /api/posts/[id]/comments`
+List (oldest first, replies nested one level, blocked authors left out; `cursor`, `limit`) and create. **Body:** `{ body (1-2000), parentId? }`. Honours `Idempotency-Key`. `400 COMMENT_REPLY_DEPTH` (reply to a reply), `404 COMMENT_NOT_FOUND`, `404 POST_NOT_FOUND`.
+
+### `PATCH /api/comments/[id]` and `DELETE /api/comments/[id]`
+Edit your comment within 15 minutes (`403 COMMENT_EDIT_WINDOW_CLOSED`, `params.minutes`) or soft-delete it (author or admin). `404 COMMENT_NOT_FOUND` for anyone else's.
+
+### `POST /api/users/[id]/follow` and `DELETE /api/users/[id]/follow`
+Follow or unfollow. Honours `Idempotency-Key`; repeating answers the same. **Response:** `{ following }`. `400 CANNOT_FOLLOW_SELF`, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`.
+
+### `GET /api/users/[id]/followers` and `GET /api/users/[id]/following`
+Newest first, `cursor`/`limit`. **Response:** `{ people: [{ id, username, name, image, level, tier, followedAt }], nextCursor }`. People with a block in either direction are left out.
+
+### `POST /api/projects/[id]/watch` and `DELETE /api/projects/[id]/watch`
+Watch or stop watching a project; its new posts reach the watcher as one notification per project per hour. **Response:** `{ watching }`. `404 PROJECT_NOT_FOUND`.
+
+### `GET /api/projects/[id]/timeline` and `GET /api/users/[id]/posts`
+Posts newest first, only those the caller may see. `cursor`, `limit`. **Response:** `{ posts, nextCursor }`. `404 PROJECT_NOT_FOUND` (also a private project to a non-member), `404 USER_NOT_FOUND`.
+
+### `GET /api/feed`
+**Query:** `tab=for-you|following|city|campus` (default `for-you`), `cursor?`, `limit?` (1-50, default 20). **Response:** `{ tab, posts, nextCursor }`. Ranked (docs/FEED.md); at most two posts per author per page; blocked and hidden authors removed. `400 INVALID_CURSOR` for a cursor that is malformed or too old.
+
+### `GET /api/ship-day`
+**Response:** `{ isShipDay, startsAt, endsAt, dateKey, weekKey, todayCount, yourShips[], topPosts[], lastRecap }` for the Friday of the caller's own time zone (`endsAt` is the end of that Friday in their zone; before it starts `todayCount` is 0 and `topPosts` is empty). `lastRecap` is `{ weekKey, dateKey, totalPosts }` of the latest finished Ship Day, or `null`.
+
 ## Leaderboard
 
 ### `GET /api/leaderboard`
@@ -805,6 +851,14 @@ and a unit test fails if a code is missing here.
 | `MATCH_EXISTS` | 409 | You are already matched with this person |
 | `MATCH_ENDED` | 409 | This match has ended and cannot be started again |
 | `CONVERSATION_CLOSED` | 409 | This conversation has been closed |
+| `POST_NOT_FOUND` | 404 | Post not found |
+| `POST_INVALID_CONTEXT` | 400 | The project or crew does not fit this post |
+| `POST_COAUTHOR_NOT_MEMBER` | 400 | Co-authors must be members of the project or crew |
+| `CANNOT_PROP_OWN_POST` | 403 | You cannot give Props to your own post |
+| `COMMENT_NOT_FOUND` | 404 | Comment not found |
+| `COMMENT_REPLY_DEPTH` | 400 | You can reply to a comment, not to a reply |
+| `COMMENT_EDIT_WINDOW_CLOSED` | 403 | A comment can only be edited for {minutes} minutes after it is posted |
+| `CANNOT_FOLLOW_SELF` | 400 | You cannot follow yourself |
 
 ---
 

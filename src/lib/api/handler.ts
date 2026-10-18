@@ -174,7 +174,7 @@ export function validateBody<T, I = T>(schema: z.ZodType<T, z.ZodTypeDef, I>) {
   }
 }
 
-export function validateQuery<T>(schema: z.ZodSchema<T>) {
+export function validateQuery<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>) {
   return (request: NextRequest): { data: T } | NextResponse => {
     const url = new URL(request.url)
     const params = Object.fromEntries(url.searchParams.entries())
