@@ -196,28 +196,28 @@ model User {
   skills              UserSkill[]
   skillEvidences      SkillEvidence[]
   projects            ProjectMember[]
-  ownedProjects       Project[]              @relation("ProjectOwner")
+  ownedProjects       Project[]                @relation("ProjectOwner")
   teams               TeamMember[]
-  ownedTeams          Team[]                 @relation("TeamOwner")
+  ownedTeams          Team[]                   @relation("TeamOwner")
   teamApplications    TeamApplication[]
-  teamInvitationsSent TeamApplication[]      @relation("TeamInvitationsSent")
-  blocksMade          Block[]                @relation("BlocksMade")
-  blocksReceived      Block[]                @relation("BlocksReceived")
+  teamInvitationsSent TeamApplication[]        @relation("TeamInvitationsSent")
+  blocksMade          Block[]                  @relation("BlocksMade")
+  blocksReceived      Block[]                  @relation("BlocksReceived")
   hackathons          HackathonParticipant[]
   hackathonTeams      HackathonTeamMember[]
   challenges          ChallengeAttempt[]
   achievements        UserAchievement[]
   xpEvents            XPEvent[]
   reputationEvents    ReputationEvent[]
-  sentConnections     Connection[]           @relation("SentConnections")
-  receivedConnections Connection[]           @relation("ReceivedConnections")
+  sentConnections     Connection[]             @relation("SentConnections")
+  receivedConnections Connection[]             @relation("ReceivedConnections")
   conversations       ConversationMember[]
   messages            Message[]
   messageReactions    MessageReaction[]
   messageReads        MessageRead[]
   notifications       Notification[]
-  reports             Report[]               @relation("ReportsSubmitted")
-  reportedReports     Report[]               @relation("ReportsAgainst")
+  reports             Report[]                 @relation("ReportsSubmitted")
+  reportedReports     Report[]                 @relation("ReportsAgainst")
   moderationActions   ModerationAction[]
   auditEvents         AuditEvent[]
   verifications       Verification[]
@@ -233,14 +233,19 @@ model User {
   progressTicks       ProgressTick[]
   cosmetics           UserCosmetic[]
   matchingProfile     MatchingProfile?
-  drops               Drop[]                 @relation("DropsReceived")
-  dropsShown          Drop[]                 @relation("DropsShown")
-  sparksSent          Spark[]                @relation("SparksSent")
-  sparksReceived      Spark[]                @relation("SparksReceived")
-  matchesAsA          Match[]                @relation("MatchesAsA")
-  matchesAsB          Match[]                @relation("MatchesAsB")
+  drops               Drop[]                   @relation("DropsReceived")
+  dropsShown          Drop[]                   @relation("DropsShown")
+  sparksSent          Spark[]                  @relation("SparksSent")
+  sparksReceived      Spark[]                  @relation("SparksReceived")
+  matchesAsA          Match[]                  @relation("MatchesAsA")
+  matchesAsB          Match[]                  @relation("MatchesAsB")
   notificationPrefs   NotificationPreference[]
   mediaAssets         MediaAsset[]
+  romanceProfile      RomanceProfile?
+  romanceDrops        RomanceDrop[]            @relation("RomanceDropsReceived")
+  romanceDropsShown   RomanceDrop[]            @relation("RomanceDropsShown")
+  duosAsA             Duo[]                    @relation("DuoAsA")
+  duosAsB             Duo[]                    @relation("DuoAsB")
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -1374,9 +1379,12 @@ model Match {
   endedById      String?
   endReason      MatchEndReason?
 
-  userA        User          @relation("MatchesAsA", fields: [userAId], references: [id], onDelete: Cascade)
-  userB        User          @relation("MatchesAsB", fields: [userBId], references: [id], onDelete: Cascade)
-  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  userA         User           @relation("MatchesAsA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB         User           @relation("MatchesAsB", fields: [userBId], references: [id], onDelete: Cascade)
+  conversation  Conversation?  @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  // Romance matches only (connectionType DATING): the photo reveal and the Phase 2 Build Dates.
+  revealRequest RevealRequest?
+  buildDates    BuildDate[]
 
   @@unique([userAId, userBId, connectionType])
   @@index([userBId, endedAt])
@@ -1422,7 +1430,8 @@ model MediaAsset {
   createdAt   DateTime     @default(now())
   confirmedAt DateTime?
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  romancePhoto RomancePhoto?
 
   @@unique([ownerId, purpose, sha256])
   // A person's unfinished uploads, and the cleanup of abandoned ones.
@@ -1430,3 +1439,178 @@ model MediaAsset {
   @@index([status, createdAt])
 }
 
+// --- The romance mode (src/lib/romance, docs/ROMANCE.md) ----------------------------------------------------------
+// Its tables are its own: nothing in the professional model (MatchingProfile, Drop) holds a romance fact. The storage key of the old model stays `DATING`
+// (the MatchType and ConnectionType value, and the Match rows made with it); the mode's name is not final and is never stored.
+
+enum RomanceGender {
+  WOMAN
+  MAN
+  NON_BINARY
+  // Described in the person's own words (RomanceProfile.genderSelfDescribe). Also what "interested in" says for people who describe themselves another way.
+  SELF_DESCRIBED
+}
+
+enum RomanceScope {
+  CITY
+  COUNTRY
+  ANYWHERE
+}
+
+// A person's romance profile. 1:1 with User, created by opting in (PUT /api/romance/profile, behind the 18+ gate). The first half is what a match sees; the
+// PRIVATE FILTERS below it are returned to the owner and to nobody else, and only ever decide who is shown to whom.
+model RomanceProfile {
+  id                 String          @id @default(cuid())
+  userId             String          @unique
+  promptObsessed     String          @db.Text
+  promptBuild        String          @db.Text
+  promptWeekend      String          @db.Text
+  // 1 to 4 (src/lib/romance/config.ts AMBITION_LEVELS).
+  ambition           Int
+  direction          String
+  rhythm             String
+  obsessions         String[]        @default([])
+  // --- private filters ---
+  gender             RomanceGender
+  genderSelfDescribe String?
+  interestedIn       RomanceGender[]
+  ageMin             Int
+  ageMax             Int
+  scope              RomanceScope    @default(COUNTRY)
+  // "Only people endorsed by at least this many builders can spark me": 0 to 5.
+  minEndorsements    Int             @default(0)
+  paused             Boolean         @default(false)
+  // The ISO week ("2026-W43", in their zone then) the weekly drop was last made for, so a week is made once.
+  lastDropWeek       String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos RomancePhoto[]
+
+  @@index([paused, gender])
+  @@index([interestedIn], type: Gin)
+}
+
+// A photo is stored, and returned to its owner; anyone else gets a blurred placeholder until the two have revealed to each other (src/lib/romance/reveal.ts).
+model RomancePhoto {
+  id        String   @id @default(cuid())
+  profileId String
+  assetId   String   @unique
+  // Where it is in the owner's order, from 0.
+  position  Int
+  // A BlurHash the client computed, shown in place of the photo to anybody who may not see it yet.
+  blurHash  String?
+  createdAt DateTime @default(now())
+
+  profile RomanceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  asset   MediaAsset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, position])
+}
+
+// The ONE person a person is shown each week (src/lib/romance/drops.ts). `weekKey` is the ISO week in the viewer's zone, so (userId, weekKey) unique is "one a week".
+model RomanceDrop {
+  id          String     @id @default(cuid())
+  userId      String
+  candidateId String
+  // 0 to 100, from scoreRomance(), and the (at most three) lines that explain it.
+  score       Int
+  reasons     Json       @default("[]")
+  weekKey     String
+  status      DropStatus @default(NEW)
+  // The end of the viewer's local week.
+  expiresAt   DateTime
+  viewedAt    DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user      User @relation("RomanceDropsReceived", fields: [userId], references: [id], onDelete: Cascade)
+  candidate User @relation("RomanceDropsShown", fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekKey])
+  // "Was this person shown to this viewer lately".
+  @@index([userId, candidateId, createdAt])
+  // How often a candidate has been shown this week (the exposure cap).
+  @@index([candidateId, createdAt])
+  @@index([status, expiresAt])
+}
+
+enum RevealStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+}
+
+// Photos are shown to the other person of a romance match only when BOTH have agreed (src/lib/romance/reveal.ts). One row per match: the request, who made it, and where it
+// stands. Either person can revoke an accepted reveal at any time, and ending the match revokes it. `buildDateId` is for Phase 2: a Build Date (the first date as a
+// micro-collab) that unlocks the reveal; nothing writes it yet.
+model RevealRequest {
+  id          String       @id @default(cuid())
+  matchId     String       @unique
+  requesterId String
+  status      RevealStatus @default(PENDING)
+  buildDateId String?      @unique
+  respondedAt DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  match     Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  buildDate BuildDate? @relation(fields: [buildDateId], references: [id], onDelete: SetNull)
+}
+
+enum BuildDateStatus {
+  PROPOSED
+  ACCEPTED
+  COMPLETED
+  CANCELLED
+}
+
+// PHASE 2 STUB. A Build Date is the first date as a small collaboration. Only the model and its statuses exist, so that the reveal flow can key off a completed one later;
+// no route reads or writes it yet.
+model BuildDate {
+  id           String          @id @default(cuid())
+  matchId      String
+  proposedById String
+  status       BuildDateStatus @default(PROPOSED)
+  scheduledFor DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  match  Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  reveal RevealRequest?
+
+  @@index([matchId])
+}
+
+enum DuoStatus {
+  PENDING
+  ACTIVE
+  DISSOLVED
+}
+
+// Two people who agreed to share a page (src/lib/romance/duo.ts): their joint projects and a combined heatmap. Both must consent (one asks, the other accepts) and either can
+// dissolve it. userAId is always the smaller id, so a pair is one row (a check constraint in the migration keeps it so).
+model Duo {
+  id            String    @id @default(cuid())
+  userAId       String
+  userBId       String
+  requestedById String
+  status        DuoStatus @default(PENDING)
+  acceptedAt    DateTime?
+  dissolvedAt   DateTime?
+  dissolvedById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  userA User @relation("DuoAsA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("DuoAsB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userBId, status])
+  @@index([userAId, status])
+}
