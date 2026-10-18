@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { DashboardClient } from "./_components/DashboardClient";
 import { Metadata } from "next";
-import { calculateSkillCompatibility } from "@/lib/scoring";
+import { calculateSkillCompatibility } from "@/lib/matching/score";
 
 export const metadata: Metadata = {
   title: "Dashboard - Skill Dating",
