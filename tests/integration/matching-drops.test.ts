@@ -3,7 +3,9 @@ import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 import { INTEGRATION_DATABASE_URL } from './config'
 import { bornYearsAgo, daysAgo, makePerson, makeSkills, removePeople, type FixtureOptions } from './matching-fixtures'
-import { dueUserIds, expireDrops, generateDropsForUser, runDropGeneration } from '../../src/lib/matching/drops'
+import { chunk, dispatchDropGeneration, dueUserIds, dueUsersByZone, expireDrops, generateDropsForUser, runDropGeneration } from '../../src/lib/matching/drops'
+import { jobs } from '../../src/lib/infra/jobs'
+import { MemoryJobQueue } from '../../src/lib/infra/jobs.memory'
 import { DROP_CONFIG } from '../../src/lib/matching/config'
 import { localDateKey } from '../../src/lib/time'
 
@@ -500,6 +502,64 @@ describe('daily drops', () => {
       expect(expired.status).toBe(200)
       expect(expired.data.result).toEqual({ expired: expect.any(Number) })
       expect((await req(admin.jar, 'POST', '/api/admin/jobs/drops/generate', { data: { userIds: 'x' } })).status).toBe(400)
+    })
+  })
+  describe('fan-out: one batch job per time zone and chunk', () => {
+    it('splits a time zone into batches, one job each, and a repeated dispatch of the same hour enqueues nothing new', async () => {
+      const zone = 'Pacific/Auckland'
+      const at = new Date('2031-05-06T21:00:00Z') // 09:00 on 7 May in Auckland (NZST, UTC+12)
+      const people = []
+      for (let i = 0; i < 5; i++) people.push(await person({ timezone: zone, dropTimeLocal: '09:00', lookingForSkills: [ml] }))
+      const queue = new MemoryJobQueue(jobs)
+      const dispatched = await dispatchDropGeneration(testPrisma, queue, at, 2)
+      const mine = (await dueUsersByZone(testPrisma, at)).find((entry) => entry.timezone === zone)!
+      expect(mine.ids).toEqual(expect.arrayContaining(people.map((p) => p.id)))
+      expect(dispatched.zones).toBeGreaterThanOrEqual(1)
+      const batchJobs = queue.accepted.filter((job) => job.name === 'drops/generate-batch')
+      expect(batchJobs).toHaveLength(dispatched.batches)
+      const inZone = batchJobs.filter((job) => (job.id ?? '').includes(`:${zone.replace(/[^A-Za-z0-9_+-]/g, '_')}:`))
+      expect(inZone).toHaveLength(Math.ceil(mine.ids.length / 2))
+      for (const job of inZone) expect((job.data as { userIds: string[] }).userIds.length).toBeLessThanOrEqual(2)
+      const everyone = inZone.flatMap((job) => (job.data as { userIds: string[] }).userIds)
+      expect([...everyone].sort()).toEqual([...mine.ids].sort())
+      expect(new Set(everyone).size).toBe(everyone.length)
+
+      const before = queue.accepted.length
+      await dispatchDropGeneration(testPrisma, queue, at, 2)
+      expect(queue.accepted.length).toBe(before)
+    })
+
+    it('runs the batches as jobs: everyone due gets their drops once, and a batch run twice changes nothing', async () => {
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ??= 'pk_test_integration'
+      process.env.CLERK_SECRET_KEY ??= 'sk_test_integration'
+      const zone = 'Pacific/Fiji'
+      const at = new Date(Date.now())
+      const viewers = []
+      for (let i = 0; i < 4; i++) viewers.push(await person({ timezone: zone, dropTimeLocal: '00:00', lookingForSkills: [ml] }))
+      for (let i = 0; i < 4; i++) await person({ skills: [[ml, 3 + (i % 2)]] })
+      const queue = new MemoryJobQueue(jobs)
+      await dispatchDropGeneration(testPrisma, queue, at, 2)
+      const outcomes = await queue.drain()
+      expect(outcomes.every((outcome) => outcome.ok)).toBe(true)
+      expect(outcomes.filter((outcome) => outcome.name === 'drops/generate-batch').length).toBeGreaterThanOrEqual(2)
+      for (const viewer of viewers) {
+        expect((await testPrisma.matchingProfile.findUniqueOrThrow({ where: { userId: viewer.id } })).lastDropDate).toBe(localDateKey(at, zone))
+        expect((await dropsOf(viewer.id)).length).toBeGreaterThan(0)
+      }
+      const counts = await Promise.all(viewers.map(async (viewer) => (await dropsOf(viewer.id)).length))
+      // The same batch again (a retry, or a second dispatch with another id): nobody is given more.
+      const again = new MemoryJobQueue(jobs)
+      await again.enqueue('drops/generate-batch', { userIds: viewers.map((viewer) => viewer.id) })
+      const [outcome] = await again.drain()
+      expect(outcome.ok).toBe(true)
+      expect(await Promise.all(viewers.map(async (viewer) => (await dropsOf(viewer.id)).length))).toEqual(counts)
+    })
+
+    it('chunks evenly, keeps order and loses nobody', () => {
+      expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+      expect(chunk([], 3)).toEqual([])
+      expect(chunk([1, 2], 5)).toEqual([[1, 2]])
+      expect(DROP_CONFIG.fanOutBatch).toBeGreaterThan(0)
     })
   })
 })

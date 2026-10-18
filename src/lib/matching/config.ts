@@ -12,8 +12,12 @@ export const DROP_CONFIG = {
   repeatCooldownDays: 7,
   /** Somebody who was passed is left out for this many days. */
   passCooldownDays: 30,
-  /** People whose drops are generated per batch. */
+  /** People whose drops are generated per batch, within a run. */
   userBatch: 100,
+  /** People per `drops/generate-batch` job: how the hourly run is split so the batches run in parallel (docs/MATCHING.md, "Scale"). */
+  fanOutBatch: 250,
+  /** How many batch jobs run at the same time (the job queue's concurrency limit for them). Each holds a few database connections. */
+  fanOutConcurrency: 8,
   /** Candidates scored per batch. */
   scoreBatch: 300,
 } as const

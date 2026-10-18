@@ -142,7 +142,8 @@ them. Handlers import their module lazily, so the registry stays light.
 | `leaderboards/reconcile` | 04:00 daily | `src/lib/leaderboard-rebuild.ts`: rebuild every current board from the XP log: aggregate up to a cutoff, replay what came after, swap |
 | `leaderboards/refresh-user` | event | move one person's entries after a place or privacy change |
 | `cosmetics/backfill` | event, once | `src/lib/cosmetics.ts`: grandfather cosmetics for existing users |
-| `drops/generate` | hourly (:05) | `src/lib/matching/drops.ts`: daily drops for everyone whose chosen local time has passed |
+| `drops/generate` | hourly (:05) | `src/lib/matching/drops.ts`: finds everyone whose chosen local time has passed and enqueues a `drops/generate-batch` job for each chunk of 250 in each time zone (dispatch only) |
+| `drops/generate-batch` | event, 8 at a time | `src/lib/matching/drops.ts`: daily drops for one batch of people; safe to run twice |
 | `drops/expire` | hourly (:20) | `src/lib/matching/drops.ts`: mark unanswered drops past their day EXPIRED |
 | `drops/second-look` | Mondays 07:15 | `src/lib/matching/second-look.ts`: one grown, previously passed candidate per person per week |
 

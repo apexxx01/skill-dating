@@ -23,8 +23,8 @@ gamification stage (leaderboards, cosmetics, seasons) see [GAMIFICATION.md](GAMI
 4. **Check** (below).
 
 **The matching engine** (see [MATCHING.md](MATCHING.md)) needs nothing extra after a deploy: its migrations are additive (the enum `MatchType`, `MatchingProfile`, `Drop`, `Spark`, `Match`,
-`User.birthDate`, a `closedAt` on `Conversation`, new indexes), its three jobs (`drops/generate` hourly, `drops/expire` hourly, `drops/second-look` Mondays) are registered with the job queue like the others and
-are safe to repeat, and no new setting is required. The first hourly run after a deploy gives every person whose chosen drop time has already passed today their drops (catch-up), so expect one larger run. Run
+`User.birthDate`, a `closedAt` on `Conversation`, new indexes), its jobs (`drops/generate` hourly, which only dispatches `drops/generate-batch` jobs, 250 people each and 8 at a time; `drops/expire` hourly; `drops/second-look` Mondays) are registered with the job queue like the others and
+are safe to repeat, and no new setting is required. The first hourly run after a deploy gives every person whose chosen drop time has already passed today their drops (catch-up), so expect one larger run (a dispatch plus as many batches as it takes). Make sure the job queue's concurrency for `drops/generate-batch` (8) is below your database connection pool. Run
 `POST /api/admin/jobs/drops/generate` with `{ "data": { "userIds": [...] } }` to regenerate for particular people. One migration (`utc_database_default`) sets the database's default time zone to UTC and, where the role may not
 change the database, only prints a notice; applications connecting through a pooler (`pgbouncer=true`) rely on that default, because poolers refuse session settings.
 

@@ -4,6 +4,7 @@ import { limit, subjectFor } from '@/lib/entitlements'
 import { log } from '@/lib/log'
 import { advisoryLock } from '@/lib/progress'
 import { isValidTimeZone, localDateKey, localDayEnd, localTimeKey } from '@/lib/time'
+import type { JobQueue } from '@/lib/infra/jobs'
 import { findCandidateIds, viewerFor } from './candidates'
 import { DROP_CONFIG } from './config'
 import { datingBlockers } from './dating'
@@ -15,9 +16,12 @@ import type { MatchType } from './types'
 
 // Daily drops: every person gets a few other people, chosen for them, once a day at the time they picked.
 //
-//  - runDropGeneration() is the hourly job: it finds the people whose chosen time has passed in THEIR time zone and who have no drops
-//    for their local day yet, and generates for them, one at a time (so the exposure cap sees what the people before them were shown).
-//    The order is shuffled by the day, so the same people are not always first at the popular candidates.
+//  - dispatchDropGeneration() is the hourly job: it finds the people whose chosen time has passed in THEIR time zone and who have no drops
+//    for their local day yet, splits each time zone's people into batches (DROP_CONFIG.fanOutBatch) and enqueues one `drops/generate-batch`
+//    job per batch, so the batches run in parallel on the job workers instead of one worker walking the whole hour.
+//  - runDropGeneration() is what a batch (or an operator naming people) runs: it generates for its people one at a time (so the exposure
+//    cap sees what the people before them in the batch were shown). The order is shuffled by the day, so the same people are not always first
+//    at the popular candidates.
 //  - generateDropsForUser() does one person: candidates from SQL (candidates.ts), scored in batches by the pure scorer, the best few
 //    chosen (select.ts), written in one transaction under a per-person lock that re-checks, so two runs at once cannot give anyone more.
 //
@@ -28,8 +32,10 @@ type Db = PrismaClient
 export interface DropRunOptions {
   /** The moment to generate for. Defaults to now. */
   now?: Date
-  /** Generate for exactly these people (whether or not they are due) instead of everyone who is. */
+  /** Generate for exactly these people instead of everyone who is due. By default whether or not they are due; see `force`. */
   userIds?: readonly string[]
+  /** Generate even for somebody who already has today's drops. Defaults to true when `userIds` is given (an operator asking) and false otherwise. A batch passes false. */
+  force?: boolean
   /** Whether plan limits apply (defaults to ENTITLEMENTS_ENFORCED). */
   enforced?: boolean
   cache?: ProfileCache
@@ -55,17 +61,23 @@ export interface DropRunResult {
 
 // --- Who is due ---------------------------------------------------------------------------------------------
 
+export interface DueZone {
+  /** The IANA name as stored, or null for people with none (they are on UTC). */
+  timezone: string | null
+  ids: string[]
+}
+
 /**
- * The people whose drop time has passed in their own time zone today and who have not been given today's drops: the time zones in use
- * are looked up once, and each zone's people are one query. Their ids only.
+ * The people whose drop time has passed in their own time zone today and who have not been given today's drops, grouped by the time zone they are
+ * in: the zones in use are looked up once, and each zone's people are one query. Their ids only.
  */
-export async function dueUserIds(db: Db, now: Date = new Date()): Promise<string[]> {
+export async function dueUsersByZone(db: Db, now: Date = new Date()): Promise<DueZone[]> {
   const zones = await db.$queryRaw<{ timezone: string | null }[]>`
     SELECT DISTINCT u."timezone"
     FROM "MatchingProfile" mp JOIN "User" u ON u."id" = mp."userId"
     WHERE mp."paused" = false AND u."deletedAt" IS NULL AND cardinality(mp."connectionTypes") > 0
   `
-  const ids: string[] = []
+  const due: DueZone[] = []
   for (const { timezone } of zones) {
     // A zone this runtime does not know counts as UTC, the same as everywhere else.
     const effective = isValidTimeZone(timezone) ? timezone : 'UTC'
@@ -79,9 +91,14 @@ export async function dueUserIds(db: Db, now: Date = new Date()): Promise<string
         AND mp."dropTimeLocal" <= ${clock}
         AND (mp."lastDropDate" IS NULL OR mp."lastDropDate" < ${localDate})
     `
-    for (const row of rows) ids.push(row.userId)
+    if (rows.length > 0) due.push({ timezone, ids: rows.map((row) => row.userId) })
   }
-  return ids
+  return due
+}
+
+/** Everybody who is due, in no particular order. */
+export async function dueUserIds(db: Db, now: Date = new Date()): Promise<string[]> {
+  return (await dueUsersByZone(db, now)).flatMap((zone) => zone.ids)
 }
 
 /** The people in a stable order that changes every day, so nobody is always first in line for the candidates everyone wants. */
@@ -187,8 +204,9 @@ export async function generateDropsForUser(
 export async function runDropGeneration(db: Db, options: DropRunOptions = {}): Promise<DropRunResult> {
   const started = Date.now()
   const now = options.now ?? new Date()
-  const forced = options.userIds !== undefined
-  const ids = shuffledForDay(forced ? [...new Set(options.userIds)] : await dueUserIds(db, now), now)
+  const named = options.userIds !== undefined
+  const forced = options.force ?? named
+  const ids = shuffledForDay(named ? [...new Set(options.userIds)] : await dueUserIds(db, now), now)
   // Profiles loaded for one person are reused for the next, within this run only.
   const cache: ProfileCache = options.cache ?? new Map()
 
@@ -216,6 +234,48 @@ export async function runDropGeneration(db: Db, options: DropRunOptions = {}): P
   return result
 }
 
+// --- Fan-out ----------------------------------------------------------------------------------------------------
+
+export interface DispatchResult {
+  /** People who are due this hour. */
+  due: number
+  zones: number
+  /** Batch jobs enqueued. */
+  batches: number
+}
+
+/** "2026-10-18T09": the hour a dispatch belongs to, so a repeated dispatch of the same hour enqueues the same batches (the queue drops repeated ids). */
+const hourKey = (now: Date) => now.toISOString().slice(0, 13)
+
+/** Splits `items` into chunks of at most `size`. */
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let from = 0; from < items.length; from += size) out.push(items.slice(from, from + size))
+  return out
+}
+
+/**
+ * The hourly job: finds who is due, and hands each time zone's people to the job queue in batches of DROP_CONFIG.fanOutBatch, each batch its own
+ * `drops/generate-batch` job. The people of a zone are shuffled for the day first and then cut, so every batch is a fair mix and no batch
+ * is always first at the candidates everybody wants. This does no scoring itself: it is a few queries and a few enqueues, however many people are due.
+ */
+export async function dispatchDropGeneration(db: Db, queue: JobQueue, now: Date = new Date(), batchSize: number = DROP_CONFIG.fanOutBatch): Promise<DispatchResult> {
+  const zones = await dueUsersByZone(db, now)
+  const result: DispatchResult = { due: 0, zones: zones.length, batches: 0 }
+  for (const zone of zones) {
+    const ids = shuffledForDay(zone.ids, now)
+    result.due += ids.length
+    const zoneKey = (zone.timezone ?? 'UTC').replace(/[^A-Za-z0-9_+-]/g, '_')
+    const batches = chunk(ids, batchSize)
+    for (const [index, userIds] of batches.entries()) {
+      await queue.enqueue('drops/generate-batch', { userIds }, { id: `drops:${hourKey(now)}:${zoneKey}:${index}` })
+      result.batches += 1
+    }
+  }
+  log.info('daily drops dispatched', { ...result })
+  return result
+}
+
 // --- Expiry -------------------------------------------------------------------------------------------------------
 
 /** Marks drops nobody answered by the end of their day as EXPIRED. */
@@ -225,10 +285,21 @@ export async function expireDrops(db: Pick<PrismaClient, 'drop'>, now: Date = ne
 }
 
 
-/** What the hourly job runs. */
-export async function runDropGenerationJob(data: { userIds?: string[] } = {}): Promise<DropRunResult> {
+/**
+ * What the hourly job runs. With `userIds` (an operator asking) it generates for those people right away, whether or not they are due; without, it
+ * dispatches the batches for everybody who is due.
+ */
+export async function runDropGenerationJob(data: { userIds?: string[] } = {}): Promise<DropRunResult | DispatchResult> {
   const { prisma } = await import('@/lib/prisma')
-  return runDropGeneration(prisma, { userIds: data.userIds })
+  if (data.userIds) return runDropGeneration(prisma, { userIds: data.userIds })
+  const { getJobQueue } = await import('@/lib/infra/jobs')
+  return dispatchDropGeneration(prisma, getJobQueue())
+}
+
+/** What one batch runs: generate for these people, those of them who are still due. Safe to run twice: a person who already has today's drops is skipped. */
+export async function runDropBatchJob(data: { userIds: string[] }): Promise<DropRunResult> {
+  const { prisma } = await import('@/lib/prisma')
+  return runDropGeneration(prisma, { userIds: data.userIds, force: false })
 }
 
 /** What the expiry job runs. */

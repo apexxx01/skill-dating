@@ -96,7 +96,7 @@ type is the relationship from the *viewer's* side (a mentee is shown mentors as 
 
 ### When
 
-The job `drops/generate` runs **hourly** (`:05`). A person is *due* when their `dropTimeLocal` has passed in **their own time zone** today and
+The job `drops/generate` runs **hourly** (`:05`) and only **dispatches** (see "Fan-out" below). A person is *due* when their `dropTimeLocal` has passed in **their own time zone** today and
 they have no drops for that local day yet (`MatchingProfile.lastDropDate`). That is a catch-up rule, not "this exact hour": somebody who saves
 their profile at 22:00 gets their drops at the next run, and a missed run is made up by the next. A day is generated once, even when nobody
 fits (the marker is written either way). The time zones in use are looked up once, and each zone's due people are one query. A person
@@ -104,8 +104,9 @@ with no time zone is on UTC. `drops/expire` runs hourly (`:20`) and marks `NEW` 
 
 ### How many, and which
 
-- **How many:** `limit(user, DAILY_DROPS)` from the entitlements table (3 on FREE, 10 on PRO/CREW_PRO/ORG when `ENTITLEMENTS_ENFORCED=true`; the
-  hard ceiling of 50 when it is off), less what they already have today. A second-look drop is extra and does not count.
+- **How many:** `limit(user, DAILY_DROPS)` from the entitlements table: **3 for everyone while `ENTITLEMENTS_ENFORCED=false`** (scarcity is the product, so the
+  free number applies to every plan until plans are switched on), and 3 on FREE and 10 on PRO/CREW_PRO/ORG once it is `true`; the hard ceiling of 50 is an abuse
+  limit that applies either way. Less what they already have today. A second-look drop is extra and does not count. Daily sparks follow the same rule (5, then 25).
 - **Who is in the pool** (`src/lib/matching/candidates.ts`, one SQL query per type of relationship the viewer chose):
   has the counterpart type · not paused · not deleted · seen in the last 60 days · **a trusted account** (verified email, at least 7 days old: the same
   rule as the trusted-counterparty gate, `MIN_TRUSTED_ACCOUNT_AGE_DAYS`) · **not blocked either way** · not shown to the viewer in the last 7 days ·
@@ -242,11 +243,41 @@ So a person costs *O(k · (M + 300))* and **the work does not grow with the numb
 | ---: | ---: | --- | ---: | ---: | ---: | ---: |
 | 1,000 | 1,000 | 53 / 44 / 109 ms | 8 ms | 13 ms | 1.2 ms | 53 s |
 | 10,000 | 1,000 (a tenth) | 96 / 106 / 154 ms | 29 ms | 25 ms | 1.9 ms | about 16 min |
+| 10,000 | 2,000 (a fifth), re-measured for 1D | 72 / 72 / 126 ms | 31 ms | 22 ms | 2.1 ms | about 12 min |
 
-The pool query is the part that grows (8 ms at 1,000 people, 29 ms at 10,000: about linear in *M*); everything else is bounded by the pool size. For the hourly job this is comfortable well past this size, because
-people are due in the hour after their own local drop time, so a day's people arrive spread across the time zones. The worst case is one dense time zone at one popular drop time (everyone at 09:00 in the same city): 10,000 such people take about 16 minutes on one worker.
+The pool query is the part that grows (8 ms at 1,000 people, 29 to 31 ms at 10,000: about linear in *M*); everything else is bounded by the pool size.
 
-**Where it goes next** when one dense hour no longer fits in an hour (not needed at this size, and none of it changes the rules): shard the due people across several job workers by a hash of the user id (the per-person lock and the unique key already make that safe, and the exposure cap tolerates a small overshoot);
+### Fan-out: one batch job per chunk of a time zone (1D)
+
+The hourly run used to be one worker walking everybody who was due, so the worst case, one dense time zone at one popular drop time (everyone at 09:00 in
+the same city), took as long as all of them one after another: 10,000 such people were about 16 minutes. It is now split:
+
+1. `drops/generate` (hourly, `:05`) **dispatches only**. It looks up who is due, grouped by time zone (`dueUsersByZone`: the zones in use once, then one query per zone),
+   shuffles each zone's people for the day (so no batch is always first at the candidates everyone wants), cuts the zone into batches of `DROP_CONFIG.fanOutBatch`
+   (250) and enqueues one `drops/generate-batch` job for each, with the id `drops:<hour>:<zone>:<n>`. The queue drops a repeated id, so a dispatch that runs twice in
+   one hour enqueues nothing new. It does no scoring itself: a few queries and a few enqueues however many people are due.
+2. `drops/generate-batch` (declared with a concurrency of `DROP_CONFIG.fanOutConcurrency`, 8, which Inngest enforces) generates for its 250 people one after another,
+   exactly as before (`runDropGeneration`, not forced), so a person who already has today's drops is skipped. A batch that runs twice, or a retry, changes nothing.
+   A person's failure does not stop the others in the batch; they are tried again at the next hourly run.
+
+What does not change: the rules, the per-person lock and the unique key on `Drop` (which make a duplicate impossible whatever runs at once), and the order inside a
+batch. What changes slightly: the **exposure cap** (20 a UTC day per candidate) is counted live from `Drop`, and batches run at the same time, so a very popular
+candidate can end a day a few over the cap; the cap is a fairness guide, not a safety limit, and the overshoot is bounded by the batches in flight.
+
+**Measured** with `npm run bench:matching -- --users 10000 --sample 2000 --workers 8`, which generates the same 2,000 people first one after another and then as eight batches of 250 at the same time:
+
+| 2,000 people | Wall time | Per person |
+| --- | ---: | ---: |
+| One after another | 143 s | 72 ms |
+| 8 batches of 250, 8 at a time | 36 s | 18 ms |
+
+That is **4x** with all eight batches in one Node process (their scoring shares one thread) while the laptop was also running other work, so it is a floor. At that rate the
+dense case, 10,000 people in one zone at one time, is about **3 minutes** instead of 16, and with the batches on separate workers (each job is its own process on Inngest) it is
+bounded by the database, not by one thread. In general the time for a zone is about `ceil(batches / concurrency) × 250 × 72 ms`: 40 batches at a concurrency of 8 is 5 waves of
+about 18 s of work each before contention, and a 1,000 person zone is a single wave of 4 batches, about 18 to 20 seconds. Each running batch holds one database connection at a time, so
+`fanOutConcurrency` must stay below the connection pool of the deployment (Prisma's default pool is `2 × CPUs + 1`).
+
+**Where it goes next** when one dense hour no longer fits in an hour even so (not needed at this size, and none of it changes the rules): raise the concurrency and the pool together;
 precompute each person's skill set as an indexed array on `MatchingProfile` so the relevance rank is one GIN lookup; and put the exposure counters in Redis rather than counting `Drop` rows.
 
 Every query path has an index: `MatchingProfile(connectionTypes)` (GIN) and `(paused, dropTimeLocal)`; `Drop(userId, localDate)`, `(userId, candidateId, createdAt)`, `(candidateId, createdAt)`, `(status, expiresAt)` and `(status, updatedAt)`; `UserSkill(skillId)`; `Spark(toId, status, createdAt)`, `(fromId, createdAt)` and `(openerHash, createdAt)`; `Match(userAId, endedAt)`, `(userBId, endedAt)`. The numbers above are re-measured with that script; the seeding is described at the top of `scripts/bench-matching.ts`.

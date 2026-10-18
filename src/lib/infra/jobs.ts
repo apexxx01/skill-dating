@@ -24,6 +24,8 @@ export interface JobDefinition<S extends z.ZodTypeAny = z.ZodTypeAny> {
    * The in-process queue never schedules; call it directly (see POST /api/admin/jobs/{name}).
    */
   schedule?: string
+  /** The most runs of this job at once (Inngest enforces it; the in-process queue runs one at a time anyway). Unset: no limit of its own. */
+  concurrency?: number
   // Method syntax on purpose: it keeps JobDefinition<SpecificSchema> assignable to the registry's JobDefinition.
   handler(context: { data: z.output<S> }): Promise<unknown>
 }
@@ -91,12 +93,22 @@ export const jobs = {
     handler: async ({ data }) => (await import('@/lib/cosmetics')).runCosmeticsBackfill(data),
   }),
   // Gives every person whose daily drop time has passed in their own time zone their drops for the day (src/lib/matching/drops.ts).
-  // Hourly, so each lands within the hour after the time they chose; safe to repeat. Pass `userIds` to generate for those people only.
+  // Hourly, so each lands within the hour after the time they chose; safe to repeat. This job only DISPATCHES: it splits the people who are
+  // due into batches per time zone and enqueues a `drops/generate-batch` job for each, so the batches run in parallel. Pass `userIds` to
+  // generate for those people only, right away (an operator asking).
   'drops/generate': defineJob({
     schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
     schedule: '5 * * * *',
     retries: 1,
     handler: async ({ data }) => (await import('@/lib/matching/drops')).runDropGenerationJob(data),
+  }),
+  // One batch of the hourly run: generates drops for these people, those of them who are still due (src/lib/matching/drops.ts). Enqueued by
+  // `drops/generate`, a few at a time. Safe to repeat: someone who already has today's drops is skipped.
+  'drops/generate-batch': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(1000) }),
+    retries: 2,
+    concurrency: 8,
+    handler: async ({ data }) => (await import('@/lib/matching/drops')).runDropBatchJob(data),
   }),
   // Once a week brings back, for each person, one previously passed candidate who has grown since (a higher tier or more verified evidence), as an extra drop
   // flagged secondLook (src/lib/matching/second-look.ts). Mondays, after the weekend's passes are in; safe to repeat. Pass `userIds` to run for those people only.
@@ -201,6 +213,7 @@ export function inngestFunctions(client: Inngest = getInngest(), registry: JobRe
         id: name.replace(/[^a-zA-Z0-9]+/g, '-'),
         triggers: [{ event: name }, ...(definition.schedule ? [{ cron: definition.schedule }] : [])],
         retries: (definition.retries ?? DEFAULT_RETRIES) as InngestRetries,
+        ...(definition.concurrency ? { concurrency: definition.concurrency } : {}),
       },
       async ({ event }) => runJob(registry, name, event.data ?? {})
     )

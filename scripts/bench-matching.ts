@@ -7,6 +7,8 @@
 //
 //   --users N     how many people to seed (default 1000)
 //   --sample M    how many of them to generate drops for, one at a time (default: all)
+//   --workers K   also generate the same sample again the way the hourly job does now: in batches of DROP_CONFIG.fanOutBatch, K batches at a time, and
+//                 report the wall time next to the one-after-another time (default: skip)
 //   --keep        leave the seeded rows in place afterwards
 //
 // It prints seeding time, then for the sampled viewers: how long the candidate query takes, how long loading and scoring take, how long a
@@ -148,6 +150,33 @@ async function main() {
     console.log(`  score one pool, ms:     ${stat(parts.score)}`)
     console.log(`wall time for the sample: ${round(wallMs / 1000)}s  => ${round((wallMs / sample) * 1)} ms per person`)
     console.log(`projected for everybody:  ${round(((wallMs / sample) * users) / 1000)}s  (${round(((wallMs / sample) * users) / 60000)} min) if run one after another`)
+
+    // --- Fan-out: the same people, in batches, several batches at a time -------------------------------------------
+    const workers = arg('workers')
+    if (workers) {
+      const { chunk } = await import('../src/lib/matching/drops')
+      await prisma.$executeRawUnsafe(`DELETE FROM "Drop" WHERE "userId" LIKE 'bench\\_%'`)
+      const batches = chunk(viewerIds, DROP_CONFIG.fanOutBatch)
+      let next = 0
+      let fannedDrops = 0
+      const fanStart = performance.now()
+      await Promise.all(
+        Array.from({ length: Math.min(workers, batches.length) }, async () => {
+          for (let mine = next++; mine < batches.length; mine = next++) {
+            const sharedCache = new Map()
+            for (const id of batches[mine]) {
+              // Not `+= await ...`: the left side would be read before the await and another worker's total lost.
+              const one = await generateDropsForUser(prisma, id, now, { enforced: true, cache: sharedCache, force: true })
+              fannedDrops += one.created
+            }
+          }
+        })
+      )
+      const fanMs = performance.now() - fanStart
+      console.log(`\nfan-out:                  ${batches.length} batches of up to ${DROP_CONFIG.fanOutBatch}, ${Math.min(workers, batches.length)} at a time`)
+      console.log(`  wall time:              ${round(fanMs / 1000)}s for ${sample} people (${round(fanMs / sample)} ms per person) against ${round(wallMs / 1000)}s one after another: ${round(wallMs / fanMs)}x`)
+      console.log(`  drops created:          ${fannedDrops} (the exposure cap is counted live, so a little more or less than one after another)`)
+    }
 
     if (!process.argv.includes('--keep')) {
       await prisma.$executeRawUnsafe(`DELETE FROM "User" WHERE "id" LIKE 'bench\\_%'`)
