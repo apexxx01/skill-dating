@@ -111,6 +111,11 @@ enum NotificationType {
   APPLICATION_RESPONSE
   SYSTEM
   MATCH
+  // Social: props on a post, a comment or reply, a new follower, a post on a project the person watches (src/lib/notifications.ts coalesces them).
+  PROPS
+  COMMENT
+  FOLLOW
+  WATCH
   // Somebody sparked you: one per spark for a plan that shows who, one daily count for one that does not (src/lib/matching/spark-digest.ts).
   SPARK
 }
@@ -241,6 +246,12 @@ model User {
   matchesAsB          Match[]                  @relation("MatchesAsB")
   notificationPrefs   NotificationPreference[]
   mediaAssets         MediaAsset[]
+  posts               ShipPost[]
+  props               Prop[]
+  comments            Comment[]
+  following           Follow[]                 @relation("Following")
+  followers           Follow[]                 @relation("Followers")
+  watches             Watch[]
   romanceProfile      RomanceProfile?
   romanceDrops        RomanceDrop[]            @relation("RomanceDropsReceived")
   romanceDropsShown   RomanceDrop[]            @relation("RomanceDropsShown")
@@ -409,6 +420,8 @@ model Project {
   chat         Chat?
   conversation Conversation?
   activities   Activity[]
+  posts        ShipPost[]
+  watchers     Watch[]
 }
 
 model ProjectMember {
@@ -956,18 +969,22 @@ model Chat {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String           @db.Text
-  link      String?
-  metadata  Json?
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
+  id          String           @id @default(cuid())
+  userId      String
+  type        NotificationType
+  title       String
+  message     String           @db.Text
+  link        String?
+  metadata    Json?
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  // Notifications that stand for several events ("12 people gave Props to X") share a key within a time window; the row is updated, not repeated (src/lib/notifications.ts).
+  coalesceKey String?
+  count       Int              @default(1)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, coalesceKey])
   @@index([userId, isRead])
 }
 
@@ -1617,4 +1634,151 @@ model Duo {
   @@unique([userAId, userBId])
   @@index([userBId, status])
   @@index([userAId, status])
+}
+
+// --- Ship posts and the feed (src/lib/posts, src/lib/feed, docs/FEED.md) --------------------------------------------------
+
+enum PostKind {
+  SHIP
+  UPDATE
+  DEVLOG
+  DEMO
+}
+
+enum PostVisibility {
+  PUBLIC
+  FOLLOWERS
+  CREW
+}
+
+// Something a builder shows: a ship, an update, a devlog or a demo. Body is Markdown, sanitised on the way in. `media` is [{ assetId, key, type, width, height, durationMs }] from the
+// author's own confirmed uploads. Deleting is soft. `propsScore` is the sum of the weights of its Props (denormalised, updated in the same transaction as the Prop).
+model ShipPost {
+  id              String         @id @default(cuid())
+  authorId        String
+  projectId       String?
+  teamId          String?
+  kind            PostKind
+  title           String
+  body            String         @db.Text
+  links           String[]       @default([])
+  media           Json           @default("[]")
+  stackTags       String[]       @default([])
+  // Other members of the project or crew who share the credit.
+  coAuthorIds     String[]       @default([])
+  visibility      PostVisibility @default(PUBLIC)
+  // The author's local Friday ("YYYY-MM-DD") when the post was made on Ship Day, else null.
+  shipDayKey      String?
+  propsScore      Float          @default(0)
+  propsCount      Int            @default(0)
+  commentCount    Int            @default(0)
+  // How many times it was edited (a lightweight revision count).
+  revision        Int            @default(0)
+  // The ProjectUpdate an UPDATE or DEVLOG post counted as, which carries the existing XP and caps.
+  projectUpdateId String?
+  createdAt       DateTime       @default(now())
+  editedAt        DateTime?
+  deletedAt       DateTime?
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  props    Prop[]
+  comments Comment[]
+
+  @@index([authorId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([teamId, createdAt])
+  @@index([createdAt])
+  @@index([shipDayKey])
+  @@index([coAuthorIds], type: Gin)
+}
+
+// One builder's respect for one post. Unique per pair. `weight` is fixed when it is given (src/lib/posts/props-weight.ts); 0 for a giver the trust gate does not trust.
+model Prop {
+  id        String   @id @default(cuid())
+  userId    String
+  postId    String
+  weight    Float
+  createdAt DateTime @default(now())
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post ShipPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@index([postId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// One level of threading: a reply's parent is always a top-level comment. Deleting is soft (the thread keeps its shape). Editable for a short window.
+model Comment {
+  id        String    @id @default(cuid())
+  postId    String
+  authorId  String
+  parentId  String?
+  body      String    @db.Text
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  post    ShipPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author  User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent  Comment?  @relation("Replies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("Replies")
+
+  @@index([postId, createdAt])
+  @@index([parentId, createdAt])
+}
+
+model Follow {
+  id         String   @id @default(cuid())
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  follower User @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followee User @relation("Followers", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followeeId])
+  @@index([followeeId, createdAt])
+}
+
+// A user watching a project: posts on it reach them (src/lib/posts/watch.ts).
+model Watch {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+}
+
+// Something that looks off and is worth a person's eye later, recorded and never acted on by itself (for example a burst of Props from new accounts).
+model IntegritySignal {
+  id          String   @id @default(cuid())
+  kind        String
+  userId      String?
+  subjectType String
+  subjectId   String
+  data        Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([subjectType, subjectId])
+}
+
+// The Saturday recap of a Ship Day (src/lib/posts/ship-day-recap.ts): one row per ISO week.
+model ShipDayRecap {
+  id         String   @id @default(cuid())
+  weekKey    String   @unique
+  dateKey    String
+  totalPosts Int
+  // [{ postId, authorId, propsScore, title }] best first.
+  topPosts   Json     @default("[]")
+  // { countries: [{ code, count }], cities: [{ key, count }], campuses: [{ key, count }] }
+  places     Json     @default("{}")
+  createdAt  DateTime @default(now())
 }
