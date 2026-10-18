@@ -1,11 +1,12 @@
 import type { Match, Prisma, PrismaClient, Spark } from '@prisma/client'
 import type { ErrorCode, ErrorParams } from '@/lib/api/errors'
 import { blockRelation } from '@/lib/blocks'
-import { limit, subjectFor } from '@/lib/entitlements'
+import { can, limit, subjectFor } from '@/lib/entitlements'
 import { afterCommit, emit, transactWithEvents } from '@/lib/events'
 import { track } from '@/lib/infra/analytics'
 import { getRealtime, userChannel } from '@/lib/infra/realtime'
 import { log } from '@/lib/log'
+import { createNotification } from '@/lib/notifications'
 import { advisoryLock } from '@/lib/progress'
 import { localDayStart } from '@/lib/time'
 import { accountDistrust } from '@/lib/trust'
@@ -179,7 +180,10 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
       where: { fromId: toId, toId: fromId, connectionType: counterpartType(connectionType), status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
     })
-    if (!answered) return { spark, match: null }
+    if (!answered) {
+      await notifySparked(tx, spark, options)
+      return { spark, match: null }
+    }
     return { spark, match: await createMatch(tx, answered, spark, now) }
   })
 
@@ -188,6 +192,26 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
   const { spark, match } = written
   await track(fromId, 'spark_sent', { connectionType, matched: match !== null, fromDrop: input.dropId !== undefined })
   return { ok: true, spark, match }
+}
+
+// --- Telling the person ----------------------------------------------------------------------------------------
+
+/**
+ * A spark that did not make a match: a plan that shows who sparked you is told now, with the sender in the notification; any other plan is told by the daily count
+ * (src/lib/matching/spark-digest.ts), which has no names. A person who switched sparks off is told neither way.
+ */
+async function notifySparked(tx: Tx, spark: Spark, options: SendSparkOptions): Promise<void> {
+  const subject = await subjectFor(tx, spark.toId, options.now)
+  if (!can(subject, 'SEE_WHO_SPARKED', { enforced: options.enforced })) return
+  const sender = await tx.user.findUnique({ where: { id: spark.fromId }, select: { name: true, username: true } })
+  await createNotification(tx, {
+    userId: spark.toId,
+    kind: 'SPARK',
+    title: 'Someone sparked you',
+    message: `${sender?.name || sender?.username || 'Someone'} sparked you`,
+    link: '/sparks',
+    metadata: { sparkId: spark.id, fromId: spark.fromId, connectionType: spark.connectionType },
+  })
 }
 
 // --- Matching -----------------------------------------------------------------------------------------------

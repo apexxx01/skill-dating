@@ -109,3 +109,20 @@ export function bornYearsAgo(years: number, extraDays = 0): string {
   const date = new Date(Date.UTC(now.getUTCFullYear() - years, now.getUTCMonth(), now.getUTCDate()))
   return new Date(date.getTime() - extraDays * DAY_MS).toISOString().slice(0, 10)
 }
+
+const OPENER_WORDS = [
+  'compiler', 'parser', 'graph', 'database', 'offline', 'sync', 'payments', 'robotics', 'firmware', 'climate', 'mapping', 'finals',
+  'prototype', 'weekend', 'design', 'review', 'architecture', 'embedded', 'replication', 'kubernetes', 'tracing', 'latency', 'billing',
+  'rendering', 'shaders', 'physics', 'audio', 'streaming', 'search', 'ranking', 'tokenizer', 'checkout', 'inventory', 'logistics',
+  'drone', 'sensor', 'dashboard', 'onboarding', 'analytics', 'migration', 'sandbox', 'plugin', 'protocol', 'encryption', 'identity',
+  'pipeline', 'scheduler', 'allocator', 'garbage', 'collector', 'bytecode', 'interpreter', 'typechecker', 'linter', 'formatter', 'editor',
+  'keyboard', 'terminal', 'browser', 'extension', 'mobile', 'wearable', 'satellite', 'telescope', 'genome', 'protein', 'battery', 'solar',
+]
+let openerCounter = 0
+
+/** A different, believable opener every time: eight words that never repeat inside a run, so no two are taken for the same message. */
+export function nextOpener(): string {
+  const n = openerCounter++
+  const w = (k: number) => OPENER_WORDS[(n * 8 + k) % OPENER_WORDS.length]
+  return `Your ${w(0)} ${w(1)} work caught my eye, and I am stuck on ${w(2)} ${w(3)} in my own build. Could we try a ${w(4)} ${w(5)} ${w(6)} ${w(7)} together this month?`
+}

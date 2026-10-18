@@ -111,6 +111,8 @@ enum NotificationType {
   APPLICATION_RESPONSE
   SYSTEM
   MATCH
+  // Somebody sparked you: one per spark for a plan that shows who, one daily count for one that does not (src/lib/matching/spark-digest.ts).
+  SPARK
 }
 
 enum ReportReason {
@@ -237,6 +239,7 @@ model User {
   sparksReceived      Spark[]                @relation("SparksReceived")
   matchesAsA          Match[]                @relation("MatchesAsA")
   matchesAsB          Match[]                @relation("MatchesAsB")
+  notificationPrefs   NotificationPreference[]
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -962,6 +965,19 @@ model Notification {
   @@index([userId, isRead])
 }
 
+// Which kinds of notification a person has switched off (src/lib/notifications.ts). No row means the kind is on; a row says what they chose.
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+}
+
 model Report {
   id          String       @id @default(cuid())
   reporterId  String
@@ -1242,6 +1258,8 @@ model MatchingProfile {
   paused           Boolean     @default(false)
   // The local date ("YYYY-MM-DD", in their zone then) that drops were last generated for, so a day is generated once.
   lastDropDate     String?
+  // When the daily "N people sparked you" notification was last sent, so it is sent once a local day and counts only the sparks since.
+  sparkDigestAt    DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -1325,6 +1343,8 @@ model Spark {
   @@unique([fromId, toId, connectionType])
   // The received list, newest first.
   @@index([toId, status, createdAt])
+  // The daily digest: who was sparked lately and is still waiting.
+  @@index([status, createdAt])
   // How many a person sent today, and their recent openers.
   @@index([fromId, createdAt])
   // The same opener sent again.

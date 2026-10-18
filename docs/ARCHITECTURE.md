@@ -144,6 +144,7 @@ them. Handlers import their module lazily, so the registry stays light.
 | `cosmetics/backfill` | event, once | `src/lib/cosmetics.ts`: grandfather cosmetics for existing users |
 | `drops/generate` | hourly (:05) | `src/lib/matching/drops.ts`: finds everyone whose chosen local time has passed and enqueues a `drops/generate-batch` job for each chunk of 250 in each time zone (dispatch only) |
 | `drops/generate-batch` | event, 8 at a time | `src/lib/matching/drops.ts`: daily drops for one batch of people; safe to run twice |
+| `sparks/digest` | hourly (:35) | `src/lib/matching/spark-digest.ts`: once a local day from 09:00, "N people sparked you" (a count, no names) for plans that do not show who |
 | `drops/expire` | hourly (:20) | `src/lib/matching/drops.ts`: mark unanswered drops past their day EXPIRED |
 | `drops/second-look` | Mondays 07:15 | `src/lib/matching/second-look.ts`: one grown, previously passed candidate per person per week |
 

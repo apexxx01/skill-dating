@@ -318,6 +318,12 @@ The caller's own. Query: `page, cursor, limit, unreadOnly, type`. Response inclu
 ### `PATCH /api/notifications`
 Bulk mark-all-read. **Body:** `{ all: true }`
 
+### `GET /api/notifications/preferences`
+Which kinds of notification the caller gets. **Response:** `{ preferences: [{ kind, label, type, enabled }] }`, for the kinds `SPARK` (each spark, with who sent it, for a plan that shows who) and `SPARK_DIGEST` (the daily count of people who sparked you, for one that does not). Every kind is on until it is switched off.
+
+### `PUT /api/notifications/preferences`
+**Body:** `{ preferences: { [kind]: boolean } }`: at least one known kind; the kinds left out keep what they were; unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED`.
+
 ### `PATCH /api/notifications/[id]`
 Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `404`, not `403`, so it can't be used to probe other users' notification IDs).
 

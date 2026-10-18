@@ -118,6 +118,14 @@ export const jobs = {
     retries: 1,
     handler: async ({ data }) => (await import('@/lib/matching/second-look')).runSecondLookJob(data),
   }),
+  // Once a local day, from 09:00, tells each person on a plan that does not show who sparked them how many people sparked them (a count, no names), if any did since
+  // the last time (src/lib/matching/spark-digest.ts). Hourly; safe to repeat.
+  'sparks/digest': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '35 * * * *',
+    retries: 1,
+    handler: async () => (await import('@/lib/matching/spark-digest')).runSparkDigestJob(),
+  }),
   // Marks drops nobody answered by the end of their day as EXPIRED.
   'drops/expire': defineJob({
     schema: z.object({}).default({}),

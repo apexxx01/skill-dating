@@ -188,6 +188,22 @@ Checked, in order, before anything is written (`src/lib/matching/opener.ts` and 
 4. **Burst throttle** (`429 SPARK_THROTTLED`, `params.retryAfter`): at most 8 sparks in any hour, whatever the plan.
 5. **Rate limit**: 20 requests a minute per user on `POST /api/sparks`, like any route.
 
+### Telling people (notifications)
+
+- **A spark** is announced to the person it is sent to, in one of two ways, by their plan (`SEE_WHO_SPARKED`, the same switch that shows the sender in `GET /api/sparks/received`):
+  - a plan that shows who (PRO and up, and **everybody while `ENTITLEMENTS_ENFORCED=false`**, when every feature is open): a notification **per spark**, written when it is sent, with the sender
+    in it (`type: SPARK`, `metadata: { kind: "SPARK", sparkId, fromId, connectionType }`);
+  - any other plan: **one notification a local day** from 09:00 in the person's own zone, "N people sparked you": a **count and nothing else** (`metadata: { kind: "SPARK_DIGEST", count, date }`; no names, no
+    openers, no ids). It counts the sparks that arrived since the last one from people who are not blocked either way and are still here, and a day with none sends nothing. It is the hourly job
+    `sparks/digest` (`:35`; `src/lib/matching/spark-digest.ts`); the moment of the last one is `MatchingProfile.sparkDigestAt`.
+  - A spark that completes a pair sends neither: the match notification (`type: MATCH`, "It is a match") is the news.
+- **Both can be switched off**: `GET`/`PUT /api/notifications/preferences` (kinds `SPARK` and `SPARK_DIGEST`; see API.md). Every kind is on until it is switched off. A person who switched the count off is
+  not asked again that day.
+- **Why unmatching is silent.** When someone unmatches (or reports and unmatches), the other person gets **no notification**, only the realtime push `match.ended`, which removes the match and
+  its conversation from their screen. A notification would tell a person that somebody they matched with chose to leave: a message about being rejected, delivered to their phone, that they can do
+  nothing with (the pair can never be matched again) and that the leaving person has to live with having sent. The conversation is closed and stays readable, so what happened is findable by whoever
+  looks, and nothing reaches out to them. The same holds for a block (which ends the match) and a report. A test checks that no notification is written.
+
 ### XP and achievements
 
 **Sparks and matches pay no XP.** The event `MATCH_CREATED` is announced and counts a metric, nothing more. Three achievements recognise matching and pay
