@@ -1,6 +1,7 @@
 import { TIERS, type Tier } from '@/lib/levels'
 import { sharedIntentReason } from './intents'
 import { workingStyleSimilarity, WORKING_STYLE_QUIZ } from './quiz'
+import { RHYTHM_PHRASE, type LifeDirection, type WorkingRhythm } from '@/lib/romance/config'
 import { activeIntentTags, counterpartType, type IntentTag, type MatchType, type WorkingStyleAnswers } from './types'
 
 // Compatibility v2: how well two people fit for one kind of relationship, as a number from 0 to 100, the pieces it is made of, and
@@ -428,3 +429,172 @@ export function scoreCompatibility(input: ScoreInput): CompatibilityScore {
 
 /** The relationship the candidate would be in, from their side. */
 export const candidateSide = counterpartType
+
+// --- Romance ------------------------------------------------------------------------------------------------
+// The romance mode scores with its own profile of weights over its own components. It asks what two builders share about WHO they are and how they
+// live: how much they want from building, where they want their life to go, when they work, what they are obsessed with, what they build with and
+// whether other builders vouch for them. It never reads the professional components (skills, hours, time zones), and the private filters (gender, age,
+// distance) are not part of a score at all: they decide who may be shown (src/lib/romance/filters.ts), never how well two people fit.
+//
+// Same rules as the professional score: a weighted sum of components worth 0 to 1, an unknown component counts as `neutral`, the result is a whole
+// number from 0 to 100 and at most three human-readable reasons, strongest first. Pure and deterministic.
+
+export const ROMANCE_COMPONENTS = ['ambition', 'direction', 'rhythm', 'obsessions', 'sharedTaste', 'character'] as const
+export type RomanceComponentKey = (typeof ROMANCE_COMPONENTS)[number]
+
+export const ROMANCE_SCORE_CONFIG = {
+  /** Points each component is worth; they add up to 100. */
+  weights: { ambition: 14, direction: 18, rhythm: 12, obsessions: 28, sharedTaste: 13, character: 15 } satisfies Record<RomanceComponentKey, number>,
+  neutral: 0.4,
+  /** This many shared obsessions (and this much shared tech) is a full score. */
+  fullObsessions: 3,
+  fullSharedTaste: 3,
+  /** This many trusted builders vouching for someone is a full score. */
+  fullEndorsers: 5,
+  /** How well two different life directions go together (symmetric, and keyed with the two names in alphabetical order; the same direction is 1). The rest is 0.25. */
+  directionAffinity: {
+    'craft|founder': 0.6,
+    'founder|research': 0.5,
+    'founder|nomad': 0.55,
+    'craft|research': 0.7,
+    'craft|steady-career': 0.55,
+    'research|steady-career': 0.45,
+    'nomad|open': 0.6,
+  } as Record<string, number>,
+  directionOpenFloor: 0.55,
+  /** How well two different working rhythms go together (symmetric, and keyed with the two names in alphabetical order; the same rhythm is 1). */
+  rhythmAffinity: {
+    'early-bird|night-owl': 0.1,
+    'bursty|night-owl': 0.7,
+    'night-owl|steady': 0.4,
+    'bursty|early-bird': 0.5,
+    'early-bird|steady': 0.8,
+    'bursty|steady': 0.45,
+  } as Record<string, number>,
+  maxReasons: 3,
+  minReasonStrength: 0.3,
+} as const
+
+/** What the score reads about one person in the romance mode, loaded by the caller. */
+export interface RomanceScoringProfile {
+  userId: string
+  /** 1 to 4 (RomanceProfile.ambition). */
+  ambition: number
+  direction: LifeDirection
+  rhythm: WorkingRhythm
+  /** Lower-case topics, tools and taste. */
+  obsessions: readonly string[]
+  /** Technologies of their builds, any case. */
+  techStack: readonly string[]
+  /** Trusted builders who have vouched for them (src/lib/romance/endorsers.ts). */
+  endorsers: number
+}
+
+export interface RomanceScoreInput {
+  viewer: RomanceScoringProfile
+  candidate: RomanceScoringProfile
+  now?: Date
+}
+
+export interface RomanceScore {
+  /** A whole number, 0 to 100. */
+  score: number
+  components: Record<RomanceComponentKey, ScoreComponent>
+  reasons: string[]
+}
+
+const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+
+const DIRECTION_PHRASE: Record<LifeDirection, string> = {
+  founder: 'start a company',
+  craft: 'get really good at the craft',
+  research: 'push research forward',
+  'steady-career': 'build a steady career',
+  nomad: 'keep moving and building',
+  open: 'keep your options open',
+}
+
+const normalizeTopic = (value: string) => value.trim().toLowerCase()
+
+function sharedTopics(a: readonly string[], b: readonly string[]): string[] {
+  const mine = new Map(a.map((topic) => [normalizeTopic(topic), topic.trim()]))
+  const theirs = new Set(b.map(normalizeTopic))
+  mine.delete('')
+  return [...mine.entries()].filter(([key]) => theirs.has(key)).map(([, display]) => display).sort((x, y) => x.localeCompare(y))
+}
+
+/** "You're both night-owl builders obsessed with climate tech": the strongest single sentence two people can be told, or the parts of it that are true. */
+function romanceReasons(input: RomanceScoreInput): { text: string; strength: number; order: number }[] {
+  const { viewer, candidate } = input
+  const config = ROMANCE_SCORE_CONFIG
+  const reasons: { text: string; strength: number; order: number }[] = []
+  const topics = sharedTopics(viewer.obsessions, candidate.obsessions)
+  const sameRhythm = viewer.rhythm === candidate.rhythm
+  const topicStrength = Math.min(1, topics.length / config.fullObsessions)
+
+  if (sameRhythm && topics.length > 0) {
+    reasons.push({ text: `You're both ${RHYTHM_PHRASE[viewer.rhythm]} builders obsessed with ${sentenceList(topics.slice(0, 2))}`, strength: Math.max(0.9, topicStrength), order: 0 })
+  } else if (topics.length > 0) {
+    reasons.push({ text: `You're both obsessed with ${sentenceList(topics.slice(0, 2))}`, strength: Math.max(topicStrength, 0.85), order: 1 })
+  } else if (sameRhythm) {
+    reasons.push({ text: `You're both ${RHYTHM_PHRASE[viewer.rhythm]} builders`, strength: 0.5, order: 2 })
+  }
+  if (viewer.direction === candidate.direction && viewer.direction !== 'open') {
+    reasons.push({ text: `You both want to ${DIRECTION_PHRASE[viewer.direction]}`, strength: 0.8, order: 3 })
+  }
+  if (viewer.ambition === candidate.ambition) {
+    reasons.push({ text: `You're both ${AMBITION_PHRASE[viewer.ambition] ?? 'equally driven'}`, strength: 0.55, order: 4 })
+  }
+  const stack = sharedTopics(viewer.techStack, candidate.techStack)
+  if (stack.length > 0) reasons.push({ text: `You both build with ${sentenceList(stack.slice(0, 3))}`, strength: Math.min(1, stack.length / config.fullSharedTaste), order: 5 })
+  if (candidate.endorsers >= 2) reasons.push({ text: `${plural(candidate.endorsers, 'builder')} vouch for them`, strength: Math.min(1, candidate.endorsers / config.fullEndorsers), order: 6 })
+  return reasons
+}
+
+const AMBITION_PHRASE: Record<number, string> = {
+  1: 'building on the side',
+  2: 'serious about steady building',
+  3: 'driven',
+  4: 'all in',
+}
+
+export function scoreRomance(input: RomanceScoreInput): RomanceScore {
+  const { viewer, candidate } = input
+  const config = ROMANCE_SCORE_CONFIG
+
+  const topics = sharedTopics(viewer.obsessions, candidate.obsessions)
+  const stack = sharedTopics(viewer.techStack, candidate.techStack)
+  const values: Record<RomanceComponentKey, number | null> = {
+    ambition: clamp01(1 - Math.abs(viewer.ambition - candidate.ambition) / 3),
+    direction:
+      viewer.direction === candidate.direction
+        ? 1
+        : viewer.direction === 'open' || candidate.direction === 'open'
+          ? config.directionOpenFloor
+          : (config.directionAffinity[pairKey(viewer.direction, candidate.direction)] ?? 0.25),
+    rhythm: viewer.rhythm === candidate.rhythm ? 1 : (config.rhythmAffinity[pairKey(viewer.rhythm, candidate.rhythm)] ?? 0.4),
+    obsessions: viewer.obsessions.length === 0 || candidate.obsessions.length === 0 ? null : clamp01(topics.length / config.fullObsessions),
+    sharedTaste: viewer.techStack.length === 0 || candidate.techStack.length === 0 ? null : clamp01(stack.length / config.fullSharedTaste),
+    // Character is about the candidate: how many builders vouch for them.
+    character: clamp01(candidate.endorsers / config.fullEndorsers),
+  }
+
+  const components = Object.fromEntries(ROMANCE_COMPONENTS.map((key) => [key, { value: 0, weight: 0, points: 0, applicable: true, known: false }])) as Record<RomanceComponentKey, ScoreComponent>
+  let total = 0
+  for (const key of ROMANCE_COMPONENTS) {
+    const raw = values[key]
+    const known = raw !== null
+    const used = known ? clamp01(raw) : config.neutral
+    const weight = config.weights[key]
+    components[key] = { value: used, weight, points: used * weight, applicable: true, known }
+    total += used * weight
+  }
+
+  const reasons = romanceReasons(input)
+    .filter((reason) => reason.strength >= config.minReasonStrength)
+    .sort((a, b) => b.strength - a.strength || a.order - b.order)
+    .slice(0, config.maxReasons)
+    .map((reason) => reason.text)
+
+  return { score: Math.min(100, Math.max(0, Math.round(total))), components, reasons }
+}

@@ -1482,6 +1482,8 @@ model RomanceProfile {
   paused             Boolean         @default(false)
   // The ISO week ("2026-W43", in their zone then) the weekly drop was last made for, so a week is made once.
   lastDropWeek       String?
+  // The local date ("YYYY-MM-DD") of the last time a drop was looked for and none was found, so an empty week is looked at once a day and not every hour.
+  lastDropTryDate    String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 

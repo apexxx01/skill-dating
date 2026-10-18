@@ -126,6 +126,22 @@ export const jobs = {
     retries: 1,
     handler: async () => (await import('@/lib/matching/spark-digest')).runSparkDigestJob(),
   }),
+  // Once a local week (from Monday 08:00 in each person's own time zone) gives each person in the romance mode ONE person, chosen for them (src/lib/romance/drops.ts).
+  // Hourly, so a drop lands within the hour; this job only DISPATCHES: it splits the people who are due into batches per time zone and enqueues a `romance/drops-batch` job
+  // for each. Pass `userIds` to generate for those people only, right away.
+  'romance/drops': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
+    schedule: '25 * * * *',
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/romance/drops')).runRomanceDropsJob(data),
+  }),
+  // One batch of the weekly run: the people of it who are still due. Safe to repeat.
+  'romance/drops-batch': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).min(1).max(1000) }),
+    retries: 2,
+    concurrency: 8,
+    handler: async ({ data }) => (await import('@/lib/romance/drops')).runRomanceBatchJob(data),
+  }),
   // Removes uploads nobody finished (declared and never confirmed for a day, or rejected), with their objects (src/lib/media-assets.ts). Daily.
   'media/cleanup': defineJob({
     schema: z.object({}).default({}),

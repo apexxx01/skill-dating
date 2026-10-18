@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { ROMANCE_MODE_LABEL } from '@/lib/romance/config'
 import { isNotificationKind, KIND_SPECS, NOTIFICATION_KINDS } from './notification-kinds'
 
 describe('notification kinds', () => {
@@ -8,6 +9,10 @@ describe('notification kinds', () => {
       expect(KIND_SPECS[kind].type, kind).toMatch(/^[A-Z_]+$/)
     }
     expect(Object.keys(KIND_SPECS).sort()).toEqual([...NOTIFICATION_KINDS].sort())
+  })
+
+  it('has a switch for the weekly romance pick, named from the one constant', () => {
+    expect(KIND_SPECS.ROMANCE_DROP.label).toContain(ROMANCE_MODE_LABEL)
   })
 
   it('keeps a spark and the daily count of sparks as two switches under one type', () => {

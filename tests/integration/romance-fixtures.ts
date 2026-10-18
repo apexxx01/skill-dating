@@ -6,7 +6,7 @@ import { bornYearsAgo } from './matching-fixtures'
 // People for the romance tests, written straight into the database like the matching fixtures: an established, verified adult with a romance profile
 // unless a test says otherwise. They never sign in, so they cost no Clerk account.
 
-export interface RomanceFixtureOptions extends Omit<FixtureOptions, 'profile'> {
+export interface RomanceFixtureOptions extends Omit<FixtureOptions, 'profile' | 'tag'> {
   /** false: no romance profile at all. */
   romance?: boolean
   gender?: 'WOMAN' | 'MAN' | 'NON_BINARY' | 'SELF_DESCRIBED'

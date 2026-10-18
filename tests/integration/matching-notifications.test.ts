@@ -199,7 +199,7 @@ describe('spark notifications', () => {
       const me = await registerAndLogin(`${tag}.prefs@test.dev`, `${tag}prefs`)
       const fresh = await req(me.jar, 'GET', '/api/notifications/preferences')
       expect(fresh.status).toBe(200)
-      expect(fresh.data.preferences.map((p: { kind: string }) => p.kind)).toEqual(['SPARK', 'SPARK_DIGEST'])
+      expect(fresh.data.preferences.map((p: { kind: string }) => p.kind)).toEqual(['SPARK', 'SPARK_DIGEST', 'ROMANCE_DROP'])
       expect(fresh.data.preferences.every((p: { enabled: boolean }) => p.enabled)).toBe(true)
       expect(fresh.data.preferences[0]).toMatchObject({ type: 'SPARK', label: expect.stringContaining('sparked') })
 
