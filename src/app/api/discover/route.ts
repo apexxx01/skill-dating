@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { cursorParam, decodeOffsetCursor, offsetPage } from '@/lib/api/pagination'
-import { calculateSkillCompatibility, type SkillRef } from '@/lib/scoring'
+import { recommendationsFor } from '@/lib/matching/recommend'
 import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
 
@@ -14,8 +14,8 @@ const querySchema = z.object({
   cursor: cursorParam,
 })
 
-// Compatibility is computed per-request against a candidate pool, not
-// stored, so ranking the entire user table by score on every call isn't
+// Compatibility is the matching engine's score (src/lib/matching/score.ts), the same one the daily drops and the dashboard use, computed per-request against
+// a candidate pool, not stored, so ranking the entire user table by score on every call isn't
 // viable as the platform grows. Instead: fetch a bounded, filtered pool
 // ordered by recency, score+sort that pool in memory, then paginate the
 // ranked result. `pagination.total` reflects the true filtered count (for
@@ -53,13 +53,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     where.location = { contains: location, mode: 'insensitive' }
   }
 
-  const [currentUser, total, candidatePool] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        skills: { select: { skillId: true, level: true, skill: { select: { category: true } } } }
-      }
-    }),
+  const [total, candidatePool] = await Promise.all([
     prisma.user.count({ where }),
     prisma.user.findMany({
       where,
@@ -77,16 +71,10 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     }),
   ])
 
-  const myProfile: SkillRef[] = (currentUser?.skills ?? []).map(s => ({
-    skillId: s.skillId, level: s.level, category: s.skill.category
-  }))
-
+  const recommendations = await recommendationsFor(prisma, user.id, candidatePool.map(candidate => candidate.id))
   const scored = candidatePool.map(candidate => {
-    const candidateProfile: SkillRef[] = candidate.skills.map(s => ({
-      skillId: s.skillId, level: s.level, category: s.skill.category
-    }))
-    const { score } = calculateSkillCompatibility(myProfile, candidateProfile)
-    return { ...candidate, compatibility: score }
+    const recommendation = recommendations.get(candidate.id)
+    return { ...candidate, compatibility: recommendation?.score ?? 0, reasons: recommendation?.reasons ?? [] }
   })
 
   scored.sort((a, b) => b.compatibility - a.compatibility)

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { authorize } from '@/lib/api/handler'
-import { calculateSkillCompatibility } from '@/lib/scoring'
+import { recommendationsFor } from '@/lib/matching/recommend'
 import { blockRelation } from '@/lib/blocks'
 import { liveRank } from '@/lib/leaderboard'
 
@@ -113,20 +113,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('USER_NOT_FOUND')
   }
 
-  let compatibility = null
+  let compatibility: number | null = null
+  let compatibilityReasons: string[] = []
   if (id !== user.id) {
-    const mySkills = await prisma.userSkill.findMany({
-      where: { userId: user.id },
-      select: { skillId: true, level: true, skill: { select: { category: true } } }
-    })
-    const theirSkills = await prisma.userSkill.findMany({
-      where: { userId: id },
-      select: { skillId: true, level: true, skill: { select: { category: true } } }
-    })
-    compatibility = calculateSkillCompatibility(
-      mySkills.map(s => ({ skillId: s.skillId, level: s.level, category: s.skill.category })),
-      theirSkills.map(s => ({ skillId: s.skillId, level: s.level, category: s.skill.category }))
-    ).score
+    const recommendation = (await recommendationsFor(prisma, user.id, [id])).get(id)
+    compatibility = recommendation?.score ?? 0
+    compatibilityReasons = recommendation?.reasons ?? []
   }
 
   // `rank` is computed from the XP event log: the stored column is never
@@ -140,6 +132,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     rank: standing.rank ?? 0,
     ...(own ? { email: own.email } : {}),
     compatibility,
+    compatibilityReasons,
     blockedByMe: relation === 'BLOCKED_BY_ME',
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })

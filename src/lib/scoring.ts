@@ -1,7 +1,6 @@
-// Canonical, pure scoring functions for the builder-matching core loop.
-// Kept dependency-free (no Prisma import) so they're trivially unit-testable
-// and reusable from any route/server-component without a DB round trip once
-// the caller has already fetched skills.
+// DEPRECATED. The scorer every API route uses is src/lib/matching/score.ts. No route or library reads this file any more; the one remaining
+// caller is the dashboard page (src/app/(dashboard)/dashboard/page.tsx), which should read recommendedBuilders from getDashboardData()
+// (already scored by the matching engine) instead. Delete this file and its test together with that import.
 
 export interface SkillRef {
   skillId: string

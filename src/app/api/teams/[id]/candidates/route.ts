@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
-import { calculateSkillCompatibility, type SkillRef } from '@/lib/scoring'
+import { teamRecommendationsFor } from '@/lib/matching/recommend'
 import { blockedUserIds } from '@/lib/blocks'
 
 /**
  * Recommend candidate builders for a recruiting team, ranked by
- * compatibility with the team's `lookingFor` skill list. Only the team
+ * compatibility with the team (src/lib/matching/score.ts, the scorer the daily drops and the gap finder use), which is looking for its `lookingFor`
+ * skills and offers what its members can do. Only the team
  * owner (or a platform admin) can see this — it surfaces the same
  * application-adjacent signal as the applications list, just proactively.
  */
@@ -24,7 +25,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const team = await prisma.team.findUnique({
     where: { id },
-    include: { members: { select: { userId: true } } }
+    include: { members: { select: { userId: true } }, project: { select: { techStack: true } } }
   })
   if (!team) {
     return createApiError('TEAM_NOT_FOUND')
@@ -36,17 +37,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const wantedSkills = await prisma.skill.findMany({
     where: { name: { in: team.lookingFor } },
-    select: { id: true, name: true, category: true }
+    select: { id: true, name: true, slug: true }
   })
 
   if (wantedSkills.length === 0) {
     return createApiResponse({ candidates: [], nextCursor: null, reason: 'No matching skills found for this team\'s lookingFor list' })
   }
-
-  // The team's "profile" for scoring purposes: wanting a skill is treated
-  // like having it at max level, so a candidate who has it scores the
-  // shared-skill component fully.
-  const wantedProfile: SkillRef[] = wantedSkills.map(s => ({ skillId: s.id, level: 5, category: s.category }))
 
   const memberIds = new Set(team.members.map(m => m.userId))
   const existingApplicants = await prisma.teamApplication.findMany({
@@ -65,24 +61,25 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       id: { notIn: [...excludedIds] },
       skills: { some: { skillId: { in: wantedSkills.map(s => s.id) } } }
     },
-    take: 30,
+    take: 50,
+    orderBy: { lastActiveAt: 'desc' },
     select: {
       id: true, name: true, username: true, image: true, headline: true,
       builderRole: true, xp: true, rank: true, location: true,
-      skills: {
-        select: { skillId: true, level: true, skill: { select: { name: true, category: true } } }
-      }
+      skills: { select: { skillId: true } }
     }
   })
 
+  const recommendations = await teamRecommendationsFor(
+    prisma,
+    { callerId: user.id, memberIds: [...memberIds], wantedSlugs: wantedSkills.map(s => s.slug), techStack: team.project?.techStack ?? [], hackathonId: team.hackathonId },
+    candidateUsers.map(candidate => candidate.id)
+  )
   const skillNameById = new Map(wantedSkills.map(s => [s.id, s.name]))
 
   const candidates = candidateUsers
     .map(candidate => {
-      const candidateSkills: SkillRef[] = candidate.skills.map(s => ({
-        skillId: s.skillId, level: s.level, category: s.skill.category
-      }))
-      const { score, commonSkillIds } = calculateSkillCompatibility(wantedProfile, candidateSkills)
+      const recommendation = recommendations.get(candidate.id)
       return {
         id: candidate.id,
         name: candidate.name,
@@ -93,12 +90,13 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         xp: candidate.xp,
         rank: candidate.rank,
         location: candidate.location,
-        compatibility: score,
-        matchedSkills: commonSkillIds.map(sid => skillNameById.get(sid)).filter((n): n is string => Boolean(n)),
+        compatibility: recommendation?.score ?? 0,
+        reasons: recommendation?.reasons ?? [],
+        matchedSkills: candidate.skills.map(s => skillNameById.get(s.skillId)).filter((n): n is string => Boolean(n)),
       }
     })
     .filter(c => c.compatibility > 0)
-    .sort((a, b) => b.compatibility - a.compatibility)
+    .sort((a, b) => b.compatibility - a.compatibility || a.id.localeCompare(b.id))
     .slice(0, 10)
 
   // A short ranked recommendation list (top 10), never paged: nextCursor is always null.
