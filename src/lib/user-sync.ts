@@ -42,6 +42,8 @@ export interface ClerkFacts {
   email: string | null
   /** True only when Clerk reports the primary email as verified. */
   emailVerified: boolean
+  /** True when Clerk reports at least one verified phone number. False when there is none, including when phone numbers are switched off in Clerk. */
+  phoneVerified: boolean
   githubConnected: boolean
   username: string | null
   name: string | null
@@ -56,6 +58,8 @@ export function extractClerkFacts(cu: ClerkUser): ClerkFacts {
     clerkId: cu.id,
     email,
     emailVerified: Boolean(email) && primary?.verification?.status === 'verified',
+    // Phone numbers are optional in a Clerk instance: when the feature is off the list is empty (or absent), which reads as "no verified phone".
+    phoneVerified: (cu.phoneNumbers ?? []).some((phone) => phone.verification?.status === 'verified'),
     githubConnected: cu.externalAccounts.some(
       (a) => /github/i.test(String(a.provider)) && a.verification?.status === 'verified'
     ),
@@ -138,7 +142,7 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: Loc
     }
   }
 
-  await applyVerification(tx, userId, { emailVerified: facts.emailVerified, githubConnected: facts.githubConnected })
+  await applyVerification(tx, userId, { emailVerified: facts.emailVerified, githubConnected: facts.githubConnected, phoneVerified: facts.phoneVerified })
   return { user: await tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS }), signedUp }
 }
 

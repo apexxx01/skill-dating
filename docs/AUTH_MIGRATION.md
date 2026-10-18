@@ -79,7 +79,7 @@ is 0):
   (and turn the attribute off if you do not want it at all).
 - Until you change it, the integration harness works around it for **test users only**, by
   supplying one of Clerk's fictional development phone numbers when the instance demands one.
-  The application never reads or stores phone data (`isPhoneVerified` is not driven by Clerk).
+  The application reads only whether a verified phone number exists (`isPhoneVerified`, see 4.6); it never reads or stores the number.
 - Users created through the Backend API come back with a verified email and a verified phone.
 - A session token minted through the Backend API is an RS256 JWT valid for 60 seconds. Its
   claims are `sub`, `sid`, `sts`, `iss`, `iat`, `nbf`, `exp`, `fva`, `v`. It carries **no email,
@@ -205,7 +205,9 @@ new name is free or already ours; it never takes another user's name).
 - Never downgrades: the level only moves up (same rank table as the old `signIn` event).
 - A connected GitHub external account keeps the existing bump: a `Verification` row of type
   `GITHUB` marked `VERIFIED`, `githubConnected` true, and level at least `GITHUB`.
-- Phone data from Clerk is ignored.
+- A verified phone number on the Clerk account gives `isPhoneVerified` true, a `Verification` row of type `PHONE` marked `VERIFIED`, and a level of at least `PHONE` (below `GITHUB`).
+  Any verified number counts, not only the primary one. Only the fact is read, never the number. Phone numbers are optional in Clerk: with the feature switched off the list is empty
+  and nothing changes. Like GitHub it never goes back: removing the number in Clerk does not unverify the user.
 
 ### 4.7 Compat surface for the frozen frontend
 

@@ -60,7 +60,8 @@ describe('clerk authentication', () => {
       expect(rows).toHaveLength(1)
       expect(rows[0].clerkId).toMatch(/^user_/)
       expect(rows[0].isEmailVerified).toBe(true)
-      expect(rows[0].verificationLevel).toBe('EMAIL')
+      // EMAIL, or PHONE when the Clerk instance gives its test users a verified phone number (phone verification follows Clerk since phase 1D).
+      expect(['EMAIL', 'PHONE']).toContain(rows[0].verificationLevel)
       expect(rows[0].username).toBe(name('one'))
       const created = await testPrisma.auditEvent.count({ where: { userId: A.userId, action: 'USER_CREATED' } })
       expect(created).toBe(1)
