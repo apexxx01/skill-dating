@@ -72,14 +72,15 @@ beforeEach(() => {
 })
 
 const dailyFor = (metric: string) => currentQuests('user-1', NOW, 'UTC').daily.quests.find((quest) => quest.metric === metric)
-const weeklyFor = (metric: string) => currentQuests('user-1', NOW, 'UTC').weekly.quests.find((quest) => quest.metric === metric)
+// user-4's week holds the five-updates quest and no daily quest asks for updates, so counting updates moves one quest only.
+const weeklyFor = (metric: string, user = 'user-1') => currentQuests(user, NOW, 'UTC').weekly.quests.find((quest) => quest.metric === metric)
 
 describe('advanceQuests', () => {
   it('moves a quest the user has by one, creating its row on the first count', async () => {
     const { tx, rows } = fakeTx()
-    const quest = weeklyFor('updates')! // weekly-update-5
+    const quest = weeklyFor('updates', 'user-4')! // weekly-update-5
     expect(quest.target).toBe(5)
-    expect(await advanceQuests(tx, 'user-1', 'updates', NOW, 'UTC')).toBe(0)
+    expect(await advanceQuests(tx, 'user-4', 'updates', NOW, 'UTC')).toBe(0)
     expect([...rows.values()][0].progress).toEqual({ current: 1, target: 5, completed: false })
     expect(grant).not.toHaveBeenCalled()
   })
@@ -121,9 +122,9 @@ describe('advanceQuests', () => {
 
   it('counts up to the target over several actions and completes on the last', async () => {
     const { tx, rows } = fakeTx()
-    const quest = weeklyFor('updates')! // 5
+    const quest = weeklyFor('updates', 'user-4')! // 5
     const completed: number[] = []
-    for (let step = 0; step < quest.target; step++) completed.push(await advanceQuests(tx, 'user-1', 'updates', NOW, 'UTC'))
+    for (let step = 0; step < quest.target; step++) completed.push(await advanceQuests(tx, 'user-4', 'updates', NOW, 'UTC'))
     expect(completed).toEqual([0, 0, 0, 0, 1])
     expect([...rows.values()].find((entry) => entry.questId === `quest-${quest.slug}`)!.progress).toEqual({ current: 5, target: 5, completed: true })
   })

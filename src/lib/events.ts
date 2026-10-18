@@ -63,7 +63,7 @@ export interface DomainEvents {
   /** A person joined a team that has a member they matched with earlier. Pays no XP; counts toward the match-to-team achievement. */
   MATCH_TEAM_FORMED: { userId: string; otherUserId: string; matchId: string; teamId: string }
   /** A post was made on the author's local Ship Day (Friday). Pays no XP; counts once per Ship Day toward the Ship Day quest. */
-  POST_SHIP_DAY: { userId: string; postId: string; dateKey: string }
+  POST_SHIP_DAY: { userId: string; postId: string; dateKey: string; kind: 'SHIP' | 'UPDATE' | 'DEVLOG' | 'DEMO' }
   /** `userId` is the author, who may be rewarded; `giverId` gave the Prop. Only a trusted giver pays (src/lib/trust.ts). */
   PROPS_RECEIVED: { userId: string; giverId: string; postId: string; propId: string }
 }

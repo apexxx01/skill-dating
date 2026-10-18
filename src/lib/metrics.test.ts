@@ -24,6 +24,10 @@ const sample = {
   messageId: 'ms1',
   recipientId: 'b',
   repliedToUserId: 'b',
+  postId: 'po1',
+  giverId: 'b',
+  dateKey: '2026-10-16',
+  kind: 'SHIP',
 }
 
 describe('EVENT_TICKS', () => {
@@ -31,6 +35,15 @@ describe('EVENT_TICKS', () => {
     const counted = new Set<string>()
     for (const name of DOMAIN_EVENT_NAMES) for (const tick of ticksFor(name, sample as never, paid('a', 'b'))) counted.add(tick.metric)
     expect([...counted].sort()).toEqual([...METRICS].sort())
+  })
+
+  it('counts a Ship Day post once per Ship Day, and a SHIP post also for the Ship Day quest', () => {
+    const post = { userId: 'a', postId: 'po1', dateKey: '2026-10-16' }
+    expect(ticksFor('POST_SHIP_DAY', { ...post, kind: 'DEMO' }, paid())).toEqual([{ userId: 'a', metric: 'ship_day_posts', dedupeKey: '2026-10-16' }])
+    expect(ticksFor('POST_SHIP_DAY', { ...post, kind: 'SHIP' }, paid())).toEqual([
+      { userId: 'a', metric: 'ship_day_posts', dedupeKey: '2026-10-16' },
+      { userId: 'a', metric: 'ship_day_ships', dedupeKey: '2026-10-16' },
+    ])
   })
 
   it.each([

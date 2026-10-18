@@ -27,8 +27,8 @@ export const QUEST_METRICS = [
   'replies',
   'hackathons_joined',
   'crews_formed',
-  // Ready for a Ship Day quest; none is in the rotating pool yet, because adding one reshuffles everybody's current week (see quests.test.ts, which pins the picks).
-  'ship_day_posts',
+  // A SHIP post made on the user's own Friday, counted once per Ship Day (src/lib/metrics.ts).
+  'ship_day_ships',
 ] as const satisfies readonly Metric[]
 export type QuestMetric = (typeof QUEST_METRICS)[number]
 
@@ -97,6 +97,7 @@ export const WEEKLY_QUESTS: QuestDefinition[] = [
   weekly('reply-5', 'Always answer', 'Reply in five conversations that were waiting on you.', 'replies', 5, 10),
   weekly('hackathon-1', 'Enter a hackathon', 'Register for a hackathon.', 'hackathons_joined', 1, 16),
   weekly('project-2', 'Two new projects', 'Create two new projects.', 'projects_created', 2, 11),
+  weekly('ship-day', 'Ship something on Ship Day', 'Make a SHIP post on your Friday.', 'ship_day_ships', 1, 40),
 ]
 
 export const QUEST_DEFINITIONS: readonly QuestDefinition[] = [...DAILY_QUESTS, ...WEEKLY_QUESTS]

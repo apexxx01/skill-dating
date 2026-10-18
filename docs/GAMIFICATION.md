@@ -296,7 +296,7 @@ counts for none of these** (docs/ROMANCE.md): achievements are public, and nothi
 paid award is the tick for `props_received`, so the Props achievements cannot move faster than the cap and cannot be counted for a giver who was not trusted. Taking
 Props back does not take the XP or the count back, and giving again counts nothing new. A post on the author's own Friday is a Ship Day post (`POST_SHIP_DAY`), which
 counts once per Ship Day however many are made (the tick's key is the date), so *Friday Shipper* and *Ship Day Regular* cannot be farmed; it pays no XP of its own. The
-metric `ship_day_posts` is available to quests (none is in the pool yet: adding one changes the pinned pool tests, which is a product decision). A SHIP post goes through
+metric `ship_day_ships` (a SHIP post on the author's Friday, once per Ship Day) drives the weekly quest *Ship something on Ship Day* (40 XP). A SHIP post goes through
 the same one ship gate as a project PATCH, so a project's ship XP (`PROJECT_SHIP`, once per project) is paid exactly once whichever way it was shipped; an UPDATE or
 DEVLOG post is a project update (`PROJECT_UPDATE_POSTED`, 15 XP, 3 a day).
 
@@ -384,7 +384,7 @@ a user nothing counts toward their quests and `GET /api/quests` says `enabled: f
 | Start something | Create a new project. | 3 |
 | Two ideas in motion | Create two new projects. | 4 |
 
-### Weekly pool (12)
+### Weekly pool (13)
 
 | Quest | Do this | XP |
 | --- | --- | ---: |
@@ -400,6 +400,7 @@ a user nothing counts toward their quests and `GET /api/quests` says `enabled: f
 | Always answer | Reply in five conversations that were waiting on you. | 10 |
 | Enter a hackathon | Register for a hackathon. | 16 |
 | Two new projects | Create two new projects. | 11 |
+| Ship something on Ship Day | Make a SHIP post on your Friday. | 40 |
 
 ## Leaderboards
 

@@ -113,7 +113,7 @@ Fan-out on read costs one windowed query per viewer per minute, which is right w
 
 ## Ship Day
 
-Friday, **in each person's own time zone** (`src/lib/ship-day.ts`). A post made during the author's local Friday carries `shipDayKey` (that date) and the `ship-day` stack tag. A Ship Day post counts once per Ship Day for the `ship_day_posts` metric however many are made (achievements *Friday Shipper* at 1 and *Ship Day Regular* at 10), so it cannot be farmed. It pays no XP of its own.
+Friday, **in each person's own time zone** (`src/lib/ship-day.ts`). A post made during the author's local Friday carries `shipDayKey` (that date) and the `ship-day` stack tag. A Ship Day post counts once per Ship Day for the `ship_day_posts` metric however many are made (achievements *Friday Shipper* at 1 and *Ship Day Regular* at 10), so it cannot be farmed. A SHIP post on the author's Friday also counts once per Ship Day for `ship_day_ships`, which drives the weekly quest *Ship something on Ship Day* (40 XP). The day itself pays no XP.
 
 `GET /api/ship-day` answers for the caller's own Friday of this week:
 

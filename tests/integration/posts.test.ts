@@ -405,6 +405,22 @@ describe('posts and the feed', () => {
       expect(await testPrisma.userCounter.findUnique({ where: { userId_key: { userId: a.userId, key: 'ship_day_posts' } } })).toMatchObject({ value: 1 })
     })
 
+    it('counts a SHIP post on the author’s Friday once for the Ship Day quest, and a DEMO not at all', async () => {
+      const a = await person('sq')
+      const projectId = await project(a)
+      const { createPost } = await import('../../src/lib/posts/posts')
+      const input = { body: 'x', links: [], mediaIds: [], stackTags: [], coAuthorIds: [], visibility: 'PUBLIC' as const }
+      const friday = new Date('2031-06-13T12:00:00Z')
+      const counter = async (key: string) => (await testPrisma.userCounter.findUnique({ where: { userId_key: { userId: a.userId, key } } }))?.value ?? 0
+      expect((await createPost(testPrisma, { id: a.userId, timezone: null }, { ...input, kind: 'DEMO', title: 'A demo on Friday' }, friday)).ok).toBe(true)
+      expect(await counter('ship_day_posts')).toBe(1)
+      expect(await counter('ship_day_ships')).toBe(0)
+      expect((await createPost(testPrisma, { id: a.userId, timezone: null }, { ...input, kind: 'SHIP', projectId, title: 'Shipped on Friday' }, friday)).ok).toBe(true)
+      expect((await createPost(testPrisma, { id: a.userId, timezone: null }, { ...input, kind: 'SHIP', projectId, title: 'And once more' }, friday)).ok).toBe(true)
+      expect(await counter('ship_day_ships')).toBe(1)
+      expect(await counter('ship_day_posts')).toBe(1)
+    })
+
     it('writes the Saturday recap once, with the best posts and the places they came from', async () => {
       const { writeShipDayRecap } = await import('../../src/lib/posts/ship-day')
       const { createPost } = await import('../../src/lib/posts/posts')

@@ -18,7 +18,7 @@ describe('seedFrom and randomFrom', () => {
 
   it('pin the quests of one user and period, so changing the pool or the shuffle is a decision and not an accident', () => {
     expect(pickQuests('user-1', '2026-10-16', 'DAILY').map((quest) => quest.slug)).toEqual(['daily-reply-1', 'daily-message-1', 'daily-project-2'])
-    expect(pickQuests('user-1', '2026-W42', 'WEEKLY').map((quest) => quest.slug)).toEqual(['weekly-reply-5', 'weekly-update-5', 'weekly-milestone-5'])
+    expect(pickQuests('user-1', '2026-W42', 'WEEKLY').map((quest) => quest.slug)).toEqual(['weekly-ship-1', 'weekly-ship-day', 'weekly-reply-5'])
   })
 
   it('give different seeds for different text and stay in [0, 1)', () => {

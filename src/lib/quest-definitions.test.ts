@@ -3,18 +3,18 @@ import { DAILY_QUESTS, QUEST_DEFINITIONS, QUEST_METRICS, QUESTS_PER_PERIOD, WEEK
 import { METRICS } from './metrics'
 
 describe('the quest pool', () => {
-  it('has about 20 daily and 12 weekly quests', () => {
+  it('has about 20 daily and 13 weekly quests', () => {
     expect(DAILY_QUESTS).toHaveLength(20)
-    expect(WEEKLY_QUESTS).toHaveLength(12)
-    expect(QUEST_DEFINITIONS).toHaveLength(32)
+    expect(WEEKLY_QUESTS).toHaveLength(13)
+    expect(QUEST_DEFINITIONS).toHaveLength(33)
   })
 
   it('has unique slugs, prefixed by their kind, and unique names within a kind', () => {
-    expect(new Set(QUEST_DEFINITIONS.map((quest) => quest.slug)).size).toBe(32)
+    expect(new Set(QUEST_DEFINITIONS.map((quest) => quest.slug)).size).toBe(33)
     for (const quest of DAILY_QUESTS) expect(quest.slug).toMatch(/^daily-/)
     for (const quest of WEEKLY_QUESTS) expect(quest.slug).toMatch(/^weekly-/)
     expect(new Set(DAILY_QUESTS.map((quest) => quest.name)).size).toBe(20)
-    expect(new Set(WEEKLY_QUESTS.map((quest) => quest.name)).size).toBe(12)
+    expect(new Set(WEEKLY_QUESTS.map((quest) => quest.name)).size).toBe(13)
   })
 
   it('asks only for a counted action a person can do on their own, never for engagement', () => {

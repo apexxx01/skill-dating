@@ -251,6 +251,6 @@ describe('quests', () => {
   it('has in the catalog only quests that ask for a real action', async () => {
     const { QUEST_DEFINITIONS } = await import('../../src/lib/quest-definitions')
     const asked: QuestDefinition[] = [...QUEST_DEFINITIONS]
-    expect(asked.length).toBe(32)
+    expect(asked.length).toBe(33)
   })
 })

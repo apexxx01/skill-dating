@@ -180,7 +180,7 @@ export async function createPost(db: Db, author: { id: string; timezone: string 
         createdAt: now,
       },
     })
-    if (shipDayKey) await emit(tx, 'POST_SHIP_DAY', { userId: author.id, postId: post.id, dateKey: shipDayKey })
+    if (shipDayKey) await emit(tx, 'POST_SHIP_DAY', { userId: author.id, postId: post.id, dateKey: shipDayKey, kind: input.kind })
     return { post, shipped }
   })
   await track(author.id, 'post_created', { kind: input.kind, shipDay: shipDayKey !== null, shipped: outcome.value.shipped })
