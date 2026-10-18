@@ -73,8 +73,8 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `CONNECTION_ACCEPTED` | each of the two people | the other one |
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the sender | the recipient |
 | `MESSAGE_REPLIED` (pays no XP) | the person who replied | the person who was waiting for the reply |
-| `MATCH_CREATED` (pays no XP) | each of the two people | the other one |
-| `MATCH_TEAM_FORMED` (pays no XP) | each of the two people | the other one |
+| `MATCH_CREATED` (pays no XP itself) | each of the two people | the other one |
+| `MATCH_TEAM_FORMED` (pays no XP itself) | each of the two people | the other one |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
@@ -274,16 +274,17 @@ nobody starts at zero; an achievement whose target a counter already meets unloc
 | `streak-30` | Month of Momentum | 120 | 30 day streak |
 | `streak-100` | Hundred Days | 400 | 100 day streak |
 | `streak-365` | Year of Building | 1500 | 365 day streak |
-| `first-match` | First Match | 0 | 1 match |
-| `matches-10` | Well Matched | 0 | 10 matches |
-| `match-teamed` | Better Together | 0 | formed a team with someone you matched with (once per match) |
+| `first-match` | First Match | 25 | 1 match |
+| `matches-10` | Well Matched | 50 | 10 matches |
+| `match-teamed` | Better Together | 100 | formed a team with someone you matched with (once per match) |
 
-**Matches pay no XP, so the three match achievements pay none either** (`xpReward: 0`): sparks and matches are never an XP source, so
-that starting conversations cannot be farmed. They are recognition only. A match counts for a person only when the other person is a
-trusted account (the counterparty gate above), so two throwaway accounts that match each other earn nothing from it. A match counts when it
-is made (`MATCH_CREATED`, the metric `matches`); *Better Together* counts when somebody joins a team that has a member they have an open
-match with (`MATCH_TEAM_FORMED`, the metric `match_teams`, detected on `TEAM_APPLICATION_ACCEPTED` in `src/lib/matching/team-match.ts`), so
-the match must be older than the team and not ended.
+**Sparks and matches pay no XP; the three match achievements pay a one-off amount** (25, 50 and 100). An achievement can be earned once per
+person, so the XP cannot be farmed the way a per-match payment could be: the tenth match pays nothing new, and the hundredth pays nothing.
+A match counts for a person only when the other person is a trusted account (the counterparty gate above), so two throwaway accounts that
+match each other earn nothing from it. A match counts when it is made (`MATCH_CREATED`, the metric `matches`); *Better Together* counts when
+somebody joins a team that has a member they have an open match with (`MATCH_TEAM_FORMED`, the metric `match_teams`, detected on
+`TEAM_APPLICATION_ACCEPTED` in `src/lib/matching/team-match.ts`), so the match must be older than the team and not ended. **A romance match
+counts for none of these** (docs/ROMANCE.md): achievements are public, and nothing about the romance mode is.
 
 ### Secret achievements
 

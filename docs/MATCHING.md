@@ -189,8 +189,9 @@ Checked, in order, before anything is written (`src/lib/matching/opener.ts` and 
 
 ### XP and achievements
 
-**Sparks and matches pay no XP.** The event `MATCH_CREATED` is announced and counts a metric, nothing more. Three achievements recognise matching and
-pay nothing themselves: `first-match`, `matches-10` and `match-teamed` ("Better Together": a team with someone you matched with). See
+**Sparks and matches pay no XP.** The event `MATCH_CREATED` is announced and counts a metric, nothing more. Three achievements recognise matching and pay
+a one-off amount, which cannot be farmed because an achievement is earned once: `first-match` (25 XP), `matches-10` (50) and `match-teamed` (100; "Better Together":
+a team with someone you matched with). See
 [GAMIFICATION.md](GAMIFICATION.md#achievements). Analytics events: `drop_viewed`, `spark_sent` (`matched` says whether it completed a pair),
 `match_created` (one per person) and `unmatch`.
 

@@ -423,13 +423,15 @@ export const ACHIEVEMENT_DEFINITIONS = {
   },
 
   // --- Matching ---------------------------------------------------------------------
-  // Matches pay no XP, so neither do these: they are recognition, and a match cannot be farmed for points.
+  // A spark and a match pay no XP themselves (a conversation is not worth farming), but these three milestones are one-time awards, so they pay a
+  // small one-off amount that cannot be farmed: each can be earned once per person, and only for matches with a trusted account (src/lib/trust.ts).
+  // A romance match counts for none of them (src/lib/matching/sparks.ts).
   'first-match': {
     name: 'First Match',
     description: 'Matched with another builder.',
     icon: 'handshake',
     category: 'TEAM',
-    xpReward: 0,
+    xpReward: 25,
     criteria: { metric: 'matches', target: 1 },
     order: 41,
   },
@@ -438,7 +440,7 @@ export const ACHIEVEMENT_DEFINITIONS = {
     description: 'Matched with 10 builders.',
     icon: 'users',
     category: 'TEAM',
-    xpReward: 0,
+    xpReward: 50,
     criteria: { metric: 'matches', target: 10 },
     order: 42,
   },
@@ -447,7 +449,7 @@ export const ACHIEVEMENT_DEFINITIONS = {
     description: 'Formed a team with someone you matched with.',
     icon: 'link',
     category: 'TEAM',
-    xpReward: 0,
+    xpReward: 100,
     criteria: { metric: 'match_teams', target: 1 },
     order: 43,
   },

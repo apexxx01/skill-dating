@@ -25,8 +25,7 @@ describe('the achievement catalog', () => {
       expect(def.description.endsWith('.'), slug).toBe(true)
       expect(def.icon, slug).toMatch(/^[a-z0-9-]+$/)
       expect(['BUILDING', 'HACKATHON', 'TEAM', 'REPUTATION', 'STREAK', 'SECRET']).toContain(def.category)
-      // Everything pays XP except the match achievements, which are recognition only (matches are never an XP source).
-      expect(Number.isInteger(def.xpReward) && (MATCH_ACHIEVEMENTS.includes(slug) ? def.xpReward === 0 : def.xpReward > 0), slug).toBe(true)
+      expect(Number.isInteger(def.xpReward) && def.xpReward > 0, slug).toBe(true)
       orders.add(def.order)
     }
     expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 43 }, (_, index) => index + 1))
@@ -55,8 +54,9 @@ describe('the achievement catalog', () => {
       expect(targets('matches')).toEqual([1, 10])
       expect(targets('match_teams')).toEqual([1])
     })
-    it('pays no XP for a match, ever', () => {
-      for (const slug of MATCH_ACHIEVEMENTS) expect((ACHIEVEMENT_DEFINITIONS as Record<string, AchievementDefinition>)[slug].xpReward, slug).toBe(0)
+    it('pays a one-off amount for each match milestone: 25, 50 and 100', () => {
+      const xp = (slug: string) => (ACHIEVEMENT_DEFINITIONS as Record<string, AchievementDefinition>)[slug].xpReward
+      expect([xp('first-match'), xp('matches-10'), xp('match-teamed')]).toEqual([25, 50, 100])
     })
     it('ships 1 / 5 / 25 / 100', () => expect(targets('ships')).toEqual([1, 5, 25, 100]))
     it('hackathon wins 1 / 3 / 10', () => expect(targets('hackathon_wins')).toEqual([1, 3, 10]))
@@ -75,7 +75,6 @@ describe('the achievement catalog', () => {
 
     it('never pays less for a higher tier than for the one before, and pays more at the top than at the start', () => {
       for (const metric of [...METRICS, 'streak_days' as const]) {
-        if (metric === 'matches') continue // recognition only: every tier pays 0
         const xp = achievementSeries(metric).map((entry) => (ACHIEVEMENT_DEFINITIONS[entry.slug] as AchievementDefinition).xpReward)
         for (let index = 1; index < xp.length; index++) expect(xp[index], metric).toBeGreaterThanOrEqual(xp[index - 1])
         if (xp.length > 1) expect(xp[xp.length - 1], metric).toBeGreaterThan(xp[0])

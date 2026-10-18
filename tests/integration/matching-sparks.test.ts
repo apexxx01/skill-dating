@@ -334,10 +334,11 @@ describe('sparks and matches', () => {
       expect(await testPrisma.productEvent.count({ where: { userId: a.id, name: 'spark_sent' } })).toBe(1)
       expect(await testPrisma.productEvent.count({ where: { userId: b.id, name: 'spark_sent' } })).toBe(1)
 
-      // No XP, from the sparks or the match, for either of them; the first-match achievement pays nothing.
+      // No XP from the sparks or the match themselves; the first-match achievement pays its one-off 25 and nothing else is paid.
       for (const person of [a, b]) {
-        expect((await testPrisma.user.findUniqueOrThrow({ where: { id: person.id } })).xp).toBe(0)
-        expect(await testPrisma.xPEvent.count({ where: { userId: person.id } })).toBe(0)
+        expect((await testPrisma.user.findUniqueOrThrow({ where: { id: person.id } })).xp).toBe(25)
+        const paid = await testPrisma.xPEvent.findMany({ where: { userId: person.id } })
+        expect(paid.map((row) => [row.type, row.sourceId, row.amount])).toEqual([['ACHIEVEMENT_EARNED', 'first-match', 25]])
         expect(await testPrisma.userAchievement.count({ where: { userId: person.id, achievement: { slug: 'first-match' } } })).toBe(1)
         expect((await testPrisma.userCounter.findFirstOrThrow({ where: { userId: person.id, key: 'matches' } })).value).toBe(1)
       }
@@ -702,7 +703,7 @@ describe('sparks and matches', () => {
   })
 
   describe('a match that becomes a team', () => {
-    it('counts toward the match-to-team achievement for both, once, and pays no XP for it', async () => {
+    it('counts toward the match-to-team achievement for both, once, and pays its one-off 100 XP', async () => {
       const lead = await registerAndLogin(`${tag}.lead@test.dev`, `${tag}lead`)
       const joiner = await registerAndLogin(`${tag}.joiner@test.dev`, `${tag}joiner`)
       const stranger = await registerAndLogin(`${tag}.stranger@test.dev`, `${tag}stranger`)
@@ -724,8 +725,9 @@ describe('sparks and matches', () => {
       for (const u of [lead, joiner]) {
         expect(await testPrisma.userAchievement.count({ where: { userId: u.userId, achievement: { slug: 'match-teamed' } } })).toBe(1)
         expect((await testPrisma.userCounter.findFirstOrThrow({ where: { userId: u.userId, key: 'match_teams' } })).value).toBe(1)
-        // The achievement itself pays nothing.
-        expect(await testPrisma.xPEvent.count({ where: { userId: u.userId, type: 'ACHIEVEMENT_EARNED', sourceId: { in: ['match-teamed', 'first-match', 'matches-10'] } } })).toBe(0)
+        // The achievement pays once, 100 XP; the match that came before it paid its own 25 for first-match.
+        const teamed = await testPrisma.xPEvent.findMany({ where: { userId: u.userId, type: 'ACHIEVEMENT_EARNED', sourceId: 'match-teamed' } })
+        expect(teamed.map((row) => row.amount)).toEqual([100])
       }
     })
 
@@ -745,7 +747,7 @@ describe('sparks and matches', () => {
   })
 
   describe('ten matches', () => {
-    it('unlock the ten-matches achievement, without paying any XP', async () => {
+    it('unlock the ten-matches achievement, which pays 25 for the first and 50 for the tenth and nothing for the matches in between', async () => {
       const hub = await person({ types: ['COLLABORATOR'] })
       for (let i = 0; i < 10; i++) {
         const other = await person({ types: ['COLLABORATOR'] })
@@ -757,8 +759,9 @@ describe('sparks and matches', () => {
       expect((await testPrisma.userCounter.findFirstOrThrow({ where: { userId: hub.id, key: 'matches' } })).value).toBe(10)
       const earned = (await testPrisma.userAchievement.findMany({ where: { userId: hub.id }, select: { achievement: { select: { slug: true } } } })).map((row) => row.achievement.slug).sort()
       expect(earned).toEqual(['first-match', 'matches-10'])
-      expect(await testPrisma.xPEvent.count({ where: { userId: hub.id } })).toBe(0)
-      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: hub.id } })).xp).toBe(0)
+      const paid = await testPrisma.xPEvent.findMany({ where: { userId: hub.id }, orderBy: { amount: 'asc' } })
+      expect(paid.map((row) => [row.type, row.sourceId, row.amount])).toEqual([['ACHIEVEMENT_EARNED', 'first-match', 25], ['ACHIEVEMENT_EARNED', 'matches-10', 50]])
+      expect((await testPrisma.user.findUniqueOrThrow({ where: { id: hub.id } })).xp).toBe(75)
     })
   })
 })
