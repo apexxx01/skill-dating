@@ -206,7 +206,7 @@ describe('sparks and matches', () => {
       expect(next).toMatchObject({ ok: false, code: 'SPARK_THROTTLED' })
       expect((next as unknown as { params: { retryAfter: number } }).params.retryAfter).toBeGreaterThan(0)
       // An hour later the burst is over.
-      expect(code(await spark(a.id, targets[SPARK_HOURLY_BURST].id, { at: new Date(Date.now() + 61 * 60_000) }))).toBe('OK')
+      expect(code(await spark(a.id, targets[SPARK_HOURLY_BURST].id, { enforced: true, at: new Date(Date.now() + 61 * 60_000) }))).toBe('OK')
     })
 
     it('only lets a spark answer the sender’s own open drop for that person', async () => {
