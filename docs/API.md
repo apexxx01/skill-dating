@@ -379,6 +379,30 @@ This week's romance drop: **one** person, chosen for the caller once a local ISO
 ### `POST /api/romance/drop/[id]/pass`
 Passes on the drop: the person is not shown to the caller again for 120 days. **Response:** `{ id, status: "PASSED" }`; passing twice answers the same. `404 DROP_NOT_FOUND` (also for somebody else's), `409 DROP_NOT_PENDING` for one already sparked or expired.
 
+### `POST /api/romance/sparks`
+Honours `Idempotency-Key`. **Body (unknown keys refused):** `{ toId, opener, dropId? }`. Sparks this week's drop, or answers a spark waiting for the caller; when the person had already sparked the caller the two match in the same request (`match` is then the romance match item). The caller must have joined, pass the 18+ gate and be a trusted account (`ROMANCE_PROFILE_REQUIRED`, `DATING_*`, `ROMANCE_ACCOUNT_TOO_NEW`); the person must be one both people's private filters allow, who passes the gate, and whom the caller was shown in an open drop (or who sparked them): every other case is `404 SPARK_TARGET_UNAVAILABLE`, so no filter can be probed. The inbox gate does not apply to a reply. Limits: `ROMANCE_SPARKS_PER_WEEK` (3 for everyone while plans are not enforced; `429 ROMANCE_SPARK_LIMIT_REACHED`) and 8 an hour (`SPARK_THROTTLED`). Also `400 SPARK_OPENER_REJECTED`, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`, `409 SPARK_ALREADY_SENT`, `409 MATCH_EXISTS`, `409 MATCH_ENDED`. A romance match announces no event and counts toward no achievement.
+
+### `GET /api/romance/sparks/received`
+Romance sparks waiting for the caller: `{ modeLabel, canSee, count, sparks, nextCursor }`. Who sent them needs `SEE_WHO_SPARKED`; without it `{ canSee: false, count, sparks: [] }`. A sender is shown as a candidate is (no photo, no avatar, nothing private). Query: `limit`, `cursor`.
+
+### `GET /api/romance/matches`
+The caller's open romance matches, newest first: `{ modeLabel, matches: [{ id, createdAt, conversationId, other }], nextCursor, total }` (`other` as a drop's candidate; `reveal.status` is `NONE`, `PENDING_MINE`, `PENDING_THEIRS`, `ACCEPTED`, `DECLINED` or `REVOKED`). Query: `limit`, `cursor`. To leave: `DELETE /api/matches/{id}`; to report and leave: `POST /api/matches/{id}/report`. Both are final and silent.
+
+### `GET /api/romance/matches/[id]`
+One open romance match of the caller's; anything else is `404 MATCH_NOT_FOUND`.
+
+### `POST /api/romance/photos`
+Honours `Idempotency-Key`. **Body (unknown keys refused):** `{ assetId, blurHash? }`: attaches a confirmed upload of the caller's (`POST /api/media/uploads` with `purpose: "ROMANCE_PHOTO"`, then `/complete`) at the end of their photos; `blurHash` is a BlurHash string the client made, shown in place of the photo to anybody who may not see it. **Response `201`:** `{ id, position }`. Photos come back to their owner only (`GET /api/romance/profile`). `400 ROMANCE_PROFILE_REQUIRED`, `404 MEDIA_NOT_FOUND` (not the caller's, not ready, or another purpose), `400 ROMANCE_PHOTO_LIMIT` (6), `400 VALIDATION_FAILED`.
+
+### `DELETE /api/romance/photos/[id]`
+Removes one of the caller's photos and its upload, and closes the gap in the order. `404 MEDIA_NOT_FOUND` for anyone else's.
+
+### `POST /api/romance/matches/[id]/reveal`
+Agrees to share photos with the other person of an open romance match: asks them, or accepts when they have already asked (two asks at the same moment are an agreement). Honours `Idempotency-Key`; safe to repeat. **Response:** `{ matchId, status }` from the caller's side: `PENDING_MINE` or `ACCEPTED`. Until both have agreed, the other person's photos in every response are placeholders `{ id, position, blurHash, revealed: false }` and their avatar is absent; once `ACCEPTED` they are `{ id, position, blurHash, revealed: true, url (signed, short-lived), width, height }` and `other.image` is present. `404 MATCH_NOT_FOUND` for anyone not in the match, an ended match or a professional one.
+
+### `DELETE /api/romance/matches/[id]/reveal`
+Withdraws: cancels the caller's own ask, declines the other's (`DECLINED`), or revokes an accepted reveal (`REVOKED`), at once and for both. Safe to repeat. Ending the match revokes it too. Either person may ask again later.
+
 ### `DELETE /api/romance/profile`
 Leaves the mode: the profile, its photos (and their uploads), every drop for or of the caller and every pending romance spark of theirs are removed, and their open romance matches are **ended for good and silently** (the conversation is closed for both; nobody is notified). **Response:** `{ left: true, hadProfile, matchesEnded }`. Safe to repeat. Being removed for an admin correction of the date of birth to 16 or 17, or by deleting the account, does the same.
 
@@ -763,6 +787,10 @@ and a unit test fails if a code is missing here.
 | `SPARK_OPENER_REJECTED` | 400 | That opener cannot be sent |
 | `SPARK_LIMIT_REACHED` | 429 | You have used all {limit} of your sparks for today. More arrive tomorrow |
 | `SPARK_THROTTLED` | 429 | You are sending sparks too fast. Try again in a little while |
+| `ROMANCE_PROFILE_REQUIRED` | 400 | Join {mode} first |
+| `ROMANCE_ACCOUNT_TOO_NEW` | 403 | Your account needs to be a week old, with a verified email, to send a {mode} spark |
+| `ROMANCE_SPARK_LIMIT_REACHED` | 429 | You have used all {limit} of your {mode} sparks for this week. More arrive on Monday |
+| `ROMANCE_PHOTO_LIMIT` | 400 | You can have at most 6 photos |
 | `MATCH_NOT_FOUND` | 404 | Match not found |
 | `MATCH_EXISTS` | 409 | You are already matched with this person |
 | `MATCH_ENDED` | 409 | This match has ended and cannot be started again |

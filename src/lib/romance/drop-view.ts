@@ -1,6 +1,8 @@
 import type { PrismaClient } from '@prisma/client'
 import { blockedPeerIds } from '@/lib/blocks'
 import { track } from '@/lib/infra/analytics'
+import type { Storage } from '@/lib/infra/storage'
+import { mediaUrl } from '@/lib/media-assets'
 import { datingBlockers } from '@/lib/matching/dating'
 import { datingFactsSelect } from '@/lib/matching/profile'
 import { loadPersonSummaries } from '@/lib/matching/summary'
@@ -23,6 +25,17 @@ export interface PhotoPlaceholder {
   revealed: false
 }
 
+/** A photo the viewer may see: only after both people agreed to a reveal and while the match is open. `url` is signed and short-lived. */
+export interface RevealedPhoto {
+  id: string
+  position: number
+  blurHash: string | null
+  revealed: true
+  url: string
+  width: number
+  height: number
+}
+
 export interface RomanceCandidateView {
   id: string
   name: string | null
@@ -34,7 +47,9 @@ export interface RomanceCandidateView {
   skills: { slug: string; name: string; level: number }[]
   proof: { verifiedEvidence: number; shipped: number }
   profile: PublicRomanceProfile
-  photos: PhotoPlaceholder[]
+  photos: (PhotoPlaceholder | RevealedPhoto)[]
+  /** Their avatar: a photo too, so it is here only once the photos are. */
+  image?: string | null
 }
 
 export interface RomanceDropView {
@@ -62,10 +77,18 @@ function localInstant(dateKey: string, clock: string, timeZone: string | null): 
   return new Date(localDateStart(dateKey, timeZone).getTime() + (hours * 60 + minutes) * 60_000)
 }
 
-export async function toCandidateView(db: Db, candidateId: string, profile: StoredRomanceProfile): Promise<RomanceCandidateView | null> {
+export async function toCandidateView(db: Db, candidateId: string, profile: StoredRomanceProfile, reveal?: { storage: Pick<Storage, 'publicUrl' | 'signedReadUrl'> }): Promise<RomanceCandidateView | null> {
   const person = (await loadPersonSummaries(db, [candidateId])).get(candidateId)
   if (!person) return null
-  const photos = await db.romancePhoto.findMany({ where: { profileId: profile.id }, orderBy: { position: 'asc' }, select: { id: true, position: true, blurHash: true } })
+  const photos = await db.romancePhoto.findMany({ where: { profileId: profile.id }, orderBy: { position: 'asc' }, select: { id: true, position: true, blurHash: true, asset: { select: { key: true, width: true, height: true } } } })
+  const shown: (PhotoPlaceholder | RevealedPhoto)[] = []
+  for (const photo of photos) {
+    shown.push(
+      reveal
+        ? { id: photo.id, position: photo.position, blurHash: photo.blurHash, revealed: true, url: await mediaUrl(reveal.storage as Storage, photo.asset.key), width: photo.asset.width, height: photo.asset.height }
+        : { id: photo.id, position: photo.position, blurHash: photo.blurHash, revealed: false }
+    )
+  }
   return {
     id: person.id,
     name: person.name,
@@ -77,7 +100,8 @@ export async function toCandidateView(db: Db, candidateId: string, profile: Stor
     skills: person.skills,
     proof: person.proof,
     profile: toPublicProfile(profile),
-    photos: photos.map((photo) => ({ id: photo.id, position: photo.position, blurHash: photo.blurHash, revealed: false as const })),
+    photos: shown,
+    ...(reveal ? { image: person.image } : {}),
   }
 }
 

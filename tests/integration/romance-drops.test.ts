@@ -32,6 +32,8 @@ describe('the weekly romance drop', () => {
   }, 180_000)
 
   const person = (options: RomanceFixtureOptions = {}) => makeRomancePerson({ tag, ...options })
+  // A world of their own: everybody who lives in it (and looks only in their city) can be shown only to the others there, so a test about WHO is chosen is not about everybody else in the database.
+  const world = (name: string) => ({ scope: 'CITY' as const, cityKey: `${tag}-${name}`, countryCode: 'IN' })
   const now = () => new Date()
   const viewerOf = async (userId: string, endorsers = 0): Promise<RomanceViewer> => {
     const row = await testPrisma.user.findUniqueOrThrow({ where: { id: userId }, include: { romanceProfile: true, profile: true } })
@@ -55,7 +57,8 @@ describe('the weekly romance drop', () => {
 
   describe('who may be shown to whom: the SQL and the pure rule agree', () => {
     it('gives the same answer for every combination of gender, age range and scope, in both directions', async () => {
-      // Six people for each of the four genders and three scopes would be 72; a fixed spread of 24 covers every pair of values and every direction.
+      // A fixed spread of 24 people over the four genders, the three scopes, ages 22 to 44 and a handful of places: broad enough that both outcomes happen for
+      // every kind of filter, in both directions.
       const people: { id: string; facts: FilterFacts }[] = []
       const places = [
         { cityKey: `pune-${suffix}`, countryCode: 'IN' },
@@ -65,11 +68,11 @@ describe('the weekly romance drop', () => {
       ]
       for (let i = 0; i < 24; i++) {
         const gender = GENDERS[i % 4] as Gender
-        const interestedIn = [GENDERS[(i + 1) % 4], GENDERS[(i + (i % 3 === 0 ? 0 : 2)) % 4]].filter((g, k, all) => all.indexOf(g) === k) as Gender[]
-        const scope = SCOPES[i % 3] as Scope
-        const age = 20 + ((i * 5) % 25)
-        const ageMin = 18 + (i % 4) * 4
-        const ageMax = Math.max(ageMin, 28 + (i % 5) * 6)
+        const interestedIn = (i % 3 === 0 ? [GENDERS[(i + 1) % 4], GENDERS[(i + 2) % 4], GENDERS[(i + 3) % 4]] : [GENDERS[(i + 1) % 4], GENDERS[(i + 2) % 4]]) as Gender[]
+        const scope = SCOPES[(i % 3 === 0 ? 2 : i % 3 === 1 ? 0 : 1) % 3] as Scope
+        const age = 22 + ((i * 5) % 23)
+        const ageMin = 18 + (i % 3) * 3
+        const ageMax = 45 + (i % 4) * 5
         const place = places[i % 4]
         const created = await person({ gender, interestedIn, scope, age, ageMin, ageMax, cityKey: place.cityKey ?? undefined, countryCode: place.countryCode })
         people.push({
@@ -214,9 +217,10 @@ describe('the weekly romance drop', () => {
 
   describe('making the drop', () => {
     it('gives the best-scoring person, with the lines that explain it, once, and tells the person', async () => {
-      const viewer = await person({ obsessions: ['climate tech', 'rust'], rhythm: 'night-owl', direction: 'founder', ambition: 3 })
-      const close = await person({ gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['climate tech', 'rust'], rhythm: 'night-owl', direction: 'founder', ambition: 3 })
-      const far = await person({ gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['wine'], rhythm: 'early-bird', direction: 'steady-career', ambition: 1 })
+      const home = world('best')
+      const viewer = await person({ ...home, obsessions: ['climate tech', 'rust'], rhythm: 'night-owl', direction: 'founder', ambition: 3 })
+      const close = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['climate tech', 'rust'], rhythm: 'night-owl', direction: 'founder', ambition: 3 })
+      const far = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['wine'], rhythm: 'early-bird', direction: 'steady-career', ambition: 1 })
       const at = new Date()
       const result = await generate(viewer.id, { at })
       expect(result).toMatchObject({ created: 1 })
@@ -242,9 +246,10 @@ describe('the weekly romance drop', () => {
     }, 120_000)
 
     it('gives the next week a new person, never the one just shown', async () => {
-      const viewer = await person()
-      const a = await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
-      const b = await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
+      const home = world('weeks')
+      const viewer = await person(home)
+      const a = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
+      const b = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
       const week1 = new Date()
       const week2 = new Date(week1.getTime() + 7 * DAY_MS)
       await generate(viewer.id, { at: week1 })
@@ -285,16 +290,18 @@ describe('the weekly romance drop', () => {
     }, 120_000)
 
     it('is not told to a person who switched the notification off, and the drop is still made', async () => {
-      const viewer = await person()
-      await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
+      const home = world('muted')
+      const viewer = await person(home)
+      await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
       await testPrisma.notificationPreference.create({ data: { userId: viewer.id, kind: 'ROMANCE_DROP', enabled: false } })
       expect(await generate(viewer.id)).toMatchObject({ created: 1 })
       expect(await testPrisma.notification.count({ where: { userId: viewer.id } })).toBe(0)
     }, 120_000)
 
     it('two runs at once give nobody more than one', async () => {
-      const viewer = await person()
-      for (let i = 0; i < 4; i++) await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
+      const home = world('race')
+      const viewer = await person(home)
+      for (let i = 0; i < 4; i++) await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
       const results = await Promise.all([generate(viewer.id), generate(viewer.id), generate(viewer.id)])
       expect(results.reduce((sum, r) => sum + r.created, 0)).toBe(1)
       expect(await dropsOf(viewer.id)).toHaveLength(1)
@@ -328,7 +335,8 @@ describe('the weekly romance drop', () => {
       const zone = 'Pacific/Fiji'
       const people = []
       for (let i = 0; i < 5; i++) people.push(await person({ timezone: zone, gender: i % 2 ? 'MAN' : 'WOMAN', interestedIn: i % 2 ? ['WOMAN'] : ['MAN'] }))
-      const at = new Date()
+      // A Wednesday: the week's drop time has passed everywhere, whatever the hour the suite runs at (the batches themselves run at the real time).
+      const at = new Date('2031-06-04T12:00:00Z')
       const queue = new MemoryJobQueue(jobs)
       const dispatched = await dispatchRomanceDrops(testPrisma, queue, at, 2)
       expect(dispatched.batches).toBeGreaterThanOrEqual(3)
@@ -358,14 +366,14 @@ describe('the weekly romance drop', () => {
   })
 
   describe('GET /api/romance/drop and the pass', () => {
-    async function member(label: string, countryCode = 'IN') {
+    async function member(label: string, cityKey: string) {
       const u = await registerAndLogin(`${tag}.${label}@test.dev`, `${tag}${label}`)
       await testPrisma.user.update({ where: { id: u.userId }, data: { isEmailVerified: true, isPhoneVerified: true, birthDate: new Date(`${bornYearsAgo(30)}T00:00:00Z`) } })
-      await testPrisma.profile.create({ data: { userId: u.userId, countryCode } })
+      await testPrisma.profile.create({ data: { userId: u.userId, countryCode: 'IN', cityKey, city: cityKey } })
       await testPrisma.romanceProfile.create({
         data: {
           userId: u.userId, promptObsessed: 'Compilers and the people who love them, always.', promptBuild: 'A tool I would use every single day.', promptWeekend: 'Ship something small, then eat well.',
-          ambition: 3, direction: 'founder', rhythm: 'night-owl', obsessions: ['compilers'], gender: 'WOMAN', interestedIn: ['MAN'], ageMin: 18, ageMax: 99, scope: 'ANYWHERE',
+          ambition: 3, direction: 'founder', rhythm: 'night-owl', obsessions: ['compilers'], gender: 'WOMAN', interestedIn: ['MAN'], ageMin: 18, ageMax: 99, scope: 'CITY',
         },
       })
       return u
@@ -381,8 +389,9 @@ describe('the weekly romance drop', () => {
     }, 60_000)
 
     it('shows the one person with as much as a stranger may see, no photo, no avatar and nothing private', async () => {
-      const me = await member('me')
-      const them = await person({ gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['compilers'], cityKey: `pune-${suffix}`, countryCode: 'IN' })
+      const home = world('view')
+      const me = await member('me', home.cityKey)
+      const them = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'], obsessions: ['compilers'] })
       await testPrisma.user.update({ where: { id: them.id }, data: { image: 'https://example.com/avatar.png', bio: 'A private-ish bio', location: 'Pune, India' } })
       const profile = await testPrisma.romanceProfile.findUniqueOrThrow({ where: { userId: them.id } })
       const asset = await testPrisma.mediaAsset.create({ data: { ownerId: them.id, purpose: 'ROMANCE_PHOTO', kind: 'IMAGE', key: `romance/${them.id}/${'a'.repeat(64)}.jpg`, contentType: 'image/jpeg', bytes: 1000, width: 800, height: 800, sha256: 'a'.repeat(64), status: 'READY' } })
@@ -398,7 +407,7 @@ describe('the weekly romance drop', () => {
       expect(Object.keys(drop.candidate).sort()).toEqual(['builderRole', 'headline', 'id', 'level', 'name', 'photos', 'profile', 'proof', 'skills', 'tier', 'username'])
       expect(drop.candidate.photos).toEqual([{ id: expect.any(String), position: 0, blurHash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj', revealed: false }])
       const text = JSON.stringify(res.data)
-      for (const secret of ['avatar.png', 'A private-ish bio', 'Pune', 'pune-', 'WOMAN', 'MAN"', 'interestedIn', 'ageMin', 'minEndorsements', 'scope', asset.key, 'image', 'birth']) {
+      for (const secret of ['avatar.png', 'A private-ish bio', 'Pune', home.cityKey, 'WOMAN', 'MAN"', 'interestedIn', 'ageMin', 'minEndorsements', 'scope', asset.key, 'image', 'birth']) {
         expect(text, secret).not.toContain(secret)
       }
       expect(drop.candidate.profile).toMatchObject({ direction: 'founder', rhythm: 'night-owl', obsessions: ['compilers'] })
@@ -409,9 +418,12 @@ describe('the weekly romance drop', () => {
     }, 90_000)
 
     it('passes on the drop, once, and refuses somebody else\'s', async () => {
-      const me = await member('passer')
-      const other = await member('other', 'DE')
-      await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
+      const home = world('pass')
+      const away = world('pass2')
+      const me = await member('passer', home.cityKey)
+      const other = await member('other', away.cityKey)
+      await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
+      await person({ ...away, gender: 'MAN', interestedIn: ['WOMAN'] })
       await generateRomanceDropForUser(testPrisma, me.userId, now(), { force: true })
       await generateRomanceDropForUser(testPrisma, other.userId, now(), { force: true })
       const drop = (await req(me.jar, 'GET', '/api/romance/drop')).data.drop
@@ -428,8 +440,9 @@ describe('the weekly romance drop', () => {
     }, 90_000)
 
     it('hides a person who blocked the viewer or left the mode since', async () => {
-      const me = await member('hider')
-      const them = await person({ gender: 'MAN', interestedIn: ['WOMAN'] })
+      const home = world('hide')
+      const me = await member('hider', home.cityKey)
+      const them = await person({ ...home, gender: 'MAN', interestedIn: ['WOMAN'] })
       await generateRomanceDropForUser(testPrisma, me.userId, now(), { force: true })
       expect((await req(me.jar, 'GET', '/api/romance/drop')).data.drop.candidate.id).toBe(them.id)
       await testPrisma.block.create({ data: { blockerId: them.id, blockedId: me.userId } })

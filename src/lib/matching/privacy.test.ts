@@ -23,6 +23,7 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/api/handler.ts': 'names only the refusal marker (birthDateRefusedAt, a moment, not a date of birth) to close an account refused for its age',
   'lib/romance/candidates.ts': 'the SQL for who may be shown in the romance mode: compares the column with cutoffs, selects nobody’s date',
   'lib/romance/drops.ts': 'turns a stored date into an age for the weekly drop’s viewer; returns no date',
+  'lib/romance/sparks.ts': 'turns a stored date into an age for the filter rules; returns no date',
   'lib/romance/profile.ts': 'turns a date it is given into an age for the filter rules; returns no date',
   'lib/onboarding.ts': 'onboarding needs one on file; reads whether it exists, returns nothing',
   'lib/matching/dating.ts': 'the age rule: reads it to decide, returns no date',

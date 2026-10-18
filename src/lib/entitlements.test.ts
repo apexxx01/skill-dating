@@ -7,7 +7,7 @@ const subject = (plan: Plan) => ({ plan })
 
 describe('the table', () => {
   it('has the features and free-plan numbers the product started with', () => {
-    expect(FEATURES.sort()).toEqual(['ADVANCED_FILTERS', 'BUILD_DATES_PER_WEEK', 'CUSTOM_DOMAIN', 'DAILY_DROPS', 'DAILY_SPARKS', 'PROFILE_ANALYTICS', 'SEE_WHO_SPARKED'])
+    expect(FEATURES.sort()).toEqual(['ADVANCED_FILTERS', 'BUILD_DATES_PER_WEEK', 'CUSTOM_DOMAIN', 'DAILY_DROPS', 'DAILY_SPARKS', 'PROFILE_ANALYTICS', 'ROMANCE_SPARKS_PER_WEEK', 'SEE_WHO_SPARKED'])
     expect(ENTITLEMENTS.DAILY_DROPS.plans.FREE).toBe(3)
     expect(ENTITLEMENTS.DAILY_DROPS.plans.PRO).toBe(10)
   })
@@ -30,7 +30,7 @@ describe('the table', () => {
   })
 
   it('keeps every plan limit at or under its hard limit', () => {
-    for (const feature of ['DAILY_DROPS', 'BUILD_DATES_PER_WEEK', 'DAILY_SPARKS'] as const) {
+    for (const feature of ['DAILY_DROPS', 'BUILD_DATES_PER_WEEK', 'DAILY_SPARKS', 'ROMANCE_SPARKS_PER_WEEK'] as const) {
       for (const plan of PLANS) expect(ENTITLEMENTS[feature].plans[plan]).toBeLessThanOrEqual(ENTITLEMENTS[feature].hardLimit)
     }
   })
@@ -81,6 +81,7 @@ describe('enforcement off', () => {
     for (const plan of PLANS) {
       expect(limit(subject(plan), 'DAILY_DROPS', off)).toBe(3)
       expect(limit(subject(plan), 'DAILY_SPARKS', off)).toBe(5)
+      expect(limit(subject(plan), 'ROMANCE_SPARKS_PER_WEEK', off)).toBe(3)
       expect(limit(subject(plan), 'DAILY_DROPS', off)).toBe(ENTITLEMENTS.DAILY_DROPS.plans.FREE)
       expect(limit(subject(plan), 'DAILY_SPARKS', off)).toBe(ENTITLEMENTS.DAILY_SPARKS.plans.FREE)
     }
@@ -94,7 +95,7 @@ describe('enforcement off', () => {
 
   it('marks exactly the scarce features', () => {
     const scarce = Object.entries(ENTITLEMENTS).filter(([, spec]) => 'scarce' in spec).map(([name]) => name)
-    expect(scarce.sort()).toEqual(['DAILY_DROPS', 'DAILY_SPARKS'])
+    expect(scarce.sort()).toEqual(['DAILY_DROPS', 'DAILY_SPARKS', 'ROMANCE_SPARKS_PER_WEEK'])
   })
 
   it('still stops at the hard ceiling for a feature that is not scarce', () => {
@@ -115,6 +116,7 @@ describe('entitlementsFor', () => {
     expect(entitlementsFor(subject('FREE'), on)).toEqual({
       DAILY_DROPS: 3,
       DAILY_SPARKS: 5,
+      ROMANCE_SPARKS_PER_WEEK: 3,
       BUILD_DATES_PER_WEEK: 2,
       SEE_WHO_SPARKED: false,
       ADVANCED_FILTERS: false,

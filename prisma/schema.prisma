@@ -1484,6 +1484,8 @@ model RomanceProfile {
   lastDropWeek       String?
   // The local date ("YYYY-MM-DD") of the last time a drop was looked for and none was found, so an empty week is looked at once a day and not every hour.
   lastDropTryDate    String?
+  // When the daily "N people sparked you in <the mode>" notification was last sent (the romance counterpart of MatchingProfile.sparkDigestAt).
+  sparkDigestAt      DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 

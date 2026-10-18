@@ -8,6 +8,7 @@ import { runSparkDigest, digestMessage } from '../../src/lib/matching/spark-dige
 import { unmatch } from '../../src/lib/matching/matches'
 import { MemoryRealtime } from '../../src/lib/infra/realtime.memory'
 import { setRealtime } from '../../src/lib/infra/realtime'
+import { NOTIFICATION_KINDS } from '../../src/lib/notification-kinds'
 import { jobs, runJob } from '../../src/lib/infra/jobs'
 
 // Telling people they were sparked: each spark with its sender for a plan that shows who, one daily count (no names) for one that does not, both switchable;
@@ -159,8 +160,9 @@ describe('spark notifications', () => {
 
     it('runs as a job', async () => {
       expect(jobs['sparks/digest'].schedule).toBe('35 * * * *')
-      const result = (await runJob(jobs, 'sparks/digest', {})) as { considered: number }
-      expect(typeof result.considered).toBe('number')
+      const result = (await runJob(jobs, 'sparks/digest', {})) as { professional: { considered: number }; romance: { considered: number } }
+      expect(typeof result.professional.considered).toBe('number')
+      expect(typeof result.romance.considered).toBe('number')
     })
   })
 
@@ -199,7 +201,7 @@ describe('spark notifications', () => {
       const me = await registerAndLogin(`${tag}.prefs@test.dev`, `${tag}prefs`)
       const fresh = await req(me.jar, 'GET', '/api/notifications/preferences')
       expect(fresh.status).toBe(200)
-      expect(fresh.data.preferences.map((p: { kind: string }) => p.kind)).toEqual(['SPARK', 'SPARK_DIGEST', 'ROMANCE_DROP'])
+      expect(fresh.data.preferences.map((p: { kind: string }) => p.kind)).toEqual([...NOTIFICATION_KINDS])
       expect(fresh.data.preferences.every((p: { enabled: boolean }) => p.enabled)).toBe(true)
       expect(fresh.data.preferences[0]).toMatchObject({ type: 'SPARK', label: expect.stringContaining('sparked') })
 
