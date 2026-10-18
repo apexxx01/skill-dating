@@ -30,7 +30,6 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/profile-settings.ts': 'the owner’s own settings schema',
   'app/api/users/me/profile/route.ts': 'the owner’s own profile read and its one-time write',
   'app/api/users/route.ts': 'accepts it from the owner at onboarding; the response and the audit log never carry it',
-  'app/api/users/me/route.ts': 'answers whether one is still required (`birthDateRequired`); never the date',
   'app/api/admin/users/[id]/birthdate/route.ts': 'accepts a correction from an admin; the response carries an age band, never a date',
   'lib/user-sync.ts': 'wipes it when the account is deleted',
   'types/api.ts': 'documents the owner’s own profile settings',
@@ -53,7 +52,7 @@ describe('the date of birth stays private', () => {
     // A route that returns it would have to name it (above), so this checks the routes among the allowed files. Only the owner's own settings return the date; the
     // others take it in (onboarding, an admin correction) or answer a yes/no, and the integration tests (age-policy.test.ts) check that no response carries it.
     const routes = files.filter((file) => rel(file).startsWith('app/api/') && /birthDate/.test(fs.readFileSync(file, 'utf-8'))).map(rel)
-    expect(routes).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/profile/route.ts', 'app/api/users/me/route.ts', 'app/api/users/route.ts'])
+    expect(routes).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/profile/route.ts', 'app/api/users/route.ts'])
     const returnsIt = routes.filter((route) => /formatBirthDate/.test(fs.readFileSync(path.join(SRC, route), 'utf-8')))
     expect(returnsIt).toEqual(['app/api/users/me/profile/route.ts'])
   })

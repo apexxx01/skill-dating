@@ -17,9 +17,9 @@ export interface OnboardingFacts {
   hasBirthDate: boolean
 }
 
-/** Whether the three parts of onboarding are done. `birthDateRequired` is the BIRTH_DATE_REQUIRED setting. */
-export function isOnboardingComplete(facts: OnboardingFacts, birthDateRequired: boolean): boolean {
-  return Boolean(facts.headline) && facts.skillCount > 0 && (!birthDateRequired || facts.hasBirthDate)
+/** Whether the three parts of onboarding are done. `ageRequired` is the BIRTH_DATE_REQUIRED setting. */
+export function isOnboardingComplete(facts: OnboardingFacts, ageRequired: boolean): boolean {
+  return Boolean(facts.headline) && facts.skillCount > 0 && (!ageRequired || facts.hasBirthDate)
 }
 
 type Db = Pick<PrismaClient, 'user' | 'userSkill' | 'productEvent'>

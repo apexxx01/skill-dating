@@ -30,7 +30,7 @@ describe('the platform age policy', () => {
       await testPrisma.userSkill.create({ data: { userId: me.userId, skillId: skill.id } })
 
       const before = await req(me.jar, 'GET', '/api/users/me')
-      expect(before.data).toMatchObject({ birthDateRequired: true, isMinor: false, ageRefused: false, onboardingComplete: false })
+      expect(before.data).toMatchObject({ ageRequired: true, isMinor: false, ageRefused: false, onboardingComplete: false })
 
       const headlineOnly = await req(me.jar, 'PATCH', '/api/users', { headline: 'Builder of things' })
       expect(headlineOnly.status).toBe(200)
@@ -40,7 +40,7 @@ describe('the platform age policy', () => {
       expect(done.status).toBe(200)
       expect(JSON.stringify(done.data)).not.toContain('birthDate')
       const after = await req(me.jar, 'GET', '/api/users/me')
-      expect(after.data).toMatchObject({ birthDateRequired: false, isMinor: false, onboardingComplete: true })
+      expect(after.data).toMatchObject({ ageRequired: false, isMinor: false, onboardingComplete: true })
       expect(JSON.stringify(after.data)).not.toContain(bornYearsAgo(30))
       expect(dateOnly((await stored(me.userId)).birthDate)).toBe(bornYearsAgo(30))
       await testPrisma.userSkill.deleteMany({ where: { skillId: skill.id } })
@@ -128,7 +128,7 @@ describe('the platform age policy', () => {
 
       const set = await req(teen.jar, 'PATCH', '/api/users', { birthDate: bornYearsAgo(17) })
       expect(set.status).toBe(200)
-      expect(await req(teen.jar, 'GET', '/api/users/me')).toMatchObject({ data: { isMinor: true, ageRefused: false, birthDateRequired: false } })
+      expect(await req(teen.jar, 'GET', '/api/users/me')).toMatchObject({ data: { isMinor: true, ageRefused: false, ageRequired: false } })
       // What was finer than a country is cleared when the date makes them a minor; the country stays.
       const profile = await testPrisma.profile.findUniqueOrThrow({ where: { userId: teen.userId } })
       expect(profile).toMatchObject({ countryCode: 'IN', city: null, cityKey: null, campus: null, campusKey: null })

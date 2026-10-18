@@ -33,7 +33,7 @@ How it is built:
   restriction ends on the 18th birthday without a job. Age is counted on the UTC calendar date; a 29 February birthday is reached on 1 March in a common year
   (`src/lib/age.ts`, with a test over every day of two years).
 - **Private.** The date is returned to nobody but its owner, on `GET /api/users/me/profile`. `GET /api/users/me` says only whether one is still required
-  (`birthDateRequired`), whether the account is a minor's (`isMinor`) and whether it was refused (`ageRefused`). It is never written to the audit log of a
+  (`ageRequired`), whether the account is a minor's (`isMinor`) and whether it was refused (`ageRefused`). It is never written to the audit log of a
   profile edit, never part of a search, a profile, a drop, a match or a leaderboard, and is wiped when the account is deleted. A source-scan test
   (`src/lib/matching/privacy.test.ts`) lists the only files allowed to name the column and the only route allowed to return it.
 - **Rollout switch.** `BIRTH_DATE_REQUIRED` (default `true`) controls whether onboarding needs the date. The backend is ready before the onboarding screen asks for it, so a

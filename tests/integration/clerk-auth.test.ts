@@ -183,7 +183,7 @@ describe('clerk authentication', () => {
       await testPrisma.user.update({ where: { id: A.userId }, data: { headline: 'Builder' } })
       await testPrisma.userSkill.create({ data: { userId: A.userId, skillId: skill.id } })
       const incomplete = await req(A.jar, 'GET', '/api/users/me')
-      expect(incomplete.data).toMatchObject({ onboardingComplete: false, birthDateRequired: true })
+      expect(incomplete.data).toMatchObject({ onboardingComplete: false, ageRequired: true })
 
       // Onboarded (a headline, at least one skill and a date of birth): /onboarding sends them on.
       await testPrisma.user.update({ where: { id: A.userId }, data: { birthDate: new Date('1995-06-15T00:00:00Z') } })
