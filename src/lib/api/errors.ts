@@ -149,6 +149,7 @@ export const ERROR_CATALOG = {
   ROMANCE_ACCOUNT_TOO_NEW: { status: 403, message: 'Your account needs to be a week old, with a verified email, to send a {mode} spark' },
   ROMANCE_SPARK_LIMIT_REACHED: { status: 429, message: 'You have used all {limit} of your {mode} sparks for this week. More arrive on Monday' },
   ROMANCE_PHOTO_LIMIT: { status: 400, message: 'You can have at most 6 photos' },
+  DUO_BUSY: { status: 409, message: 'One of you is already in a Duo. Dissolve it first' },
   MATCH_NOT_FOUND: { status: 404, message: 'Match not found' },
   MATCH_EXISTS: { status: 409, message: 'You are already matched with this person' },
   MATCH_ENDED: { status: 409, message: 'This match has ended and cannot be started again' },

@@ -403,6 +403,15 @@ Agrees to share photos with the other person of an open romance match: asks them
 ### `DELETE /api/romance/matches/[id]/reveal`
 Withdraws: cancels the caller's own ask, declines the other's (`DECLINED`), or revokes an accepted reveal (`REVOKED`), at once and for both. Safe to repeat. Ending the match revokes it too. Either person may ask again later.
 
+### `GET /api/romance/duo`
+The caller's Duo, a page two people of a romance match share by consent. **Response:** `{ duo }`, `null` or `{ id, status ("PENDING"|"ACTIVE"), requestedByMe, partner: { id, name, username, headline }, shared }`. `shared` is set only while ACTIVE: `{ projects: [{ id, name, slug, status, shortDesc }] (projects both are members of), heatmap: { timezone, from, to, items: [{ date, xp, actions }], partnerActivityHidden } }`, the two people's XP per day added up on the caller's own days. A partner who turned "show activity" off contributes nothing (`partnerActivityHidden: true`). The Duo page is for the two of them only: it is on no profile, passport, feed or leaderboard.
+
+### `POST /api/romance/duo`
+Honours `Idempotency-Key`. **Body:** `{ matchId }` (unknown keys refused). Asks the other person of that open romance match to form a Duo, or accepts when they have already asked. **Response:** `{ id, status }`. `404 MATCH_NOT_FOUND` (not in the match, ended, or not a romance match), `409 DUO_BUSY` (either is in another active Duo).
+
+### `DELETE /api/romance/duo`
+Dissolves the caller's Duo, or declines or cancels a pending one, at once and for both. **Response:** `{ dissolved }`. Ending the match dissolves it too. (Build Dates, the first date as a small collaboration, are Phase 2: only their model exists; no route.)
+
 ### `DELETE /api/romance/profile`
 Leaves the mode: the profile, its photos (and their uploads), every drop for or of the caller and every pending romance spark of theirs are removed, and their open romance matches are **ended for good and silently** (the conversation is closed for both; nobody is notified). **Response:** `{ left: true, hadProfile, matchesEnded }`. Safe to repeat. Being removed for an admin correction of the date of birth to 16 or 17, or by deleting the account, does the same.
 
@@ -791,6 +800,7 @@ and a unit test fails if a code is missing here.
 | `ROMANCE_ACCOUNT_TOO_NEW` | 403 | Your account needs to be a week old, with a verified email, to send a {mode} spark |
 | `ROMANCE_SPARK_LIMIT_REACHED` | 429 | You have used all {limit} of your {mode} sparks for this week. More arrive on Monday |
 | `ROMANCE_PHOTO_LIMIT` | 400 | You can have at most 6 photos |
+| `DUO_BUSY` | 409 | One of you is already in a Duo. Dissolve it first |
 | `MATCH_NOT_FOUND` | 404 | Match not found |
 | `MATCH_EXISTS` | 409 | You are already matched with this person |
 | `MATCH_ENDED` | 409 | This match has ended and cannot be started again |
