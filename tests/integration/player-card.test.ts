@@ -43,7 +43,7 @@ describe('player card', () => {
       tier: 'BRONZE',
       progress: { xpIntoLevel: 0, xpForNextLevel: 5, fraction: 0 },
       ranks: { global: null, country: null, city: null },
-      equipped: { title: null, frame: null, banner: null },
+      equipped: { title: null, frame: null, banner: null, badges: [] },
       streak: { current: 0, longest: 0, freezes: 0, lastDay: null },
       topAchievements: [],
       counts: { shipped: 0, hackathons: 0, wins: 0, endorsementsReceived: 0, crews: 0, milestones: 0 },

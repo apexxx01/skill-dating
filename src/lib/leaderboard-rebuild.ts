@@ -23,11 +23,13 @@ import { utcTimestamp } from '@/lib/sql'
 //     and doing it again changes nothing. It repeats, each pass looking at what arrived since the last, until a
 //     pass finds nothing new.
 //  4. Swap each staged board in for the real one with one rename.
+//  5. Settle. Anyone with an event stamped since the last replay pass began has their whole score re-read and SET
+//     on the live boards. An award that committed between that pass and the rename moved the old board, which the
+//     rename replaced; this puts it back, and it is just as right when the award landed on the new board.
 //
-// What is still possible: an award that commits after the last replay pass and before the rename has its
-// increment land on the old board, which the rename then replaces. That window is the time between two Redis
-// calls and costs one award until the next run. Moves (a new country, opting out) in the same window have the same
-// fate. Nothing else drifts.
+// What is still possible: an award that commits after the settle pass has read the log, or in the milliseconds
+// between that read and the write of its SET, which the next run repairs. Moves (a new country, opting out) in
+// the same window have the same fate. Nothing else drifts.
 
 type Db = Pick<PrismaClient, '$queryRaw' | 'profile' | 'season'>
 
@@ -111,6 +113,8 @@ export interface RebuildResult {
   members: number
   /** People whose score was re-read because they earned after the cutoff. */
   replayed: number
+  /** People whose live score was corrected by the final pass after the swap. */
+  settled: number
 }
 
 export interface RebuildOptions {
@@ -120,7 +124,7 @@ export interface RebuildOptions {
   lagMs?: number
   batchSize?: number
   /** Called between the steps of a period, `replaying` before each replay pass reads the log (tests use it to make XP land at a chosen moment). */
-  onStep?: (step: { name: 'cutoff' | 'aggregated' | 'replaying' | 'swapping'; period: PeriodRef; pass?: number }) => void | Promise<void>
+  onStep?: (step: { name: 'cutoff' | 'aggregated' | 'replaying' | 'swapping' | 'settling'; period: PeriodRef; pass?: number }) => void | Promise<void>
 }
 
 /** A fingerprint of what was staged for somebody, to tell whether a replay pass found anything new. */
@@ -138,7 +142,7 @@ export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date
   const lagMs = options.lagMs ?? SNAPSHOT_LAG_MS
   const batchSize = options.batchSize ?? REBUILD_BATCH
   const periods = await currentPeriods(db, now)
-  const result: RebuildResult = { periods: periods.length, boards: 0, members: 0, replayed: 0 }
+  const result: RebuildResult = { periods: periods.length, boards: 0, members: 0, replayed: 0, settled: 0 }
 
   for (const period of periods) {
     const stages = new Map<string, ZStage>()
@@ -150,7 +154,7 @@ export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date
       }
       return stage
     }
-    const step = async (name: 'cutoff' | 'aggregated' | 'replaying' | 'swapping', pass?: number) => options.onStep?.({ name, period, pass })
+    const step = async (name: 'cutoff' | 'aggregated' | 'replaying' | 'swapping' | 'settling', pass?: number) => options.onStep?.({ name, period, pass })
 
     try {
       // 1 and 2: everything up to the cutoff, a batch of people at a time.
@@ -180,10 +184,13 @@ export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date
       // 3: replay what came after the cutoff, until a pass finds nothing new.
       const staged = new Map<string, string>()
       let since = cutoff
+      // Where the last replay pass started looking: the final pass after the swap starts there.
+      let settleFrom = cutoff
       for (let pass = 1; ; pass++) {
         // Called before the pass reads the log, so whatever lands at this step is read by this pass.
         await step('replaying', pass)
         const passFrom = new Date(clock() - lagMs)
+        settleFrom = passFrom
         let changed = 0
         let touchedAfter = ''
         for (;;) {
@@ -213,6 +220,13 @@ export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date
         await stage.commit(period.ttlMs ? { ttlMs: period.ttlMs } : {})
         result.boards += 1
       }
+
+      // 5: settle. An award that committed between the last replay pass and the rename moved a board the rename
+      // then replaced, so it would be missing until the next run. Anyone with an event stamped since the last pass
+      // began has their whole score re-read and SET on the live boards: absolute, so it is right whether their
+      // increment landed on the old board (lost) or the new one (kept), and doing it twice changes nothing.
+      await step('settling')
+      result.settled += await settle(reader, cache, period, settleFrom, staged)
     } catch (error) {
       await Promise.allSettled([...stages.values()].map((stage) => stage.discard()))
       throw error
@@ -225,6 +239,38 @@ export async function rebuildBoards(db: Db, cache: Cache = getCache(), now: Date
 }
 
 const READY_TTL_MS = 400 * 24 * 60 * 60 * 1000
+
+/**
+ * The final pass, on the live boards after the swap: everybody with an event in the period stamped after `since`
+ * has their standing re-read and set. People whose standing is what was staged are skipped (the swap already put
+ * it there). Returns how many were corrected.
+ */
+async function settle(reader: LogReader, cache: Cache, period: PeriodRef, since: Date, staged: Map<string, string>): Promise<number> {
+  let corrected = 0
+  let after = ''
+  for (;;) {
+    const ids = await reader.touchedSince(period, since, after, REPLAY_BATCH)
+    if (ids.length === 0) break
+    after = ids[ids.length - 1]
+    for (const standing of await reader.standings(period, ids)) {
+      if (staged.get(standing.userId) === fingerprint(standing)) continue
+      corrected += 1
+      const scopes = scopesOf({ hidden: false, countryCode: standing.countryCode, cityKey: standing.cityKey, campusKey: standing.campusKey })
+      const on = standing.alive && !standing.hidden && standing.score > 0
+      for (const scope of scopes) {
+        const key = boardKey(period, scope)
+        if (on) {
+          await cache.zadd(key, standing.userId, standing.score)
+          if (period.ttlMs) await cache.expire(key, period.ttlMs)
+        } else {
+          await cache.zrem(key, standing.userId)
+        }
+      }
+    }
+    if (ids.length < REPLAY_BATCH) break
+  }
+  return corrected
+}
 
 /** Sets one person's whole score on the staged boards they belong on, and takes them off the ones they no longer do. */
 async function replay(period: PeriodRef, standing: Standing, stages: Map<string, ZStage>, stageFor: (key: string) => ZStage) {

@@ -6,6 +6,7 @@ import { lockProgress } from '@/lib/metrics'
 import { grant } from '@/lib/rewards'
 import { EVENT_REWARDS } from '@/lib/rewards-config'
 import { endorsementRewardAllowed } from '@/lib/skill-evidence'
+import { announceMatchTeams } from '@/lib/matching/team-match'
 import { peerPairsOf, withheldSubjects } from '@/lib/trust'
 
 // Who listens to what. This module is loaded by the bus before the first event
@@ -70,6 +71,9 @@ export async function payForEvent(context: TransactionalContext<DomainEventName>
     }
   }
 
+  // An event that pays no XP at all but is still about two people (a match, a reply) counts for each person whose counterparty is trusted.
+  if (!reward.xp) for (const pair of pairs) if (!withheld.has(pair.subjectId)) paid.add(pair.subjectId)
+
   const { unlocked } = await advanceProgress(context.tx, context.name, context.payload, paid)
   if (unlocked > 0) rewarded = true
 
@@ -83,6 +87,9 @@ export function registerSubscribers(target: EventBus = bus) {
 
   // The cosmetics a tier, an achievement or a streak earns. This, and nothing else, grants a cosmetic.
   for (const name of COSMETIC_EVENTS) target.onTransactional(name, (context) => unlockForEvent(context as TransactionalContext<DomainEventName>))
+
+  // Somebody joined a team: any match they have with one of its members now shares a team (the match-to-team achievement). Pays nothing.
+  target.onTransactional('TEAM_APPLICATION_ACCEPTED', ({ tx, payload }) => announceMatchTeams(tx, payload.userId, payload.teamId).then(() => undefined))
 
   // After commit only: a rolled-back action is not counted.
   target.onCommitted('PROJECT_CREATED', ({ payload }) => track(payload.userId, 'project_created', { projectId: payload.projectId }))

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 import type { PlayerCard } from '@/types/api'
-import { COSMETIC_BY_SLUG } from '@/lib/cosmetic-definitions'
+import { cosmeticDefinition } from '@/lib/cosmetic-definitions'
 import { readEquipped } from '@/lib/cosmetics'
 import { getCache, type Cache } from '@/lib/infra/cache'
 import { boardKey, scopesOf } from '@/lib/leaderboard-boards'
@@ -61,7 +61,7 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
 
   const level = levelFor(user.xp)
   const equipped = readEquipped(user.equipped)
-  const worn = (slug: string | null) => (slug ? { slug, name: COSMETIC_BY_SLUG.get(slug)!.name } : null)
+  const worn = (slug: string | null) => (slug ? { slug, name: cosmeticDefinition(slug)!.name } : null)
   const state = streakFromColumns(user)
   // The rarest first: a smaller share of people has it. An unknown rarity (the nightly job has not run) sorts last, then by reward.
   const top = [...earned]
@@ -80,6 +80,7 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
       title: worn(equipped.title),
       frame: worn(equipped.frame),
       banner: worn(equipped.banner),
+      badges: equipped.badges.map((slug) => worn(slug)!),
     },
     streak: { current: effectiveStreak(state, streakDay(now, user.timezone)), longest: state.longest, freezes: state.freezes, lastDay: state.lastDay },
     topAchievements: top,

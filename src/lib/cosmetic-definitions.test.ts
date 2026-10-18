@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { COSMETIC_BY_SLUG, COSMETIC_DEFINITIONS, cosmeticDefinition, matchingCosmetics, parseSeasonSlug, requirementText, ruleMatches, SEASON_AWARDS, seasonAwardCutoffs, seasonCosmetic, seasonCosmeticSlug, SLOT_OF } from './cosmetic-definitions'
+import { COSMETIC_BY_SLUG, COSMETIC_DEFINITIONS, cosmeticDefinition, matchingCosmetics, MAX_BADGES_SHOWN, parseSeasonSlug, requirementText, ruleMatches, SEASON_AWARDS, seasonAwardCutoffs, seasonCosmetic, seasonCosmeticSlug, SLOT_OF } from './cosmetic-definitions'
 import { ACHIEVEMENT_DEFINITIONS } from './achievement-definitions'
 import { TIERS } from './levels'
 
@@ -51,8 +51,12 @@ describe('the cosmetic catalog', () => {
   })
 
   it('puts each type in its own slot, and has no avatar parts yet', () => {
-    expect(SLOT_OF).toEqual({ TITLE: 'title', FRAME: 'frame', BANNER: 'banner', AVATAR_PART: null })
+    expect(SLOT_OF).toEqual({ TITLE: 'title', FRAME: 'frame', BANNER: 'banner', BADGE: 'badges', AVATAR_PART: null })
     expect(COSMETIC_DEFINITIONS.filter((c) => c.type === 'AVATAR_PART')).toEqual([])
+  })
+
+  it('shows at most three badges', () => {
+    expect(MAX_BADGES_SHOWN).toBe(3)
   })
 })
 
@@ -115,7 +119,7 @@ describe('season cosmetics', () => {
     expect(title).toMatchObject({ slug: 'season-3-top-100', type: 'TITLE', name: 'Season 3 Top 100' })
     expect(apex).toMatchObject({ slug: 'season-3-top-1-percent', type: 'FRAME', name: 'Season 3 Top 1%', rarity: 'LEGENDARY' })
     expect(strong).toMatchObject({ slug: 'season-3-top-10-percent', type: 'FRAME', name: 'Season 3 Top 10%' })
-    expect(badge).toMatchObject({ slug: 'season-3-participant', type: 'AVATAR_PART', name: 'Season 3 Participant', rarity: 'COMMON' })
+    expect(badge).toMatchObject({ slug: 'season-3-participant', type: 'BADGE', name: 'Season 3 Participant', rarity: 'COMMON' })
     expect(SEASON_AWARDS).toEqual(['TOP_100', 'TOP_1_PERCENT', 'TOP_10_PERCENT', 'PARTICIPANT'])
   })
 
@@ -159,11 +163,11 @@ describe('season cosmetics', () => {
     expect(cosmeticDefinition('nothing')).toBeUndefined()
   })
 
-  it('wears in the same slots as the fixed ones: the title as a title, the frames as frames, the badge nowhere', () => {
+  it('wears in the same slots as the fixed ones: the title as a title, the frames as frames, the badge in the badges slot', () => {
     expect(SLOT_OF[seasonCosmetic(1, 'TOP_100').type]).toBe('title')
     expect(SLOT_OF[seasonCosmetic(1, 'TOP_1_PERCENT').type]).toBe('frame')
     expect(SLOT_OF[seasonCosmetic(1, 'TOP_10_PERCENT').type]).toBe('frame')
-    expect(SLOT_OF[seasonCosmetic(1, 'PARTICIPANT').type]).toBeNull()
+    expect(SLOT_OF[seasonCosmetic(1, 'PARTICIPANT').type]).toBe('badges')
   })
 
   it('is never earned by something a person does: no trigger matches a season rule', () => {

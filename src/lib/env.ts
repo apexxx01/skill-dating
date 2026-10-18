@@ -68,6 +68,9 @@ const envSchema = z.object({
 
     // Minimum level written by the structured logger.
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
+
+    // Whether the Prisma client prints every query in development (default on). Scripts turn it off.
+    PRISMA_QUERY_LOG: z.enum(['on', 'off']).optional(),
   })
 
 // Rules that span several settings. They are checked from which settings are
@@ -221,3 +224,8 @@ export const nodeEnv: Env['NODE_ENV'] = z
   .enum(['development', 'test', 'production'])
   .catch('development')
   .parse(process.env.NODE_ENV)
+
+// PRISMA_QUERY_LOG alone, for the same reason. A function, so a script can set the variable after its imports have run.
+export function prismaQueryLog(): 'on' | 'off' {
+  return z.enum(['on', 'off']).catch('on').parse(process.env.PRISMA_QUERY_LOG)
+}

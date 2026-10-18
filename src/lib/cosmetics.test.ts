@@ -130,7 +130,7 @@ describe('grantSeasonCosmetics', () => {
     const { tx, upserts } = seasonTx(500)
     await grantSeasonCosmetics(tx, { id: 's3', number: 3 }, at)
     expect(upserts.map((upsert) => upsert.slug)).toEqual(['season-3-top-100', 'season-3-top-1-percent', 'season-3-top-10-percent', 'season-3-participant'])
-    expect(upserts.map((upsert) => upsert.create.type)).toEqual(['TITLE', 'FRAME', 'FRAME', 'AVATAR_PART'])
+    expect(upserts.map((upsert) => upsert.create.type)).toEqual(['TITLE', 'FRAME', 'FRAME', 'BADGE'])
     expect(upserts.map((upsert) => upsert.create.name)).toEqual(['Season 3 Top 100', 'Season 3 Top 1%', 'Season 3 Top 10%', 'Season 3 Participant'])
   })
 
@@ -184,8 +184,8 @@ describe('grantSeasonCosmetics', () => {
 })
 
 describe('readEquipped', () => {
-  it('reads the three slots, tolerating whatever is stored', () => {
-    expect(readEquipped({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })).toEqual({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })
+  it('reads the slots, tolerating whatever is stored', () => {
+    expect(readEquipped({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })).toEqual({ title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper', badges: [] })
     expect(readEquipped({})).toEqual(NOTHING_EQUIPPED)
     expect(readEquipped(null)).toEqual(NOTHING_EQUIPPED)
     expect(readEquipped([])).toEqual(NOTHING_EQUIPPED)
@@ -197,7 +197,18 @@ describe('readEquipped', () => {
   })
 
   it('keeps a season’s title and frame', () => {
-    expect(readEquipped({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant' })).toEqual({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant' })
+    expect(readEquipped({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant' })).toEqual({ title: 'season-2-top-100', frame: 'season-2-top-1-percent', banner: 'season-9-participant', badges: [] })
+  })
+
+  it('reads the badges in order, at most three, each once, and drops what is not a cosmetic', () => {
+    expect(readEquipped({ badges: ['season-1-participant', 'season-2-participant'] }).badges).toEqual(['season-1-participant', 'season-2-participant'])
+    expect(readEquipped({ badges: ['season-1-participant', 'season-1-participant', 'nonsense', 7, 'season-2-participant', 'season-3-participant', 'season-4-participant'] }).badges).toEqual([
+      'season-1-participant',
+      'season-2-participant',
+      'season-3-participant',
+    ])
+    expect(readEquipped({ badges: 'season-1-participant' }).badges).toEqual([])
+    expect(readEquipped({ badges: null }).badges).toEqual([])
   })
 })
 
@@ -216,8 +227,8 @@ describe('equip', () => {
   it('wears what the user owns, in the right slots', async () => {
     const { db, update } = fakeDb(['title-gold', 'frame-streak-7', 'banner-shipper'])
     const outcome = await equip(db, 'u1', { title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' })
-    expect(outcome).toEqual({ ok: true, equipped: { title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' } })
-    expect(update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { equipped: { title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper' } } })
+    expect(outcome).toEqual({ ok: true, equipped: { title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper', badges: [] } })
+    expect(update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { equipped: { title: 'title-gold', frame: 'frame-streak-7', banner: 'banner-shipper', badges: [] } } })
   })
 
   it('refuses a cosmetic the user has not earned, and changes nothing', async () => {
@@ -242,7 +253,39 @@ describe('equip', () => {
 
   it('takes a cosmetic off with null, and leaves the slots that are not mentioned', async () => {
     const { db } = fakeDb(['frame-streak-7'], { title: 'title-gold', frame: 'frame-streak-7' })
-    expect(await equip(db, 'u1', { title: null })).toEqual({ ok: true, equipped: { title: null, frame: 'frame-streak-7', banner: null } })
+    expect(await equip(db, 'u1', { title: null })).toEqual({ ok: true, equipped: { title: null, frame: 'frame-streak-7', banner: null, badges: [] } })
+  })
+
+  describe('badges', () => {
+    const owned = ['season-1-participant', 'season-2-participant', 'season-3-participant', 'season-4-participant', 'title-gold']
+
+    it('wears up to three owned badges in the order given, and replaces the list', async () => {
+      const { db, update } = fakeDb(owned, { title: 'title-gold', badges: ['season-4-participant'] })
+      const outcome = await equip(db, 'u1', { badges: ['season-3-participant', 'season-1-participant'] })
+      expect(outcome).toEqual({ ok: true, equipped: { title: 'title-gold', frame: null, banner: null, badges: ['season-3-participant', 'season-1-participant'] } })
+      expect(update).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes every badge off with an empty list, and leaves them when the slot is not mentioned', async () => {
+      const { db } = fakeDb(owned, { badges: ['season-1-participant'] })
+      expect(await equip(db, 'u1', { badges: [] })).toMatchObject({ ok: true, equipped: { badges: [] } })
+      expect(await equip(db, 'u1', { title: null })).toMatchObject({ ok: true, equipped: { badges: ['season-1-participant'] } })
+    })
+
+    it('never stores more than three', async () => {
+      const { db } = fakeDb(owned)
+      const outcome = await equip(db, 'u1', { badges: ['season-1-participant', 'season-2-participant', 'season-3-participant', 'season-4-participant'] })
+      expect(outcome).toMatchObject({ ok: true })
+      expect((outcome as { equipped: { badges: string[] } }).equipped.badges).toEqual(['season-1-participant', 'season-2-participant', 'season-3-participant'])
+    })
+
+    it('refuses a badge the user has not earned, something that is not a badge, and a badge in another slot', async () => {
+      const { db, update } = fakeDb(['season-1-participant', 'title-gold'])
+      expect(await equip(db, 'u1', { badges: ['season-1-participant', 'season-2-participant'] })).toEqual({ ok: false, reason: 'NOT_OWNED', slug: 'season-2-participant' })
+      expect(await equip(db, 'u1', { badges: ['title-gold'] })).toEqual({ ok: false, reason: 'WRONG_SLOT', slug: 'title-gold' })
+      expect(await equip(db, 'u1', { title: 'season-1-participant' })).toEqual({ ok: false, reason: 'WRONG_SLOT', slug: 'season-1-participant' })
+      expect(update).not.toHaveBeenCalled()
+    })
   })
 
   it('does not ask the database about ownership when it is only taking things off', async () => {

@@ -1,23 +1,24 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, type ApiContext } from '@/lib/api/handler'
+import { withAuth, validateBody, createApiResponse, createApiError, type ApiContext } from '@/lib/api/handler'
 import { getJobQueue } from '@/lib/infra/jobs'
 import { loadMembership } from '@/lib/leaderboard-write'
 import { invalidateUserViews } from '@/lib/xp-views'
 import { log } from '@/lib/log'
 import { DEFAULT_PROFILE_SETTINGS, profileColumns, profileSettingsSchema, type ProfileSettings } from '@/lib/profile-settings'
+import { formatBirthDate, parseBirthDate } from '@/lib/matching/dating'
 
 // The caller's own location and privacy settings. The Profile row is created by the
 // first save; until then every setting has its default.
 
 async function readSettings(prisma: ApiContext['prisma'], userId: string): Promise<ProfileSettings> {
   const [user, profile] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { timezone: true, birthDate: true } }),
     prisma.profile.findUnique({
       where: { userId },
       select: { countryCode: true, city: true, campus: true, hideFromLeaderboards: true, showActivity: true },
     }),
   ])
-  return { ...DEFAULT_PROFILE_SETTINGS, ...(profile ?? {}), timezone: user?.timezone ?? null }
+  return { ...DEFAULT_PROFILE_SETTINGS, ...(profile ?? {}), timezone: user?.timezone ?? null, birthDate: user?.birthDate ? formatBirthDate(user.birthDate) : null }
 }
 
 export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
@@ -30,9 +31,21 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const columns = profileColumns(body.data)
   const before = await loadMembership(prisma, user.id)
+
+  // The date of birth is set once. Sending the same date again is fine; a different one is refused, so it cannot be changed to pass for an adult.
+  const birthDate = body.data.birthDate !== undefined ? parseBirthDate(body.data.birthDate) : null
+  if (birthDate) {
+    const current = (await prisma.user.findUnique({ where: { id: user.id }, select: { birthDate: true } }))?.birthDate
+    if (current && current.getTime() !== birthDate.getTime()) return createApiError('BIRTH_DATE_LOCKED')
+  }
+
   await prisma.$transaction(async (tx) => {
     if (body.data.timezone !== undefined) {
       await tx.user.update({ where: { id: user.id }, data: { timezone: body.data.timezone } })
+    }
+    if (birthDate) {
+      // Only while it is still empty: two requests racing cannot overwrite each other.
+      await tx.user.updateMany({ where: { id: user.id, birthDate: null }, data: { birthDate } })
     }
     if (Object.keys(columns).length > 0) {
       await tx.profile.upsert({ where: { userId: user.id }, create: { userId: user.id, ...columns }, update: columns })

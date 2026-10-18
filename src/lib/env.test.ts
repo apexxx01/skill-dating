@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { parseEnv, requiresProductionConfig, inMemoryFallbacks, EnvValidationError } from './env'
+import { describe, it, expect, afterEach } from 'vitest'
+import { parseEnv, requiresProductionConfig, inMemoryFallbacks, prismaQueryLog, EnvValidationError } from './env'
 
 const base = {
   DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/skill_dating?schema=public',
@@ -208,5 +208,27 @@ describe('deployment tiers', () => {
     expect(preview.join('\n')).toContain('INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY not set')
     expect(preview.join('\n')).toContain('CLERK_WEBHOOK_SECRET not set')
     expect(preview.join('\n')).not.toContain('ABLY_API_KEY not set')
+  })
+})
+
+describe('PRISMA_QUERY_LOG', () => {
+  const original = process.env.PRISMA_QUERY_LOG
+  afterEach(() => {
+    if (original === undefined) delete process.env.PRISMA_QUERY_LOG
+    else process.env.PRISMA_QUERY_LOG = original
+  })
+
+  it('is on unless it says off, and is read when asked, so a script can switch it off after its imports', () => {
+    delete process.env.PRISMA_QUERY_LOG
+    expect(prismaQueryLog()).toBe('on')
+    process.env.PRISMA_QUERY_LOG = 'off'
+    expect(prismaQueryLog()).toBe('off')
+    process.env.PRISMA_QUERY_LOG = 'nonsense'
+    expect(prismaQueryLog()).toBe('on')
+  })
+
+  it('is validated at boot like every other setting', () => {
+    expect(parseEnv({ ...base, PRISMA_QUERY_LOG: 'off' }).PRISMA_QUERY_LOG).toBe('off')
+    expect(problems({ ...base, PRISMA_QUERY_LOG: 'maybe' }).join('\n')).toContain('PRISMA_QUERY_LOG')
   })
 })

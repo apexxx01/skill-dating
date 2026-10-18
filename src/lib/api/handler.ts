@@ -142,7 +142,8 @@ async function handleAuthenticated(
   return handler(request, context)
 }
 
-export function validateBody<T>(schema: z.ZodSchema<T>) {
+// `I` is what the client sends and `T` what the route gets: they differ for a schema with defaults or transforms.
+export function validateBody<T, I = T>(schema: z.ZodType<T, z.ZodTypeDef, I>) {
   return async (request: NextRequest): Promise<{ data: T } | NextResponse> => {
     try {
       const body = await request.json()

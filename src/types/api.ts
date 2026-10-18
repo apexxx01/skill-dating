@@ -733,7 +733,13 @@ export interface PlayerCard {
   /** Null for somebody else's card when the person keeps their activity private. */
   streak: { current: number; longest: number; freezes: number; lastDay: string | null } | null
   /** What the person wears, named. */
-  equipped: { title: { slug: string; name: string } | null; frame: { slug: string; name: string } | null; banner: { slug: string; name: string } | null }
+  equipped: {
+    title: { slug: string; name: string } | null
+    frame: { slug: string; name: string } | null
+    banner: { slug: string; name: string } | null
+    /** At most three, in the order the person put them. */
+    badges: { slug: string; name: string }[]
+  }
   /** The three rarest achievements earned, rarest first. */
   topAchievements: { slug: string; name: string; icon: string | null; rarity: number | null; earnedAt: IsoDate }[]
   counts: {
@@ -756,6 +762,8 @@ export interface EquippedCosmetics {
   title: string | null
   frame: string | null
   banner: string | null
+  /** Up to three badge slugs, in display order. */
+  badges: string[]
 }
 
 /**
@@ -764,12 +772,12 @@ export interface EquippedCosmetics {
  */
 export interface CosmeticItem {
   slug: string
-  type: 'TITLE' | 'FRAME' | 'BANNER' | 'AVATAR_PART'
+  type: 'TITLE' | 'FRAME' | 'BANNER' | 'BADGE' | 'AVATAR_PART'
   name: string
   description: string
   rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
   /** Which of `EquippedCosmetics` it goes in; null for a type that cannot be worn yet. */
-  slot: 'title' | 'frame' | 'banner' | null
+  slot: 'title' | 'frame' | 'banner' | 'badges' | null
   owned: boolean
   masked: boolean
   /** Being worn right now. */
@@ -874,6 +882,11 @@ export interface ProfileSettings {
   hideFromLeaderboards: boolean
   /** false: other people get an empty heatmap for this user. */
   showActivity: boolean
+  /**
+   * "YYYY-MM-DD", PRIVATE: only this endpoint, for the owner, ever returns it. Needed to use dating (18 or older). Set once and then
+   * locked: sending a different date afterwards is `409 BIRTH_DATE_LOCKED`. It cannot be cleared.
+   */
+  birthDate: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -910,4 +923,147 @@ export interface AdminFlag {
 export interface AdminFlagsResponse {
   flags: AdminFlag[]
   nextCursor: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Matching: drops, sparks and matches (docs/MATCHING.md)
+// ---------------------------------------------------------------------------
+
+export type MatchTypeName = 'COFOUNDER' | 'HACKATHON_TEAMMATE' | 'COLLABORATOR' | 'MENTOR' | 'MENTEE' | 'DATING'
+
+/** The short card of a person in the matching screens. Public profile fields only. */
+export interface MatchPerson {
+  id: string
+  name: string | null
+  username: string
+  image: string | null
+  headline: string | null
+  builderRole: string | null
+  location: string | null
+  level: number
+  tier: Tier
+  /** Their five strongest skills. */
+  skills: { slug: string; name: string; level: number }[]
+  proof: { verifiedEvidence: number; shipped: number }
+}
+
+/** One person shown to the caller for one local day. */
+export interface DropItem {
+  id: string
+  /** The relationship, from the caller's side: a MENTEE is shown mentors. */
+  connectionType: MatchTypeName
+  /** 0 to 100. */
+  score: number
+  /** At most three lines saying why. */
+  reasons: string[]
+  status: 'NEW' | 'SPARKED' | 'PASSED' | 'EXPIRED'
+  /** Resurfaced because the person has grown since the caller passed. */
+  secondLook: boolean
+  expiresAt: IsoDate
+  candidate: MatchPerson
+}
+
+/** GET /api/drops/today. */
+export interface TodayDrops {
+  /** The caller's own calendar day, "YYYY-MM-DD". */
+  date: string
+  drops: DropItem[]
+  /** False until the caller has saved a matching profile: show the setup instead. */
+  hasProfile: boolean
+  paused: boolean
+  dropTimeLocal: string
+  /** When the next drops arrive, to the hour (they are made by an hourly job). Null while paused or without a profile. */
+  nextDropAt: IsoDate | null
+}
+
+/** A spark the caller sent. */
+export interface SparkSent {
+  id: string
+  toId: string
+  /** The caller's side of the relationship. */
+  connectionType: MatchTypeName
+  opener: string
+  status: 'PENDING' | 'MATCHED'
+  createdAt: IsoDate
+}
+
+/** One match, from the caller's side. */
+export interface MatchItem {
+  id: string
+  /** The relationship, named the same from both sides (a mentor and a mentee are a `MENTOR` match). */
+  connectionType: MatchTypeName
+  yourRole: MatchTypeName
+  theirRole: MatchTypeName
+  createdAt: IsoDate
+  /** The conversation both are in. Its `closedAt` says whether it can still be posted in. */
+  conversationId: string | null
+  other: MatchPerson
+}
+
+/** POST /api/sparks: the spark, and the match when the other person had already sparked back (otherwise null). */
+export interface SendSparkResponse {
+  spark: SparkSent
+  match: MatchItem | null
+}
+
+/** GET /api/matches. Only open matches. */
+export interface MatchesResponse {
+  matches: MatchItem[]
+  nextCursor: string | null
+  total: number
+}
+
+/** One spark the caller received and has not answered. */
+export interface ReceivedSparkItem {
+  id: string
+  /** The sender's side of the relationship: answer with a spark of the counterpart type (a MENTOR spark is answered as MENTEE). */
+  connectionType: MatchTypeName
+  opener: string
+  createdAt: IsoDate
+  from: MatchPerson
+}
+
+/**
+ * GET /api/sparks/received. Who sparked and what they wrote is a paid feature (`SEE_WHO_SPARKED`): without it `canSee` is false, `sparks`
+ * is empty and only `count` is returned.
+ */
+export interface ReceivedSparks {
+  canSee: boolean
+  count: number
+  sparks: ReceivedSparkItem[]
+  nextCursor: string | null
+}
+
+/** A skill or role a team asked for or builds with, and where the need came from. */
+export interface TeamGapNeed {
+  name: string
+  /** Set for a skill of the catalog; roles ("Designer") have no slug. */
+  slug?: string
+  sources: ('TEAM_NEEDS' | 'PROJECT_NEEDS' | 'PROJECT_STACK')[]
+}
+
+/** One person who could fill what a team is missing. */
+export interface TeamGapCandidate {
+  person: MatchPerson
+  /** The kind of teammate they would be: HACKATHON_TEAMMATE for a hackathon team, COLLABORATOR or COFOUNDER otherwise. Never DATING. */
+  connectionType: MatchTypeName
+  /** 0 to 100, from the same scorer as the daily drops. */
+  score: number
+  /** At most three lines saying why. */
+  reasons: string[]
+  /** Names of the team's missing skills this person has. */
+  fills: string[]
+}
+
+/** GET /api/teams/{id}/gaps (the team's owner or admin). */
+export interface TeamGapsResponse {
+  team: { id: string; name: string; maxSize: number; memberCount: number; openSlots: number }
+  /** What was asked for, as written: the team's `lookingFor`, its project's `lookingFor`, and its project's tech stack. */
+  needs: { team: string[]; project: string[]; stack: string[] }
+  missing: { skills: TeamGapNeed[]; roles: TeamGapNeed[] }
+  covered: { skills: (TeamGapNeed & { memberIds: string[] })[]; roles: (TeamGapNeed & { memberIds: string[] })[] }
+  /** Technologies of the project that are not skills of the catalog, so cannot be checked against anyone. */
+  unmatchedStack: string[]
+  /** The five best fits, best first. Invite one with POST /api/teams/{id}/invitations. */
+  candidates: TeamGapCandidate[]
 }

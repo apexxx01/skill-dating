@@ -9,7 +9,7 @@ be tuned without touching a route:
 | `src/lib/levels.ts` | The level curve and the tiers (pure functions) |
 | `src/lib/streaks.ts` | The streak rules (pure functions) |
 | `src/lib/metrics.ts` | What is counted per user, and which event counts what |
-| `src/lib/achievement-definitions.ts` | The 40 achievements, their XP and what unlocks them |
+| `src/lib/achievement-definitions.ts` | The 43 achievements, their XP and what unlocks them |
 | `src/lib/quest-definitions.ts`, `src/lib/quests.ts` | The quest pool and the daily and weekly rotation |
 | `src/lib/cosmetic-definitions.ts` | The cosmetics and the rules that unlock them |
 | `src/lib/leaderboard-boards.ts` | The boards: periods, scopes, and what each is called in the cache |
@@ -73,12 +73,25 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `CONNECTION_ACCEPTED` | each of the two people | the other one |
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the sender | the recipient |
 | `MESSAGE_REPLIED` (pays no XP) | the person who replied | the person who was waiting for the reply |
+| `MATCH_CREATED` (pays no XP) | each of the two people | the other one |
+| `MATCH_TEAM_FORMED` (pays no XP) | each of the two people | the other one |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
 endorsement shows on the evidence). The achievements and quests that these actions count toward need no gate of their own: a count
 is only recorded for an XP award that was paid, and the replies, which pay no XP, are checked directly. In a connection each person is
 judged on the other, so a new account connecting with an established one is paid nothing for it while the established one is paid.
+
+**Why the gate judges the counterparty and not the person being paid.** What makes farming work is a cheap payer: an account made in a
+minute that "endorses", "accepts" or "replies" to its twin. Making the payer expensive (a week old, a verified email, not blocked) stops
+that, because an attacker then needs an aged, verified account for every payment. Judging the *recipient* as well would add nothing
+against that and would hurt the people the platform wants most: a real newcomer would earn nothing for the first thing an established
+builder does for them. So the default is counterparty-only. There is one deliberate exception, `TEAM_APPLICATION_ACCEPTED`
+(`subjectMustBeTrusted`), which also requires the applicant's own account to pass. An accept is a single click by whoever runs the team,
+it pays the largest of these rewards, and nothing caps it per recipient, so one aged account could otherwise mint XP for any number of
+fresh accounts by accepting their applications. Requiring the applicant to be established too closes that, and costs a real applicant only
+the wait for their account to reach a week. The pair is checked in `pairDistrust`, and this is the only event that sets the flag
+(a test pins that).
 
 A new person therefore earns nothing from other people for their first week, and earns it all after: the XP for what they do
 themselves (projects, milestones, evidence, updates) is unaffected. Endorsements keep two further rules of their own
@@ -211,7 +224,7 @@ owner's `showActivity` switch.
 
 ## Achievements
 
-There are **40**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
+There are **43**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
 slug it had before there were tiers.
 
 **How they work.** A domain event is turned into *ticks* (`EVENT_TICKS` in `src/lib/metrics.ts`): "this user shipped
@@ -261,6 +274,16 @@ nobody starts at zero; an achievement whose target a counter already meets unloc
 | `streak-30` | Month of Momentum | 120 | 30 day streak |
 | `streak-100` | Hundred Days | 400 | 100 day streak |
 | `streak-365` | Year of Building | 1500 | 365 day streak |
+| `first-match` | First Match | 0 | 1 match |
+| `matches-10` | Well Matched | 0 | 10 matches |
+| `match-teamed` | Better Together | 0 | formed a team with someone you matched with (once per match) |
+
+**Matches pay no XP, so the three match achievements pay none either** (`xpReward: 0`): sparks and matches are never an XP source, so
+that starting conversations cannot be farmed. They are recognition only. A match counts for a person only when the other person is a
+trusted account (the counterparty gate above), so two throwaway accounts that match each other earn nothing from it. A match counts when it
+is made (`MATCH_CREATED`, the metric `matches`); *Better Together* counts when somebody joins a team that has a member they have an open
+match with (`MATCH_TEAM_FORMED`, the metric `match_teams`, detected on `TEAM_APPLICATION_ACCEPTED` in `src/lib/matching/team-match.ts`), so
+the match must be older than the team and not ended.
 
 ### Secret achievements
 
@@ -289,7 +312,7 @@ endorsement the owner receives from somebody at level 20 or above.
 people who left. The job `achievements/rarity` recomputes all of them in one statement every night at 03:30 UTC (and creates
 the rows of achievements nobody has earned, at 0). It is `null` until the job has run once.
 
-`GET /api/achievements` (yours) and `GET /api/users/{id}/achievements` (anyone's) list all 40 in order with `earned`,
+`GET /api/achievements` (yours) and `GET /api/users/{id}/achievements` (anyone's) list all 43 in order with `earned`,
 `earnedAt`, `progress: { current, target }`, `rarity` and the masking above.
 
 ## Quests
@@ -395,14 +418,16 @@ normalised, control characters removed, whitespace collapsed, 80 characters) and
 3. **every night at 04:00 UTC the job `leaderboards/reconcile` rebuilds every board of the current periods from the `XPEvent` log**
    (the source of truth) and swaps each in whole with one rename. Weekly and monthly boards expire a few weeks after they end.
 
-   The rebuild takes its time and awards keep arriving, so it works period by period in four steps (`src/lib/leaderboard-rebuild.ts`):
+   The rebuild takes its time and awards keep arriving, so it works period by period in five steps (`src/lib/leaderboard-rebuild.ts`):
    (1) take a **cutoff T** one minute in the past (room for awards still being committed); (2) **aggregate the log up to T in SQL**, a batch of
    5,000 people at a time, into *staged* copies of the boards (the live boards are not touched, and no more than a batch is in memory);
    (3) **replay what came after T**: everybody with an event after T has their whole score for the period re-read from the log and *set*
    (never added) on the staged boards, repeating until a pass finds nothing new; (4) swap each staged board in for the live one with one
-   rename. Setting an absolute score is what makes an award that lands mid-rebuild count exactly once: it cannot be counted by the
-   aggregate and again by the replay. What is not covered: an award that commits after the last replay pass and before the rename
-   goes to the old board and is lost on the swap (milliseconds wide; the next run repairs it), and a move to another country or an opt-out
+   rename; (5) **settle**: everybody with an event stamped since the last replay pass began has their whole score re-read and *set* on the
+   live boards, so an award that committed between the last pass and the rename (and landed on the board the rename replaced) is put
+   back, and is just as right if it landed on the new board. Setting an absolute score is what makes an award that lands mid-rebuild count
+   exactly once: it cannot be counted by the aggregate and again by the replay or the settle. What is not covered: an award that commits
+   after the settle pass has read the log (milliseconds wide; the next run repairs it), and a move to another country or an opt-out
    in that same window is applied on the next run. The scratch boards of a rebuild that died expire by themselves after six hours.
 
 Boards that were never built (a restart of the in-process cache, a new Redis) are built on the first read with the in-process cache,
@@ -437,7 +462,9 @@ purchase and no route that grants one; `src/lib/cosmetics.test.ts` scans the cod
 any route that calls the unlock or season-reward functions, any shop-like route, and any price column, and checks that the only things a client can do are
 `GET /api/users/me/cosmetics` and `PATCH /api/users/me/equipped`.
 
-`PATCH /api/users/me/equipped` body `{ title?, frame?, banner? }` (a slug or `null`) chooses what to wear: each slug must be one the user
+`PATCH /api/users/me/equipped` body `{ title?, frame?, banner?, badges? }` chooses what to wear. `title`, `frame` and `banner` are a slug or `null`;
+`badges` is a list of up to three badge slugs, shown in that order (the list replaces the previous one; `[]` takes them all off). The season
+participation badge is a `BADGE` and goes in the badges slot. Each slug must be one the user
 **owns** and that goes in that slot, else `403 COSMETIC_NOT_OWNED` (also for an unknown slug) or `400 COSMETIC_WRONG_SLOT`. Cosmetics earned by a secret
 achievement are masked in the catalog until owned. People who earned things before cosmetics existed are caught up by the job
 `cosmetics/backfill` (quietly, safe to repeat).

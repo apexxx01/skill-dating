@@ -7,7 +7,7 @@ const subject = (plan: Plan) => ({ plan })
 
 describe('the table', () => {
   it('has the features and free-plan numbers the product started with', () => {
-    expect(FEATURES.sort()).toEqual(['ADVANCED_FILTERS', 'BUILD_DATES_PER_WEEK', 'CUSTOM_DOMAIN', 'DAILY_DROPS', 'PROFILE_ANALYTICS', 'SEE_WHO_SPARKED'])
+    expect(FEATURES.sort()).toEqual(['ADVANCED_FILTERS', 'BUILD_DATES_PER_WEEK', 'CUSTOM_DOMAIN', 'DAILY_DROPS', 'DAILY_SPARKS', 'PROFILE_ANALYTICS', 'SEE_WHO_SPARKED'])
     expect(ENTITLEMENTS.DAILY_DROPS.plans.FREE).toBe(3)
     expect(ENTITLEMENTS.DAILY_DROPS.plans.PRO).toBe(10)
   })
@@ -30,7 +30,7 @@ describe('the table', () => {
   })
 
   it('keeps every plan limit at or under its hard limit', () => {
-    for (const feature of ['DAILY_DROPS', 'BUILD_DATES_PER_WEEK'] as const) {
+    for (const feature of ['DAILY_DROPS', 'BUILD_DATES_PER_WEEK', 'DAILY_SPARKS'] as const) {
       for (const plan of PLANS) expect(ENTITLEMENTS[feature].plans[plan]).toBeLessThanOrEqual(ENTITLEMENTS[feature].hardLimit)
     }
   })
@@ -41,6 +41,8 @@ describe('enforcement on', () => {
     expect(limit(subject('FREE'), 'DAILY_DROPS', on)).toBe(3)
     expect(limit(subject('PRO'), 'DAILY_DROPS', on)).toBe(10)
     expect(limit(subject('FREE'), 'BUILD_DATES_PER_WEEK', on)).toBe(2)
+    expect(limit(subject('FREE'), 'DAILY_SPARKS', on)).toBe(5)
+    expect(limit(subject('PRO'), 'DAILY_SPARKS', on)).toBe(25)
   })
 
   it('applies the switches of the plan', () => {
@@ -95,6 +97,7 @@ describe('entitlementsFor', () => {
   it('lists every feature with its number or switch', () => {
     expect(entitlementsFor(subject('FREE'), on)).toEqual({
       DAILY_DROPS: 3,
+      DAILY_SPARKS: 5,
       BUILD_DATES_PER_WEEK: 2,
       SEE_WHO_SPARKED: false,
       ADVANCED_FILTERS: false,

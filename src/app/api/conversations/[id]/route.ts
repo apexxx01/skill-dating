@@ -147,8 +147,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // hackathon rooms are not addressed to an individual and stay open.
   const conversationInfo = await prisma.conversation.findUnique({
     where: { id },
-    select: { type: true, members: { select: { userId: true } } },
+    select: { type: true, closedAt: true, members: { select: { userId: true } } },
   })
+  // A conversation closed for good (its match was ended) stays readable, but nobody can post in it.
+  if (conversationInfo?.closedAt) return createApiError('CONVERSATION_CLOSED')
   if (conversationInfo?.type === 'DIRECT') {
     const blocked = await blockGuardAny(
       prisma,
@@ -210,7 +212,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     // came from the other person.
     if (recipient) {
       const previous = await tx.message.findFirst({
-        where: { conversationId: id, id: { not: created.id }, deletedAt: null },
+        // The platform's own lines (a match's icebreaker) are not somebody waiting for an answer.
+        where: { conversationId: id, id: { not: created.id }, deletedAt: null, type: { not: 'SYSTEM' } },
         orderBy: { createdAt: 'desc' },
         select: { senderId: true },
       })

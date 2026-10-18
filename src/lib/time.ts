@@ -71,6 +71,11 @@ function offsetMs(instant: Date, timeZone: string): number {
   return asUtc - Math.floor(instant.getTime() / 1000) * 1000
 }
 
+/** Minutes east of UTC that the zone is at `instant` (330 for Asia/Kolkata, -420 for Los Angeles in summer). */
+export function utcOffsetMinutes(instant: Date, timeZone: string | null | undefined): number {
+  return Math.round(offsetMs(instant, resolveTimeZone(timeZone)) / 60_000)
+}
+
 /** The calendar date at `instant` in the zone, as YYYY-MM-DD. */
 export function localDateKey(instant: Date, timeZone: string | null | undefined): string {
   const wall = wallClock(instant, resolveTimeZone(timeZone))
@@ -141,6 +146,12 @@ export function localDayEnd(now: Date, timeZone: string | null | undefined): Dat
 /** The hour of the day, 0 to 23, at `instant` in the zone. */
 export function localHour(instant: Date, timeZone: string | null | undefined): number {
   return wallClock(instant, resolveTimeZone(timeZone)).hour
+}
+
+/** The time of day at `instant` in the zone, as HH:MM (24 hour, zero padded, so two of them compare as text). */
+export function localTimeKey(instant: Date, timeZone: string | null | undefined): string {
+  const wall = wallClock(instant, resolveTimeZone(timeZone))
+  return `${String(wall.hour).padStart(2, '0')}:${String(wall.minute).padStart(2, '0')}`
 }
 
 /** ISO weekday of a calendar date: 1 for Monday to 7 for Sunday. */

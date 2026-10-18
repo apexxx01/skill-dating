@@ -90,6 +90,29 @@ export const jobs = {
     retries: 1,
     handler: async ({ data }) => (await import('@/lib/cosmetics')).runCosmeticsBackfill(data),
   }),
+  // Gives every person whose daily drop time has passed in their own time zone their drops for the day (src/lib/matching/drops.ts).
+  // Hourly, so each lands within the hour after the time they chose; safe to repeat. Pass `userIds` to generate for those people only.
+  'drops/generate': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
+    schedule: '5 * * * *',
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/matching/drops')).runDropGenerationJob(data),
+  }),
+  // Once a week brings back, for each person, one previously passed candidate who has grown since (a higher tier or more verified evidence), as an extra drop
+  // flagged secondLook (src/lib/matching/second-look.ts). Mondays, after the weekend's passes are in; safe to repeat. Pass `userIds` to run for those people only.
+  'drops/second-look': defineJob({
+    schema: z.object({ userIds: z.array(z.string().min(1).max(64)).max(1000).optional() }).default({}),
+    schedule: '15 7 * * 1',
+    retries: 1,
+    handler: async ({ data }) => (await import('@/lib/matching/second-look')).runSecondLookJob(data),
+  }),
+  // Marks drops nobody answered by the end of their day as EXPIRED.
+  'drops/expire': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '20 * * * *',
+    retries: 2,
+    handler: async () => (await import('@/lib/matching/drops')).runDropExpiryJob(),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

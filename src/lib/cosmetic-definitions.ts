@@ -15,7 +15,7 @@ import type { Tier } from '@/lib/levels'
 /** What a season can give: a title for the top 100, a frame for the top 1% and another for the top 10%, a badge for everyone who played. */
 export type SeasonAward = 'TOP_100' | 'TOP_1_PERCENT' | 'TOP_10_PERCENT' | 'PARTICIPANT'
 
-export type CosmeticType = 'TITLE' | 'FRAME' | 'BANNER' | 'AVATAR_PART'
+export type CosmeticType = 'TITLE' | 'FRAME' | 'BANNER' | 'BADGE' | 'AVATAR_PART'
 export type CosmeticRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
 
 export type UnlockRule =
@@ -34,13 +34,19 @@ export interface CosmeticDefinition {
   order: number
 }
 
+export type CosmeticSlot = 'title' | 'frame' | 'banner' | 'badges'
+
 /** Which slot of `User.equipped` a type goes in. Avatar parts have no slot yet. */
-export const SLOT_OF: Record<CosmeticType, 'title' | 'frame' | 'banner' | null> = {
+export const SLOT_OF: Record<CosmeticType, CosmeticSlot | null> = {
   TITLE: 'title',
   FRAME: 'frame',
   BANNER: 'banner',
+  BADGE: 'badges',
   AVATAR_PART: null,
 }
+
+/** Title, frame and banner hold one cosmetic each; the badges slot holds a few, in the order the person chose. */
+export const MAX_BADGES_SHOWN = 3
 
 export const COSMETIC_DEFINITIONS: readonly CosmeticDefinition[] = [
   // --- A title for every tier ---------------------------------------------------------------
@@ -89,7 +95,7 @@ const SEASON_AWARD_PART: Record<SeasonAward, string> = {
 
 export const seasonCosmeticSlug = (season: number, award: SeasonAward) => `season-${season}-${SEASON_AWARD_PART[award]}`
 
-/** The cosmetic a season gives for `award`. The badge is an avatar part: it has no slot to wear, it is simply owned and shown. */
+/** The cosmetic a season gives for `award`. The participation badge is worn in the badges slot (up to three are shown). */
 export function seasonCosmetic(season: number, award: SeasonAward): CosmeticDefinition {
   const base = { slug: seasonCosmeticSlug(season, award), unlockRule: { type: 'SEASON', season, award } as UnlockRule, order: 1000 + season * 10 + SEASON_AWARDS.indexOf(award) }
   switch (award) {
@@ -100,7 +106,7 @@ export function seasonCosmetic(season: number, award: SeasonAward): CosmeticDefi
     case 'TOP_10_PERCENT':
       return { ...base, type: 'FRAME', name: `Season ${season} Top 10%`, description: `Finished in the top 10% of Season ${season}.`, rarity: 'RARE' }
     case 'PARTICIPANT':
-      return { ...base, type: 'AVATAR_PART', name: `Season ${season} Participant`, description: `Earned XP in Season ${season}.`, rarity: 'COMMON' }
+      return { ...base, type: 'BADGE', name: `Season ${season} Participant`, description: `Earned XP in Season ${season}.`, rarity: 'COMMON' }
   }
 }
 

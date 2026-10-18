@@ -21,6 +21,10 @@ export const ANALYTICS_EVENTS = [
   'achievement_earned',
   'quest_completed',
   'streak_extended',
+  'drop_viewed',
+  'spark_sent',
+  'match_created',
+  'unmatch',
 ] as const
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]

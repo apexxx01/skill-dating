@@ -20,7 +20,7 @@ describe('profile settings: time zone, place and privacy', () => {
     const u = await user()
     const res = await req(u.jar, 'GET', '/api/users/me/profile')
     expect(res.status).toBe(200)
-    expect(res.data).toEqual({ timezone: null, countryCode: null, city: null, campus: null, hideFromLeaderboards: false, showActivity: true })
+    expect(res.data).toEqual({ timezone: null, countryCode: null, city: null, campus: null, hideFromLeaderboards: false, showActivity: true, birthDate: null })
     expect(await testPrisma.profile.count({ where: { userId: u.userId } })).toBe(0)
   })
 
@@ -35,7 +35,7 @@ describe('profile settings: time zone, place and privacy', () => {
       showActivity: false,
     })
     expect(res.status).toBe(200)
-    expect(res.data).toEqual({ timezone: 'Asia/Kolkata', countryCode: 'IN', city: 'Bengaluru', campus: 'IISc Bangalore', hideFromLeaderboards: true, showActivity: false })
+    expect(res.data).toEqual({ timezone: 'Asia/Kolkata', countryCode: 'IN', city: 'Bengaluru', campus: 'IISc Bangalore', hideFromLeaderboards: true, showActivity: false, birthDate: null })
 
     expect(await testPrisma.profile.findUnique({ where: { userId: u.userId } })).toMatchObject({ countryCode: 'IN', cityKey: 'bengaluru', campusKey: 'iisc-bangalore' })
     expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).timezone).toBe('Asia/Kolkata')

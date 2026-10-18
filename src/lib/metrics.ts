@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import type { DomainEventName, DomainEvents, Db } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
+import { utcTimestamp } from '@/lib/sql'
 
 // What the platform counts for each user. A metric is a named count of one kind of thing a
 // person did ("projects shipped"); achievements unlock when a metric reaches a number and quests
@@ -25,6 +26,8 @@ export const METRICS = [
   'connections',
   'first_messages',
   'replies',
+  'matches',
+  'match_teams',
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -72,6 +75,10 @@ export const EVENT_TICKS: { [N in DomainEventName]?: TickRule<N> } = {
   MESSAGE_SENT_FIRST_IN_CONNECTION: own('first_messages', (p) => p.conversationId),
   // Replying pays no XP of its own, so it counts without being paid.
   MESSAGE_REPLIED: (p) => [{ userId: p.userId, metric: 'replies', dedupeKey: p.messageId }],
+  // A match pays no XP, so `paid` here means "counted for": each person whose counterparty is a trusted account (src/lib/subscribers.ts).
+  MATCH_CREATED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'matches' as const, dedupeKey: p.matchId })),
+  // Once per match however many teams the two share.
+  MATCH_TEAM_FORMED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'match_teams' as const, dedupeKey: p.matchId })),
 }
 
 export function ticksFor<N extends DomainEventName>(name: N, payload: DomainEvents[N], paid: ReadonlySet<string>): Tick[] {
@@ -113,8 +120,8 @@ export async function recordTick(db: Db, tick: Tick, now: Date = new Date()): Pr
   if (inserted.count === 0) return null
   const [row] = await tx.$queryRaw<{ value: number }[]>`
     INSERT INTO "UserCounter" ("id", "userId", "key", "value", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${tick.userId}, ${tick.metric}, 1, ${now})
-    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = "UserCounter"."value" + 1, "updatedAt" = ${now}
+    VALUES (gen_random_uuid()::text, ${tick.userId}, ${tick.metric}, 1, ${utcTimestamp(now)})
+    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = "UserCounter"."value" + 1, "updatedAt" = ${utcTimestamp(now)}
     RETURNING "value"
   `
   return row.value

@@ -33,11 +33,20 @@ export function accountDistrust(account: AccountFacts | null | undefined, now: D
   return null
 }
 
-/** `subjectId` is the person a reward would be paid to; `counterpartyId` is the person whose action earns it. */
+/**
+ * `subjectId` is the person a reward would be paid to; `counterpartyId` is the person whose action earns it.
+ *
+ * The gate is counterparty-only on purpose: farming needs a cheap payer, so it is the payer who has to be established, and
+ * judging the person paid too would only make a real newcomer wait for the first thing somebody does for them.
+ */
 export interface PeerPair {
   subjectId: string
   counterpartyId: string
-  /** Also require the subject's own account to pass (an applicant accepted onto a team). */
+  /**
+   * Also require the subject's own account to pass. Only for an applicant accepted onto a team: the accept is one click by whoever
+   * runs the team, pays the most of these rewards and is not capped per recipient, so a single aged account could mint XP for any
+   * number of fresh ones. See "Why the gate judges the counterparty" in docs/GAMIFICATION.md.
+   */
   subjectMustBeTrusted?: boolean
 }
 
@@ -84,6 +93,15 @@ export const PEER_PAIRS: { [N in DomainEventName]?: (payload: DomainEvents[N]) =
   MESSAGE_SENT_FIRST_IN_CONNECTION: (p) => [{ subjectId: p.userId, counterpartyId: p.recipientId }],
   // Pays no XP; it counts toward replies and quests, for the person who answered.
   MESSAGE_REPLIED: (p) => [{ subjectId: p.userId, counterpartyId: p.repliedToUserId }],
+  // Pay no XP; each person's match counts toward the match achievements only when the other is a trusted account.
+  MATCH_CREATED: (p) => [
+    { subjectId: p.userId, counterpartyId: p.otherUserId },
+    { subjectId: p.otherUserId, counterpartyId: p.userId },
+  ],
+  MATCH_TEAM_FORMED: (p) => [
+    { subjectId: p.userId, counterpartyId: p.otherUserId },
+    { subjectId: p.otherUserId, counterpartyId: p.userId },
+  ],
 }
 
 /** The people an event could pay because of somebody else, by the pairs above. Empty for an event that is not peer-driven. */

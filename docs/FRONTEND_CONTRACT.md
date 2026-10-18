@@ -461,17 +461,17 @@ do not need to: the response already says what completed.
 
 | Need | Call |
 | --- | --- |
-| Header: title, frame, banner, level, tier, rank, streak | `GET /api/users/{id}/stats`: `equipped.{title,frame,banner}` are `{ slug, name }`, `ranks` are absolute places (null where not on a board), `streak` is `null` on someone else's page when they keep their activity private |
+| Header: title, frame, banner, level, tier, rank, streak | `GET /api/users/{id}/stats`: `equipped.{title,frame,banner}` are `{ slug, name }` or null and `equipped.badges` is a list of up to three `{ slug, name }`, `ranks` are absolute places (null where not on a board), `streak` is `null` on someone else's page when they keep their activity private |
 | Rarest badges | `stats.topAchievements` (three, rarest first, with `rarity`) |
 | Badge wall | `GET /api/users/{id}/achievements` (see Achievements) |
 | Contribution calendar | `GET /api/users/{id}/heatmap?days=365`; `hidden: true` means the owner keeps it private: show nothing |
-| My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner? }` (**write**) |
+| My inventory and what I wear | `GET /api/users/me/cosmetics`; wear with `PATCH /api/users/me/equipped { title?, frame?, banner?, badges? }` (**write**; `badges` is up to three slugs in order and replaces the list) |
 | Settings: where I am, privacy | `GET`/`PATCH /api/users/me/profile` `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }` (**write**) |
 
 Cosmetics are only earned: there is nothing to buy and no "unlock" button, only `requirement` text on the locked ones. A finished season
 adds a few for everyone who played or placed (`Season N Top 100` title, `Season N Top 1%` and `Season N Top 10%` frames, a `Season N Participant`
-badge): they appear in `cosmetics` once owned, with the badge as `type: "AVATAR_PART"`, `slot: null` (show it, do not offer to wear it). Equipping a
-slot-less one is `400 COSMETIC_WRONG_SLOT`. Placings cost no XP and do not appear in a `rewards` envelope; they arrive as a `COSMETIC_UNLOCKED` notification. A
+badge): they appear in `cosmetics` once owned, with the badge as `type: "BADGE"`, `slot: "badges"` (it can be worn, up to three at a time, via `badges`). Equipping a
+cosmetic in the wrong slot is `400 COSMETIC_WRONG_SLOT`; more than three badges is `400 VALIDATION_FAILED`. Placings cost no XP and do not appear in a `rewards` envelope; they arrive as a `COSMETIC_UNLOCKED` notification. A
 cosmetic earned by a secret achievement is `masked` until owned (show a mystery tile). Equipping something you do not own is
 `403 COSMETIC_NOT_OWNED`, so disable the control for locked items. Tell the user why a rank is missing: `hideFromLeaderboards`,
 no XP yet, or no country/city set.
@@ -512,6 +512,82 @@ show a mystery tile with `name` and `description` as given and nothing else. Unl
 and as a notification of kind `ACHIEVEMENT_UNLOCKED`.
 
 ---
+
+## Matching pages: Setup, Drops, Sparks, Matches
+
+The rules (scoring, daily drops, the dating gate, anti-spam) are in [MATCHING.md](MATCHING.md); the routes in [API.md](API.md#matching).
+Types: `MatchPerson`, `DropItem`, `TodayDrops` and `MatchTypeName` in `src/types/api.ts`.
+
+### Setup (`/matching/setup`)
+
+| Need | Call |
+| --- | --- |
+| The quiz questions | `GET /api/matching/quiz` → `{ version, questions: [{ id, prompt, options: [{ id, label }] }] }` (options run from one end of a spectrum to the other; show them in order) |
+| Load / save the profile | `GET` / `PUT /api/matching/profile` (**write**, saves the whole profile) → `{ exists, profile, dating }` |
+| Date of birth | `PATCH /api/users/me/profile { birthDate: "YYYY-MM-DD" }` (**write, once**); read back with `GET /api/users/me/profile`. Never shown to anyone else |
+| Skills to pick from | `GET /api/skills` (send the slugs as `lookingForSkills`) |
+
+`dating.eligible` says whether to offer DATING at all; when it is `false`, `dating.blockers` lists what is missing (`BIRTH_DATE_MISSING`, `UNDER_AGE`,
+`EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`). Offer a date-of-birth field for `BIRTH_DATE_MISSING`, a "verify your phone or connect GitHub" step for
+`NO_PHONE_OR_GITHUB`, and for `UNDER_AGE` simply do not offer it. Saving with DATING while the gate is shut is `403 DATING_BIRTH_DATE_REQUIRED`,
+`DATING_UNDERAGE` or `DATING_VERIFICATION_REQUIRED` and nothing is saved. A birth date cannot be changed once set (`409 BIRTH_DATE_LOCKED`), so confirm it before
+saving. `PUT` replaces the whole profile: send every field the user has, including `paused` (to pause, send the profile back with `paused: true`).
+
+### Discover / Drops (`/discover`, the daily tab)
+
+| Need | Call |
+| --- | --- |
+| Today's people | `GET /api/drops/today` → `TodayDrops` |
+| "Not for me" | `POST /api/drops/{id}/pass` (**write**) → `{ id, status: "PASSED" }` |
+
+Show `drops` in the order given (best fit first). Each has `score` (0-100) and up to three `reasons` to print under the card; `connectionType` is what the user is being
+shown this person for (a MENTEE is shown mentors as `MENTEE`). Show at most one drop per type when `drops` holds several types: that is by design. A
+`secondLook: true` drop is someone the user passed earlier who has grown since; label it. When `hasProfile` is `false` show the setup; when `paused` is `true` say so; use `nextDropAt`
+for "your next drops arrive in…" (it is to the hour). `status` is `NEW` until the user acts: grey out `PASSED` and `SPARKED`, hide `EXPIRED`.
+The old `compatibility` number on `/api/discover` and the dashboard keeps its shape.
+
+### Team gap finder (`/teams/{id}`, owner view)
+
+| Need | Call |
+| --- | --- |
+| What is missing, and who could fill it | `GET /api/teams/{id}/gaps` → `TeamGapsResponse` (owner or team admin only; `403` otherwise: hide the panel) |
+| Invite a suggestion | `POST /api/teams/{id}/invitations { userId }` (**write**, as today) |
+
+Show `missing.skills` and `missing.roles` as "Your team needs…" chips (`sources` says whether the team or the project asked), `covered.*` as ticked, and `candidates` (five at most, best first)
+as cards with `reasons`, `fills` and an Invite button. `unmatchedStack` is informational ("we can't check Vercel"). An empty `candidates` is normal for a team whose needs nobody fits; a team that
+asked for nothing has nothing missing. Suggestions are not drops: opening this panel shows no one to the other person, and nobody is notified until you invite.
+
+### Sparks (`/sparks`, and the Spark button on a drop or a profile)
+
+| Need | Call |
+| --- | --- |
+| Spark someone | `POST /api/sparks { toId, connectionType, opener, dropId? }` (**write**, send an `Idempotency-Key`) → `{ spark, match }` |
+| Who sparked me | `GET /api/sparks/received?limit=&cursor=` → `{ canSee, count, sparks, nextCursor }` |
+
+The **opener** is required: 20 to 280 characters, a real reason to talk. Show the counter while typing and the refusal's `error.details.message` (an English
+default; branch on `details.reason`: `TOO_SHORT`, `TOO_LONG`, `TOO_FEW_WORDS`, `LOW_EFFORT`, `LINK`, `CONTACT_DETAILS`, `REPEATED_CHARACTERS`, `DUPLICATE`) when it is
+refused. Do not offer "paste a link or a number": they are refused until the two have matched. `connectionType` is the user's own side: on a drop send the drop's
+`connectionType`; to answer a received spark send the **counterpart** of its `connectionType` (`MENTOR`↔`MENTEE`, every other type the same). When the other person had already
+sparked (the received list shows it) the response carries a `match`: go straight to the match screen, there is no second step. `429 SPARK_LIMIT_REACHED`
+(`error.params.limit`) means today's sparks are used (more arrive tomorrow; show the paid plan's number); `429 SPARK_THROTTLED` (`params.retryAfter`) means slow down.
+A person who is not available (`404 SPARK_TARGET_UNAVAILABLE`) is shown as "not available"; never explain why.
+
+`canSee: false` in the received list means the plan does not show who sparked: show `count` ("3 people sparked you") with an upgrade prompt and no names. Sparks and
+matches never earn XP, so there is no `rewards` envelope to show on these calls.
+
+### Matches (`/matches`)
+
+| Need | Call |
+| --- | --- |
+| My matches | `GET /api/matches?limit=&cursor=` → `{ matches, nextCursor, total }` |
+| Open the chat | `GET /api/conversations/{match.conversationId}` and `POST /api/conversations/{id}` (as any direct conversation) |
+| Unmatch | `DELETE /api/matches/{id}` (**write**) → `{ id, endedAt }` |
+| Unmatch and report | `POST /api/matches/{id}/report { reason, description? }` (**write**) |
+
+A match opens a conversation that already holds a `SYSTEM` message (the icebreaker: render it as a banner, its sender is the platform) followed by both openers. Show
+`yourRole` / `theirRole` for mentoring matches. **Unmatching is final and shuts the chat for both**: ask for confirmation, and afterwards the conversation answers `closedAt`
+with a timestamp and `POST` to it is `409 CONVERSATION_CLOSED` (show it read-only). A realtime `match.created` on `user:{id}` means a new match (refresh the list and show the
+banner); `match.ended` means the other person ended one. Blocking someone also ends the matches with them (`endedMatches` on the block response).
 
 ## Backend gaps closed for these pages
 

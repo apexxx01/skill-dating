@@ -41,6 +41,17 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+// What a person can be looking for in the matching engine (src/lib/matching). MENTOR and MENTEE are the two sides of one
+// relationship; the others pair with themselves. DATING is separate: it never mixes with the rest, in either direction.
+enum MatchType {
+  COFOUNDER
+  HACKATHON_TEAMMATE
+  COLLABORATOR
+  MENTOR
+  MENTEE
+  DATING
+}
+
 enum TeamRole {
   OWNER
   ADMIN
@@ -99,6 +110,7 @@ enum NotificationType {
   MENTION
   APPLICATION_RESPONSE
   SYSTEM
+  MATCH
 }
 
 enum ReportReason {
@@ -151,6 +163,9 @@ model User {
   rank                 Int               @default(0)
   reputationScore      Int               @default(0)
   lastActiveAt         DateTime          @default(now())
+  // PRIVATE. Only ever read to check that someone is 18 or older for DATING, and returned to nobody but the owner on
+  // their own profile read (GET /api/users/me/profile). Set once and then locked. Wiped when the account is deleted.
+  birthDate            DateTime?         @db.Date
   // What the user wears: { title, frame, banner }, each the slug of a cosmetic they own (or absent).
   equipped             Json              @default("{}")
   // Streak (see src/lib/streaks.ts). A day counts when the user earned XP from an action of their
@@ -210,6 +225,13 @@ model User {
   counters            UserCounter[]
   progressTicks       ProgressTick[]
   cosmetics           UserCosmetic[]
+  matchingProfile     MatchingProfile?
+  drops               Drop[]                 @relation("DropsReceived")
+  dropsShown          Drop[]                 @relation("DropsShown")
+  sparksSent          Spark[]                @relation("SparksSent")
+  sparksReceived      Spark[]                @relation("SparksReceived")
+  matchesAsA          Match[]                @relation("MatchesAsA")
+  matchesAsB          Match[]                @relation("MatchesAsB")
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -251,37 +273,37 @@ model VerificationToken {
 }
 
 model Profile {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  headline         String?
-  bio              String?  @db.Text
-  location         String?
-  timezone         String?
-  availability     String?
-  builderRole      String?
-  website          String?
-  githubUrl        String?
-  portfolioUrl     String?
-  linkedinUrl      String?
-  twitterUrl       String?
-  showEmail        Boolean  @default(false)
-  showLocation     Boolean  @default(true)
-  showAvailability Boolean  @default(true)
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline             String?
+  bio                  String?  @db.Text
+  location             String?
+  timezone             String?
+  availability         String?
+  builderRole          String?
+  website              String?
+  githubUrl            String?
+  portfolioUrl         String?
+  linkedinUrl          String?
+  twitterUrl           String?
+  showEmail            Boolean  @default(false)
+  showLocation         Boolean  @default(true)
+  showAvailability     Boolean  @default(true)
   // Where the person is, for the country, city and campus leaderboards (see src/lib/places.ts).
   // countryCode is ISO 3166-1 alpha-2. city and campus hold tidied free text; the *Key columns
   // hold the comparable form ("São Paulo" -> "sao-paulo"), and are what the boards group by.
-  countryCode      String?
-  city             String?
-  cityKey          String?
-  campus           String?
-  campusKey        String?
+  countryCode          String?
+  city                 String?
+  cityKey              String?
+  campus               String?
+  campusKey            String?
   // Privacy. Opting out of leaderboards removes the person from every board and from every rank
   // others can see; hiding activity keeps the contribution heatmap to themselves.
-  hideFromLeaderboards Boolean @default(false)
-  showActivity     Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  hideFromLeaderboards Boolean  @default(false)
+  showActivity         Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@index([countryCode])
   @@index([countryCode, cityKey])
@@ -320,6 +342,8 @@ model UserSkill {
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
   @@unique([userId, skillId])
+  // Who has a skill: the matching pool ranks candidates by the skills a viewer is looking for.
+  @@index([skillId])
 }
 
 model SkillEvidence {
@@ -596,22 +620,22 @@ model ChallengeAttempt {
 }
 
 model Achievement {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String   @db.Text
-  icon        String?
-  category    String
-  xpReward    Int      @default(0)
-  criteria    Json // { type, conditions }
-  isSecret    Boolean  @default(false)
-  order       Int      @default(0)
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  description     String    @db.Text
+  icon            String?
+  category        String
+  xpReward        Int       @default(0)
+  criteria        Json // { type, conditions }
+  isSecret        Boolean   @default(false)
+  order           Int       @default(0)
   // The share of users active in the last 30 days who have earned it, 0 to 1 (smaller is rarer).
   // Null until the nightly job (achievements/rarity) has run once.
   rarity          Float?
   rarityUpdatedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   userAchievements UserAchievement[]
 }
@@ -664,6 +688,8 @@ enum CosmeticType {
   TITLE
   FRAME
   BANNER
+  // Worn in the "badges" slot, up to three at a time.
+  BADGE
   AVATAR_PART
 }
 
@@ -745,18 +771,18 @@ model XPEvent {
 // one and opens the next in the same transaction). Every XPEvent is stamped with the season it was
 // earned in, so a season's standings are always a sum over the log.
 model Season {
-  id        String    @id @default(cuid())
-  number    Int       @unique
-  name      String
-  startsAt  DateTime
-  endsAt    DateTime
-  active    Boolean   @default(false)
+  id               String    @id @default(cuid())
+  number           Int       @unique
+  name             String
+  startsAt         DateTime
+  endsAt           DateTime
+  active           Boolean   @default(false)
   // Set when the rollover job has closed the season and written its final standings.
-  closedAt  DateTime?
+  closedAt         DateTime?
   // Set when the season's cosmetic rewards (title, frames, participation badge) have been granted. Null until then;
   // the rollover job grants them for every closed season that is still null.
   rewardsGrantedAt DateTime?
-  createdAt DateTime  @default(now())
+  createdAt        DateTime  @default(now())
 
   xpEvents  XPEvent[]
   standings SeasonStanding[]
@@ -814,18 +840,22 @@ model Connection {
 }
 
 model Conversation {
-  id          String   @id @default(cuid())
-  type        String   @default("DIRECT") // DIRECT, GROUP, PROJECT, TEAM, HACKATHON
-  name        String?
-  projectId   String?  @unique
-  teamId      String?  @unique
-  hackathonId String?  @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(cuid())
+  type         String    @default("DIRECT") // DIRECT, GROUP, PROJECT, TEAM, HACKATHON
+  name         String?
+  projectId    String?   @unique
+  teamId       String?   @unique
+  hackathonId  String?   @unique
+  // Set when the conversation was closed for good (a match was ended): nobody can post in it any more, and it stays readable.
+  closedAt     DateTime?
+  closedReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   members   ConversationMember[]
   messages  Message[]
   chats     Chat[]
+  match     Match?
   project   Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
   team      Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   hackathon Hackathon?           @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
@@ -1183,4 +1213,146 @@ model ProductEvent {
 
   @@index([name, createdAt])
   @@index([userId, name])
+}
+
+// How a person wants to be matched (src/lib/matching). One row per user, created by the first PUT /api/matching/profile.
+model MatchingProfile {
+  id               String      @id @default(cuid())
+  userId           String      @unique
+  // Never empty once saved. DATING is only ever present for someone who passed the dating gate (src/lib/matching/dating.ts).
+  connectionTypes  MatchType[]
+  // [{ tag, hackathonId?, expiresAt? }], at most 10.
+  intentTags       Json        @default("[]")
+  hoursPerWeek     Int?
+  availableFrom    DateTime?   @db.Date
+  remoteOk         Boolean     @default(true)
+  // Only match with people in the same city (Profile.cityKey).
+  cityOnly         Boolean     @default(false)
+  // Skill slugs.
+  lookingForSkills String[]    @default([])
+  // Answers to the fixed working-style quiz: { questionId: optionId }.
+  workingStyle     Json        @default("{}")
+  // "HH:MM" in the person's own time zone: when their daily drops arrive.
+  dropTimeLocal    String      @default("09:00")
+  paused           Boolean     @default(false)
+  // The local date ("YYYY-MM-DD", in their zone then) that drops were last generated for, so a day is generated once.
+  lastDropDate     String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([paused, dropTimeLocal])
+  @@index([connectionTypes], type: Gin)
+}
+
+enum DropStatus {
+  NEW
+  SPARKED
+  PASSED
+  EXPIRED
+}
+
+// One person shown to another for one local day (src/lib/matching/drops.ts). `userId` is who it is for, `candidateId` who they are shown.
+// A person is shown to someone at most once a day (the unique key), and `connectionType` is the relationship from the VIEWER's side.
+model Drop {
+  id             String     @id @default(cuid())
+  userId         String
+  candidateId    String
+  connectionType MatchType
+  // 0 to 100, from src/lib/matching/score.ts, and the (at most three) lines that explain it.
+  score          Int
+  reasons        Json       @default("[]")
+  // The viewer's own calendar day the drop belongs to, "YYYY-MM-DD" in their time zone then.
+  localDate      String
+  status         DropStatus @default(NEW)
+  // Resurfaced from a pass because the person has grown since (src/lib/matching/second-look.ts).
+  secondLook     Boolean    @default(false)
+  // What the candidate looked like when the viewer passed: { tier, verifiedEvidence }. The second look compares against it.
+  passSnapshot   Json?
+  // The end of the viewer's local day.
+  expiresAt      DateTime
+  viewedAt       DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user      User    @relation("DropsReceived", fields: [userId], references: [id], onDelete: Cascade)
+  candidate User    @relation("DropsShown", fields: [candidateId], references: [id], onDelete: Cascade)
+  sparks    Spark[]
+
+  @@unique([userId, candidateId, localDate])
+  // Today's drops, and "was this person shown or passed lately" for one viewer.
+  @@index([userId, localDate])
+  @@index([userId, candidateId, createdAt])
+  // How often a candidate has been shown today (the fairness cap).
+  @@index([candidateId, createdAt])
+  // The expiry job.
+  @@index([status, expiresAt])
+  // The weekly second look: passes of a certain age.
+  @@index([status, updatedAt])
+}
+
+enum SparkStatus {
+  PENDING
+  MATCHED
+}
+
+// "I'd like to work with you", with a reason. Two sparks that answer each other (the second one's type is the counterpart of the first's) make a
+// Match. `connectionType` is the SENDER's side of the relationship. Sparks pay no XP.
+model Spark {
+  id             String      @id @default(cuid())
+  fromId         String
+  toId           String
+  dropId         String?
+  connectionType MatchType
+  // 20 to 280 characters the sender wrote; what the receiver sees (if their plan shows it).
+  opener         String
+  // A fingerprint of the opener's words, to notice the same message going to many people.
+  openerHash     String
+  status         SparkStatus @default(PENDING)
+  createdAt      DateTime    @default(now())
+
+  from User  @relation("SparksSent", fields: [fromId], references: [id], onDelete: Cascade)
+  to   User  @relation("SparksReceived", fields: [toId], references: [id], onDelete: Cascade)
+  drop Drop? @relation(fields: [dropId], references: [id], onDelete: SetNull)
+
+  // One spark from a person to another per type of relationship.
+  @@unique([fromId, toId, connectionType])
+  // The received list, newest first.
+  @@index([toId, status, createdAt])
+  // How many a person sent today, and their recent openers.
+  @@index([fromId, createdAt])
+  // The same opener sent again.
+  @@index([openerHash, createdAt])
+}
+
+enum MatchEndReason {
+  UNMATCHED
+  REPORTED
+  BLOCKED
+}
+
+// Two people who sparked each other. userAId is always the smaller id, so a pair is one row whichever of them sparked first (the check constraint
+// in the migration keeps it so); connectionType names the relationship the same from both sides (a mentor and a mentee are a MENTOR match).
+model Match {
+  id             String          @id @default(cuid())
+  userAId        String
+  userBId        String
+  userARole      MatchType
+  userBRole      MatchType
+  connectionType MatchType
+  conversationId String?         @unique
+  createdAt      DateTime        @default(now())
+  // Unmatching is final: once set, the pair is never matched, dropped to each other or sparked again.
+  endedAt        DateTime?
+  endedById      String?
+  endReason      MatchEndReason?
+
+  userA        User          @relation("MatchesAsA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB        User          @relation("MatchesAsB", fields: [userBId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([userAId, userBId, connectionType])
+  @@index([userBId, endedAt])
+  @@index([userAId, endedAt])
 }

@@ -158,6 +158,9 @@ Atomically flips `Team.ownerId`, promotes the new owner's `TeamMember.role` to `
 ### `GET /api/teams/[id]/candidates`
 **Auth:** owner or `ADMIN`. Recommends non-member, non-applicant users ranked by compatibility with the team's `lookingFor` list.
 
+### `GET /api/teams/[id]/gaps`
+**Auth:** the team's owner or an admin of the team (or a platform admin); `403 FORBIDDEN` for anyone else, `404 TEAM_NOT_FOUND`. What the team is missing and who could fill it (see [MATCHING.md](MATCHING.md#gap-finder-teams)): `{ team: { id, name, maxSize, memberCount, openSlots }, needs: { team, project, stack }, missing: { skills, roles }, covered: { skills, roles }, unmatchedStack, candidates }`. `needs` are the team's `lookingFor`, its project's `lookingFor` and its project's tech stack, as written. A need that is a skill of the catalog is a **skill** need (`{ name, slug, sources }`, covered when a member has it; `covered` entries add `memberIds`), anything else is a **role** (`{ name, sources }`, covered when a member's `builderRole` matches); `sources` say where it came from (`TEAM_NEEDS`, `PROJECT_NEEDS`, `PROJECT_STACK`). `unmatchedStack` lists technologies that are not catalog skills. `candidates` are at most five `{ person: MatchPerson, connectionType, score, reasons, fills }`, best first, from the same pool and scorer as the daily drops (so paused, deleted, untrusted and blocked people, and the team's members and applicants, are left out; people who chose only dating never appear); `fills` names the missing skills the person has. Invite one with the existing `POST /api/teams/[id]/invitations`.
+
 ### `POST /api/teams/[id]/applications`
 Apply to join. **Errors:** `400` team not recruiting or already full (pre-check against `maxSize`), `400` already a member, `400` already applied.
 **Body:** `{ message?: string }`
@@ -349,16 +352,16 @@ Users blocked in either direction are left out of the list but nobody is renumbe
 Streaks, achievements, quests, the player card, cosmetics and seasons. The rules are in [GAMIFICATION.md](GAMIFICATION.md).
 
 ### `GET /api/users/me/profile`
-The caller's location and privacy settings: `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity }`. Nothing is created by reading; a user who never saved gets the defaults (`timezone`, `countryCode`, `city`, `campus` null; `hideFromLeaderboards` false; `showActivity` true).
+The caller's location and privacy settings: `{ timezone, countryCode, city, campus, hideFromLeaderboards, showActivity, birthDate }`. Nothing is created by reading; a user who never saved gets the defaults (`timezone`, `countryCode`, `city`, `campus`, `birthDate` null; `hideFromLeaderboards` false; `showActivity` true). `birthDate` (`YYYY-MM-DD`) is **private**: this read, for the owner, is the only place any route returns it.
 
 ### `PATCH /api/users/me/profile`
-**Body (at least one):** `{ timezone?(IANA name or null), countryCode?(ISO 3166-1 alpha-2 or null), city?(≤200, free text or null), campus?(≤200, free text or null), hideFromLeaderboards?, showActivity? }`. Unknown keys are refused. Text is tidied and given a comparable key (see Leaderboards). `timezone` decides which day a streak, a quest and a daily cap use. A change of place or of `hideFromLeaderboards` queues a job that moves the person's entries on the boards; `showActivity: false` hides the heatmap and the streak from everyone else. **Response:** the settings.
+**Body (at least one):** `{ timezone?(IANA name or null), countryCode?(ISO 3166-1 alpha-2 or null), city?(≤200, free text or null), campus?(≤200, free text or null), hideFromLeaderboards?, showActivity?, birthDate? }`. Unknown keys are refused. `birthDate` is a real date in the past; it is set once and then locked (a different date afterwards is `409 BIRTH_DATE_LOCKED`, the same date again is fine, and it cannot be cleared). It is used only to check that someone is 18 or older for dating (see [MATCHING.md](MATCHING.md)) and is wiped when the account is deleted. Text is tidied and given a comparable key (see Leaderboards). `timezone` decides which day a streak, a quest and a daily cap use. A change of place or of `hideFromLeaderboards` queues a job that moves the person's entries on the boards; `showActivity: false` hides the heatmap and the streak from everyone else. **Response:** the settings.
 
 ### `GET /api/users/[id]/heatmap`
 **Query:** `days` (1 to 365, default 365). XP and actions per **local day of the profile owner**, for days that had any, oldest first: `{ timezone, days, from, to, hidden, items: [{ date, xp, actions }] }`. `actions` counts what the person did; the XP of the achievements and quests it led to adds to `xp` only. Cached 10 minutes and retired by every award. `404 USER_NOT_FOUND` for a missing or deleted user, or one who has blocked the caller (the person who blocked can still open it); `hidden: true` with no items when the owner keeps their activity private (never for your own).
 
 ### `GET /api/users/[id]/stats`
-The player card in one call: `{ userId, xp, level, tier, progress, ranks: { global, country, city }, equipped, streak, topAchievements, counts: { shipped, hackathons, wins, endorsementsReceived, crews, milestones } }`. Cached 60 seconds and retired by every award. `ranks` are absolute places on the all-time boards (`null` where the person is not on one). `streak` is `null` on somebody else's card when they keep their activity private. `404 USER_NOT_FOUND` as for the heatmap.
+The player card in one call: `{ userId, xp, level, tier, progress, ranks: { global, country, city }, equipped: { title, frame, banner, badges },  streak, topAchievements, counts: { shipped, hackathons, wins, endorsementsReceived, crews, milestones } }`. Cached 60 seconds and retired by every award. `ranks` are absolute places on the all-time boards (`null` where the person is not on one). `streak` is `null` on somebody else's card when they keep their activity private. `404 USER_NOT_FOUND` as for the heatmap.
 
 ### `GET /api/achievements`
 All 40 achievements in order with the caller's standing: `{ achievements: [{ slug, name, description, icon, category, xpReward, secret, masked, earned, earnedAt, progress: { current, target }, rarity, order }], earned, total }`. Not paged (the catalog is fixed). The six secret achievements are `masked` until earned: placeholder slug `secret-<order>`, no text, reward, progress or rarity. `rarity` is the share of users active in the last 30 days who have it (0 to 1, null until the nightly job has run).
@@ -370,10 +373,10 @@ The same list for another person (earned, and how far along they are in the rest
 The caller's three daily and three weekly quests: `{ enabled, timezone, daily: { periodKey, startsAt, resetsAt, quests }, weekly: { ... } }`, each quest `{ slug, name, description, type, xpReward, target, current, completed, completedAt }`. The quests are the same all period and on every device, and follow from the user and the period. Reading writes nothing and earns nothing; doing the action counts, and the response of that action lists `questsCompleted`. With the `quests` flag off, `enabled` is false and both lists are empty.
 
 ### `GET /api/users/me/cosmetics`
-The cosmetic catalog with the caller's inventory: `{ equipped: { title, frame, banner }, cosmetics: [{ slug, type, name, description, rarity, slot, owned, masked, equipped, unlockedAt, requirement, order }], owned, total }`. Read only. Cosmetics are earned and cannot be bought, granted or requested. Those earned by a secret achievement are `masked` until owned. The catalog is the fixed cosmetics plus the ones a finished season gave the caller (`season-N-top-100` title, `season-N-top-1-percent` and `season-N-top-10-percent` frames, `season-N-participant` badge with `type: "AVATAR_PART"` and `slot: null`), so `total` is the fixed catalog plus however many season cosmetics the caller owns.
+The cosmetic catalog with the caller's inventory: `{ equipped: { title, frame, banner, badges }, cosmetics: [{ slug, type, name, description, rarity, slot, owned, masked, equipped, unlockedAt, requirement, order }], owned, total }`. Read only. Cosmetics are earned and cannot be bought, granted or requested. Those earned by a secret achievement are `masked` until owned. The catalog is the fixed cosmetics plus the ones a finished season gave the caller (`season-N-top-100` title, `season-N-top-1-percent` and `season-N-top-10-percent` frames, `season-N-participant` badge with `type: "BADGE"` and `slot: "badges"`), so `total` is the fixed catalog plus however many season cosmetics the caller owns.
 
 ### `PATCH /api/users/me/equipped`
-**Body (at least one):** `{ title?, frame?, banner? }`, each a cosmetic slug or `null`. Each slug must be owned by the caller and belong in that slot, or the whole request is refused: `403 COSMETIC_NOT_OWNED` (also for an unknown slug), `400 COSMETIC_WRONG_SLOT`. A slot left out is unchanged. **Response:** `{ equipped }`.
+**Body (at least one):** `{ title?, frame?, banner?, badges? }`. `title`, `frame` and `banner` are a cosmetic slug or `null`; `badges` is an array of up to three badge slugs, each once, in display order (it replaces the list; `[]` clears it; more than three or a duplicate is `400 VALIDATION_FAILED`). Each slug must be owned by the caller and belong in that slot, or the whole request is refused: `403 COSMETIC_NOT_OWNED` (also for an unknown slug), `400 COSMETIC_WRONG_SLOT`. A slot left out is unchanged. **Response:** `{ equipped }`.
 
 ### Seasons
 There is no season route: the active season rides in `GET /api/leaderboard?period=season` (`season: { id, number, name, startsAt, endsAt }`). The job `seasons/rollover` closes it and writes `SeasonStanding` rows (run it with `POST /api/admin/jobs/seasons/rollover`).
@@ -385,7 +388,7 @@ There is no season route: the active season rides in `GET /api/leaderboard?perio
 ### `POST /api/blocks`
 Blocks a user. One transaction: creates the block, deletes any connection between the pair, and withdraws pending team applications and invitations between them. Idempotent: blocking again returns `200` with the existing block.
 **Body:** `{ userId: string, reason?: string(≤500) }`
-**Response `201`** (`200` if it already existed): `{ block: { id, createdAt, reason, user }, severedConnections, withdrawnApplications }`
+**Response `201`** (`200` if it already existed): `{ block: { id, createdAt, reason, user }, severedConnections, withdrawnApplications, endedMatches }`
 **Errors:** `400` blocking yourself, `404` user not found.
 
 ### `GET /api/blocks`
@@ -476,6 +479,48 @@ Everything the dashboard page shows, through the same rules as every other endpo
 **Response:** `{ currentBuild, userProjects (active, ≤5), userTeams, hackathonParticipations, userQuests, recentActivities, xpEvents, userSkills, recommendedBuilders (with compatibility and commonSkills), recruitingTeams, upcomingHackathons }`
 
 ---
+
+## Matching
+
+The matching engine's profile and quiz. The rules (scoring, daily drops, the dating gate, anti-spam) are in [MATCHING.md](MATCHING.md).
+
+### `GET /api/matching/quiz`
+The fixed working-style quiz: `{ version, questions: [{ id, prompt, options: [{ id, label }] }] }`. The options of a question are ordered from one end of a spectrum to the other. Answers go in `workingStyle` of the profile as `{ [questionId]: optionId }`; any subset of the questions may be answered.
+
+### `GET /api/matching/profile`
+The caller's matching profile: `{ exists, profile, dating }`. `profile` is `{ connectionTypes, intentTags, hoursPerWeek, availableFrom, remoteOk, cityOnly, lookingForSkills, workingStyle, dropTimeLocal, paused }`, with defaults (and no connection types) until the first save; nothing is created by reading. `dating` is `{ eligible, blockers, minAge }`: whether the dating gate is open for the caller and, if not, what is missing (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`).
+
+### `PUT /api/matching/profile`
+Saves the whole profile (what is left out takes its default). **Body:** `{ connectionTypes: ("COFOUNDER"|"HACKATHON_TEAMMATE"|"COLLABORATOR"|"MENTOR"|"MENTEE"|"DATING")[] (1 to 6, each once), intentTags?: { tag, hackathonId?, expiresAt? }[] (≤10; tag is 2 to 40 characters of a-z, 0-9 and "-"; expiresAt is a future ISO 8601 instant within a year), hoursPerWeek?: 1..100|null, availableFrom?: "YYYY-MM-DD"|null, remoteOk?, cityOnly?, lookingForSkills?: string[] (skill slugs, ≤20, each must exist), workingStyle?: { [questionId]: optionId }, dropTimeLocal?: "HH:MM" (default "09:00", in the caller's own time zone), paused? }`. Unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED` (an unknown skill or hackathon is reported in `details`).
+
+**DATING is opt-in and gated.** Saving a profile with `DATING` needs a date of birth on file that makes the caller 18 or older, a verified email, and a verified phone or a connected GitHub account: `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` or `403 DATING_VERIFICATION_REQUIRED` (`details.blockers` lists everything missing), and nothing is saved. Set the date of birth with `PATCH /api/users/me/profile`.
+
+### `GET /api/drops/today`
+The caller's daily drops for their own current date: `{ date, drops, hasProfile, paused, dropTimeLocal, nextDropAt }`. Each drop is `{ id, connectionType, score (0-100), reasons (≤3 lines), status (NEW|SPARKED|PASSED|EXPIRED), secondLook, expiresAt, candidate: { id, name, username, image, headline, builderRole, location, level, tier, skills (top 5), proof: { verifiedEvidence, shipped } } }`, best first. Someone who has been blocked either way since, or whose account is gone, is left out. The first read of a new drop counts one `drop_viewed`. `hasProfile: false` means the caller has not saved a matching profile (show the setup). `nextDropAt` is when the next drops arrive, to the hour (an hourly job makes them); `null` while paused or without a profile. Drops are made by the job `drops/generate`, not by this request, so it can be empty early in the day.
+
+### `POST /api/drops/{id}/pass`
+Passes on a drop: the person is not shown to the caller again for 30 days. **Response:** `{ id, status: "PASSED" }`; passing twice returns the same. `404 DROP_NOT_FOUND` for a drop that does not exist or is not the caller's; `409 DROP_NOT_PENDING` for one already sparked or expired.
+
+### `POST /api/sparks`
+Sends a spark. Honours `Idempotency-Key`. **Body:** `{ toId, connectionType, opener, dropId? }`: `connectionType` is the caller's side (`MENTEE` to spark a mentor); `opener` is 20 to 280 characters (judged by the opener rules, so the refusal says why); `dropId`, when sparking from a drop, must be the caller's own open drop for that person. Unknown keys are refused. **Response `201`:** `{ spark: { id, toId, connectionType, opener, status, createdAt }, match: MatchItem | null }`; `match` is set when the person had already sparked the caller with the counterpart type (the two are matched in the same request, with a conversation, notifications and a realtime push). Sparks and matches pay no XP. **Errors:** `400 CANNOT_SPARK_SELF`, `400 MATCHING_PROFILE_REQUIRED`, `400 SPARK_TYPE_NOT_CHOSEN`, `400 SPARK_OPENER_REJECTED` (`details: { reason, message }`), `403 DATING_BIRTH_DATE_REQUIRED` / `DATING_UNDERAGE` / `DATING_VERIFICATION_REQUIRED` for a dating spark, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`, `404 SPARK_TARGET_UNAVAILABLE`, `404 DROP_NOT_FOUND`, `409 DROP_NOT_PENDING`, `409 SPARK_ALREADY_SENT`, `409 MATCH_EXISTS`, `409 MATCH_ENDED`, `429 SPARK_LIMIT_REACHED` (`params.limit`), `429 SPARK_THROTTLED` (`params.retryAfter`).
+
+### `GET /api/sparks/received`
+**Query:** `limit` (1 to 50, default 20), `cursor`. The caller's unanswered sparks, newest first: `{ canSee, count, sparks: [{ id, connectionType, opener, createdAt, from: MatchPerson }], nextCursor }`. `connectionType` is the sender's side; answer with a spark of the counterpart type. Who sparked and what they wrote needs the `SEE_WHO_SPARKED` entitlement: without it `canSee` is `false`, `sparks` is `[]` and only `count` is returned. Senders blocked either way, or gone, are not counted. `400 INVALID_CURSOR`.
+
+### `GET /api/matches`
+**Query:** `limit` (1 to 50, default 20), `cursor`. The caller's open matches, newest first: `{ matches: [{ id, connectionType, yourRole, theirRole, createdAt, conversationId, other: MatchPerson }], nextCursor, total }`. A match that ended, or is with someone blocked either way or gone, is not listed.
+
+### `DELETE /api/matches/{id}`
+Unmatches. Final: the conversation is closed for both people (readable, but posting it is `409 CONVERSATION_CLOSED`) and the pair can never be matched, dropped to each other or sparked again. Either person can do it; doing it twice answers the same. **Response:** `{ id, endedAt }`. `404 MATCH_NOT_FOUND` for a match that does not exist or is not the caller's. The other person gets a realtime `match.ended` on their `user:{id}` channel.
+
+### `POST /api/matches/{id}/report`
+Unmatch and report in one call. Honours `Idempotency-Key`. **Body:** `{ reason: SPAM|HARASSMENT|INAPPROPRIATE_CONTENT|FAKE_PROFILE|SCAM|COPYRIGHT|OTHER, description? (≤5000) }`. The match ends as for `DELETE`, and a report against the other person is filed in the same queue as `POST /api/reports` (`metadata: { source: "MATCH", matchId }`). If the caller already has a pending report against them it is kept: `alreadyReported: true`. **Response `201`:** `{ matchId, endedAt, report: { id }, alreadyReported }`.
+
+### Realtime and notifications
+A new match sends the notification type `MATCH` (`metadata: { kind: "MATCH_CREATED", matchId, conversationId, connectionType }`) to both people and publishes `match.created` `{ matchId, conversationId, connectionType }` on each `user:{id}` channel. An ended match publishes `match.ended` `{ matchId }` to the other person. `POST /api/blocks` also ends the open matches between the two and answers `endedMatches`.
+
+### Jobs
+`drops/generate` (hourly; payload `{ userIds?: string[] }` generates for exactly those people, whether or not they are due), `drops/expire` (hourly) and `drops/second-look` (Mondays 07:15 UTC; payload `{ userIds?: string[] }`; gives each person at most one previously passed candidate who has grown, as an extra drop with `secondLook: true`) are run on demand with `POST /api/admin/jobs/drops/generate`, `/expire` and `/second-look`. A payload the job's own schema refuses is `400 VALIDATION_FAILED`.
 
 ## Realtime
 
@@ -648,6 +693,24 @@ and a unit test fails if a code is missing here.
 | `JOB_NOT_FOUND` | 404 | No such job |
 | `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
 | `COSMETIC_WRONG_SLOT` | 400 | This cosmetic does not go in that slot |
+| `DATING_BIRTH_DATE_REQUIRED` | 403 | Add your date of birth in your profile settings to use dating |
+| `DATING_UNDERAGE` | 403 | Dating is only available to people who are 18 or older |
+| `DATING_VERIFICATION_REQUIRED` | 403 | Dating needs a verified email and either a verified phone number or a connected GitHub account |
+| `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
+| `DROP_NOT_FOUND` | 404 | Drop not found |
+| `DROP_NOT_PENDING` | 409 | This drop has already been answered or has expired |
+| `CANNOT_SPARK_SELF` | 400 | You cannot spark yourself |
+| `MATCHING_PROFILE_REQUIRED` | 400 | Set up your matching profile first |
+| `SPARK_TYPE_NOT_CHOSEN` | 400 | You have not chosen this type of connection in your matching profile |
+| `SPARK_TARGET_UNAVAILABLE` | 404 | This person is not available to spark |
+| `SPARK_ALREADY_SENT` | 409 | You have already sparked this person for this type of connection |
+| `SPARK_OPENER_REJECTED` | 400 | That opener cannot be sent |
+| `SPARK_LIMIT_REACHED` | 429 | You have used all {limit} of your sparks for today. More arrive tomorrow |
+| `SPARK_THROTTLED` | 429 | You are sending sparks too fast. Try again in a little while |
+| `MATCH_NOT_FOUND` | 404 | Match not found |
+| `MATCH_EXISTS` | 409 | You are already matched with this person |
+| `MATCH_ENDED` | 409 | This match has ended and cannot be started again |
+| `CONVERSATION_CLOSED` | 409 | This conversation has been closed |
 
 ---
 

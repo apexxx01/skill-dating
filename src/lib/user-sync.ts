@@ -262,8 +262,12 @@ export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = pri
         isEmailVerified: false,
         emailVerified: null,
         githubConnected: false,
+        isPhoneVerified: false,
+        // Private data that must not outlive the account.
+        birthDate: null,
       },
     })
+    await tx.matchingProfile.deleteMany({ where: { userId: row.id } })
     await tx.account.deleteMany({ where: { userId: row.id } })
     await tx.session.deleteMany({ where: { userId: row.id } })
     await tx.profile.deleteMany({ where: { userId: row.id } })
