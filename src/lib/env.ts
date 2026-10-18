@@ -85,6 +85,10 @@ const envSchema = z.object({
 
     // Whether the Prisma client prints every query in development (default on). Scripts turn it off.
     PRISMA_QUERY_LOG: z.enum(['on', 'off']).optional(),
+
+    // Comma-separated host:port pairs the page fetcher (src/lib/infra/page-fetch.ts) may reach even though they resolve to a private or loopback
+    // address: only for a local test page. Refused in production, where every private address is always blocked.
+    PAGE_FETCH_ALLOW_PRIVATE: z.string().regex(/^[a-z0-9.-]+:\d{2,5}(,[a-z0-9.-]+:\d{2,5})*$/i, 'must be host:port pairs separated by commas').optional(),
   })
 
 // Rules that span several settings. They are checked from which settings are
@@ -146,6 +150,9 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
       const missing = present(a) ? b : a
       problems.set(missing, `is required when ${present(a) ? a : b} is set`)
     }
+  }
+  if (source.NODE_ENV === 'production' && present('PAGE_FETCH_ALLOW_PRIVATE')) {
+    problems.set('PAGE_FETCH_ALLOW_PRIVATE', 'must not be set in production')
   }
   if (requiresProductionConfig(source)) {
     for (const name of REQUIRED_IN_PRODUCTION) {
