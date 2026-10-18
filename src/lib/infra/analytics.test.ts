@@ -100,7 +100,7 @@ describe('Analytics', () => {
   })
 
   it('names every event the platform tracks', () => {
-    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned', 'quest_completed', 'streak_extended', 'drop_viewed', 'spark_sent', 'match_created', 'unmatch'])
+    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned', 'quest_completed', 'streak_extended', 'drop_viewed', 'spark_sent', 'match_created', 'unmatch', 'romance_joined', 'romance_left', 'romance_drop_viewed', 'romance_spark_sent', 'romance_match_created', 'romance_reveal_agreed', 'romance_duo_formed'])
   })
 })
 

@@ -67,7 +67,7 @@ describe('effectiveWeights', () => {
 
   it('always add up to 100, however many components apply and whatever the type', () => {
     const noLocation = { ...all, location: false }
-    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE', 'DATING'] as const) {
+    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE'] as const) {
       for (const applicable of [all, noLocation]) {
         const total = COMPONENTS.reduce((sum, key) => sum + effectiveWeights(type, applicable)[key], 0)
         expect(total).toBeCloseTo(100, 9)
@@ -81,14 +81,12 @@ describe('effectiveWeights', () => {
     expect(weights.skillComplement).toBeCloseTo((22 / 95) * 100, 9)
   })
 
-  it('moves weight with the type: a mentee looks at what a mentor has shown, a mentor at drive, dating at how people work', () => {
+  it('moves weight with the type: a mentee looks at what a mentor has shown, a mentor at drive', () => {
     const base = effectiveWeights('COFOUNDER', all)
     expect(effectiveWeights('MENTEE', all).proofStrength).toBeGreaterThan(base.proofStrength)
     expect(effectiveWeights('MENTEE', all).skillOverlap).toBeLessThan(base.skillOverlap)
     expect(effectiveWeights('MENTOR', all).proofStrength).toBeLessThan(base.proofStrength)
     expect(effectiveWeights('MENTOR', all).activityRecency).toBeGreaterThan(base.activityRecency)
-    expect(effectiveWeights('DATING', all).workingStyle).toBeGreaterThan(base.workingStyle)
-    expect(effectiveWeights('DATING', all).skillComplement).toBeLessThan(base.skillComplement)
   })
 })
 
@@ -508,7 +506,7 @@ describe('the type of relationship', () => {
   })
 
   it('still adds the weights up to 100 for every type', () => {
-    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE', 'DATING'] as const) {
+    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE'] as const) {
       const result = scoreCompatibility(input(pair.viewer, pair.candidate, { connectionType: type }))
       expect(COMPONENTS.reduce((sum, key) => sum + result.components[key].weight, 0)).toBeCloseTo(100, 9)
     }

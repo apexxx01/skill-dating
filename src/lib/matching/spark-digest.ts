@@ -48,7 +48,7 @@ async function recentRecipients(db: Pick<Db, '$queryRaw'>, now: Date) {
     FROM "Spark" s
     JOIN "User" u ON u."id" = s."toId"
     LEFT JOIN "MatchingProfile" mp ON mp."userId" = u."id"
-    WHERE s."status" = 'PENDING' AND s."createdAt" >= ${since} AND u."deletedAt" IS NULL
+    WHERE s."status" = 'PENDING' AND s."connectionType" <> 'DATING' AND s."createdAt" >= ${since} AND u."deletedAt" IS NULL
   `)
 }
 
@@ -79,6 +79,7 @@ export async function runSparkDigest(db: Db, options: DigestRunOptions = {}): Pr
         where: {
           toId: recipient.toId,
           status: 'PENDING',
+          connectionType: { not: 'DATING' },
           createdAt: { gt: since },
           from: { deletedAt: null, ...(hidden.length > 0 ? { id: { notIn: hidden } } : {}) },
         },

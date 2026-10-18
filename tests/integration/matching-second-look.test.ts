@@ -193,7 +193,7 @@ describe('the weekly second look', () => {
     expect(await testPrisma.drop.count({ where: { userId: viewer.id, secondLook: true } })).toBe(1)
   })
 
-  it('skips a grown person who is no longer eligible: blocked, matched, paused, deleted, untrusted, dating-ineligible', async () => {
+  it('skips a grown person who is no longer eligible: blocked, matched, paused, deleted, untrusted, and a pass from the old dating type', async () => {
     const viewer = await person({ types: ['COFOUNDER', 'DATING'], birthDate: bornYearsAgo(30), phone: true })
     const blocked = await person()
     const matched = await person()
@@ -209,7 +209,6 @@ describe('the weekly second look', () => {
     await testPrisma.match.create({ data: { userAId: a, userBId: b, userARole: 'COFOUNDER', userBRole: 'COFOUNDER', connectionType: 'COFOUNDER' } })
     await testPrisma.matchingProfile.update({ where: { userId: paused.id }, data: { paused: true } })
     await testPrisma.user.update({ where: { id: gone.id }, data: { deletedAt: new Date() } })
-    await testPrisma.user.update({ where: { id: datingLost.id }, data: { isPhoneVerified: false } })
     expect(await generateSecondLookForUser(testPrisma, viewer.id, now(), {})).toMatchObject({ created: 0 })
     expect(await secondLooks(viewer.id)).toEqual([])
   })

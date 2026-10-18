@@ -234,68 +234,40 @@ describe('daily drops', () => {
     })
   })
 
-  describe('dating is its own world', () => {
+  describe('the romance mode is not part of the daily drops', () => {
     const adult = bornYearsAgo(30)
 
-    it('shows DATING only to eligible people, from eligible people who chose DATING', async () => {
-      const viewer = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const ok = await person({ types: ['DATING'], birthDate: adult, github: true })
-      const minor = await person({ types: ['DATING'], birthDate: bornYearsAgo(17), phone: true })
-      const justTurned = await person({ types: ['DATING'], birthDate: bornYearsAgo(18), phone: true })
-      const dayShort = await person({ types: ['DATING'], birthDate: bornYearsAgo(18, -1), phone: true })
-      const noBirthDate = await person({ types: ['DATING'], birthDate: null, phone: true })
-      const noPhoneOrGithub = await person({ types: ['DATING'], birthDate: adult })
-      const unverifiedEmail = await person({ types: ['DATING'], birthDate: adult, phone: true, emailVerified: false })
-      const notDating = await person({ types: ['COFOUNDER'], birthDate: adult, phone: true, skills: [[ml, 5]] })
-      await generate(viewer.id)
-      const chosen = new Set(await shown(viewer.id))
-      expect(chosen.has(ok.id)).toBe(true)
-      expect(chosen.has(justTurned.id)).toBe(true)
-      for (const out of [minor, dayShort, noBirthDate, noPhoneOrGithub, unverifiedEmail, notDating]) expect(chosen.has(out.id)).toBe(false)
-      for (const drop of await dropsOf(viewer.id)) expect(drop.connectionType).toBe('DATING')
-    })
-
-    it('never shows a DATING-only person in a drop of another type, and never a cofounder in a dating drop', async () => {
-      const datingOnly = await person({ types: ['DATING'], birthDate: adult, phone: true, skills: [[ml, 5]], xp: 90000 })
-      const cofounderOnly = await person({ types: ['COFOUNDER'], birthDate: adult, phone: true, skills: [[ml, 5]], xp: 90000 })
-      const cofounderViewer = await person({ types: ['COFOUNDER'], lookingForSkills: [ml] })
-      const mixedViewer = await person({ types: ['COFOUNDER', 'DATING'], birthDate: adult, phone: true, lookingForSkills: [ml] })
+    it('gives nobody a DATING drop, and shows nobody who only wants it, whatever is stored in their profile', async () => {
+      // A DATING left in a matching profile from before the romance mode had its own profile is ignored.
+      const mark = await ownSkill('nodating')
+      const datingOnly = await person({ types: ['DATING'], birthDate: adult, phone: true, skills: [[mark, 5]], xp: 90000 })
+      const cofounderOnly = await person({ types: ['COFOUNDER'], birthDate: adult, phone: true, skills: [[mark, 5]], xp: 90000 })
+      const cofounderViewer = await person({ types: ['COFOUNDER'], lookingForSkills: [mark] })
+      const mixedViewer = await person({ types: ['COFOUNDER', 'DATING'], birthDate: adult, phone: true, lookingForSkills: [mark] })
       await generate(cofounderViewer.id)
       expect(await shown(cofounderViewer.id)).not.toContain(datingOnly.id)
       await generate(mixedViewer.id)
       const drops = await dropsOf(mixedViewer.id)
-      for (const drop of drops) {
-        if (drop.connectionType === 'DATING') expect(drop.candidateId).not.toBe(cofounderOnly.id)
-        else expect(drop.candidateId).not.toBe(datingOnly.id)
-      }
-      expect(drops.find((d) => d.candidateId === datingOnly.id)?.connectionType).toBe('DATING')
-      expect(drops.find((d) => d.candidateId === cofounderOnly.id)?.connectionType).toBe('COFOUNDER')
-      expect(drops.filter((d) => d.connectionType === 'DATING')).toHaveLength(1)
-    })
-
-    it('gives a minor no dating drops even when a dating profile was written for them', async () => {
-      const minor = await person({ types: ['DATING', 'COFOUNDER'], birthDate: bornYearsAgo(16), phone: true, github: true, lookingForSkills: [ml] })
-      await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const cofounder = await person({ types: ['COFOUNDER'], skills: [[ml, 5]], xp: 90000 })
-      await generate(minor.id)
-      const drops = await dropsOf(minor.id)
       expect(drops.some((d) => d.connectionType === 'DATING')).toBe(false)
-      expect(drops.filter((d) => d.connectionType === 'COFOUNDER')).toHaveLength(1)
-      expect(cofounder.id).toBeTruthy()
-      const dating = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const minorOnly = await person({ types: ['DATING'], birthDate: bornYearsAgo(17), github: true })
-      await generate(minorOnly.id)
-      expect(await dropsOf(minorOnly.id)).toEqual([])
-      await generate(dating.id)
-      expect(await shown(dating.id)).not.toContain(minor.id)
-      expect(await shown(dating.id)).not.toContain(minorOnly.id)
+      expect(drops.map((d) => d.candidateId)).not.toContain(datingOnly.id)
+      expect(drops.find((d) => d.candidateId === cofounderOnly.id)?.connectionType).toBe('COFOUNDER')
+      // A person who has only DATING stored is given nothing.
+      expect(await generate(datingOnly.id)).toMatchObject({ created: 0 })
+      expect(await dropsOf(datingOnly.id)).toEqual([])
     })
 
-    it('stops showing dating to somebody who lost eligibility', async () => {
-      const viewer = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      await person({ types: ['DATING'], birthDate: adult, phone: true })
-      await testPrisma.user.update({ where: { id: viewer.id }, data: { isPhoneVerified: false, githubConnected: false } })
-      expect((await generate(viewer.id)).created).toBe(0)
+    it('does not take a person with a romance profile for a professional candidate', async () => {
+      const mark = await ownSkill('romanceonly')
+      const lover = await person({ profile: false, birthDate: adult, phone: true, skills: [[mark, 5]] })
+      await testPrisma.romanceProfile.create({
+        data: {
+          userId: lover.id, promptObsessed: 'x'.repeat(30), promptBuild: 'x'.repeat(30), promptWeekend: 'x'.repeat(30), ambition: 2, direction: 'open', rhythm: 'steady',
+          gender: 'WOMAN', interestedIn: ['MAN'], ageMin: 25, ageMax: 40, scope: 'ANYWHERE',
+        },
+      })
+      const viewer = await person({ lookingForSkills: [mark] })
+      await generate(viewer.id)
+      expect(await shown(viewer.id)).not.toContain(lover.id)
     })
   })
 

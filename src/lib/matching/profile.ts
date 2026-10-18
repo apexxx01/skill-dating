@@ -4,7 +4,7 @@ import type { ErrorCode } from '@/lib/api/errors'
 import { datingBlockers, formatBirthDate, type DatingBlocker, type DatingFacts } from './dating'
 import { INTENT_TAG_PATTERN, MAX_INTENT_TAGS } from './intents'
 import { readWorkingStyle, workingStyleSchema } from './quiz'
-import { activeIntentTags, DATING_MIN_AGE, MATCH_TYPES, type IntentTag, type MatchType, type WorkingStyleAnswers } from './types'
+import { activeIntentTags, DATING_MIN_AGE, PROFESSIONAL_TYPES, type IntentTag, type MatchType, type WorkingStyleAnswers } from './types'
 
 // A person's matching profile: what they are looking for and how they like to work. The request schema, how a stored row is shown,
 // the checks that need the database (do the skills and the hackathon exist?) and the dating gate.
@@ -36,10 +36,11 @@ const intentTagSchema = z
 /** PUT /api/matching/profile. The whole profile: what is left out takes its default. */
 export const matchingProfileSchema = z
   .object({
+    // The professional types only. The romance mode is joined with its own profile (PUT /api/romance/profile), never from here.
     connectionTypes: z
-      .array(z.enum(MATCH_TYPES))
+      .array(z.enum(PROFESSIONAL_TYPES))
       .min(1, 'Choose at least one')
-      .max(MATCH_TYPES.length)
+      .max(PROFESSIONAL_TYPES.length)
       .refine((types) => new Set(types).size === types.length, 'Each type once'),
     intentTags: z
       .array(intentTagSchema)
@@ -210,9 +211,9 @@ export async function checkDatingGate(db: Pick<PrismaClient, 'user'>, userId: st
   return code ? { code, blockers: status.blockers } : null
 }
 
-export async function loadOwnMatchingProfile(db: Db, userId: string, now: Date = new Date()) {
-  const [row, facts] = await Promise.all([db.matchingProfile.findUnique({ where: { userId } }), db.user.findUnique({ where: { id: userId }, select: datingFactsSelect })])
-  return { exists: row !== null, profile: toView(row), dating: datingStatus(facts, now) }
+export async function loadOwnMatchingProfile(db: Db, userId: string) {
+  const row = await db.matchingProfile.findUnique({ where: { userId } })
+  return { exists: row !== null, profile: toView(row) }
 }
 
 /** Tags that still count, for showing a profile to somebody else. */

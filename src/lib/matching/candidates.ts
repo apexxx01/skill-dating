@@ -2,7 +2,6 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { MIN_TRUSTED_ACCOUNT_AGE_DAYS } from '@/lib/trust'
 import { utcTimestamp } from '@/lib/sql'
 import { DROP_CONFIG } from './config'
-import { datingEligibleSql } from './dating'
 import { counterpartType, type MatchType } from './types'
 
 // The candidate pool for one viewer and one type of relationship, in SQL. This is the only place that decides who may be SHOWN to
@@ -13,7 +12,6 @@ import { counterpartType, type MatchType } from './types'
 //     - the type: the candidate has the counterpart of the viewer's type (GIN on connectionTypes);
 //     - not paused, not deleted, seen in the last 60 days (User.lastActiveAt);
 //     - a trusted account: email verified and at least 7 days old, the same rule as the trusted-counterparty gate;
-//     - for DATING only: dating-eligible (verified, 18 or older);
 //     - not blocked either way (Block, both directions);
 //     - not already matched with the viewer (open or ended: unmatching is final) and not already sparked by them;
 //     - not shown to this viewer lately, and not passed in the last 30 days (Drop (userId, candidateId, createdAt));
@@ -21,8 +19,8 @@ import { counterpartType, type MatchType } from './types'
 //     - the "only my city" wish of either side.
 //   ordered by a cheap pre-rank (skills each wants that the other has, then recency) and cut to a bounded pool, which the pure scorer ranks.
 //
-// DATING never mixes with the other types because each type is its own query: a DATING pool only holds people who chose DATING, and
-// the pool of any other type only holds people who chose that type (a person who chose only DATING is in none of them).
+// The pool is for the professional types only. The romance mode has its own pool (src/lib/romance/candidates.ts) over its own table, so
+// the two never mix.
 
 type Db = Pick<PrismaClient, '$queryRaw'>
 
@@ -38,7 +36,7 @@ export interface Viewer {
 
 /**
  * How the pool differs from a plain daily drop. All of it narrows or widens what is remembered about the viewer's past with a person; nothing here
- * loosens who may be shown (blocks, trust, pausing, dating and the exposure cap always apply).
+ * loosens who may be shown (blocks, trust, pausing and the exposure cap always apply).
  */
 export interface PoolOptions {
   /** Only these people (a second look at someone already known). */
@@ -75,7 +73,6 @@ export async function findCandidateIds(
   const dayStart = utcTimestamp(utcDayStart(now))
   const repeatSince = utcTimestamp(new Date(now.getTime() - config.repeatCooldownDays * DAY_MS))
   const passedSince = utcTimestamp(new Date(now.getTime() - config.passCooldownDays * DAY_MS))
-  const dating = type === 'DATING' ? datingEligibleSql('u', now) : Prisma.sql`TRUE`
   const wants = [...viewer.lookingForSkillIds]
   const has = [...viewer.skillSlugs]
 
@@ -110,7 +107,6 @@ export async function findCandidateIds(
         AND u."isEmailVerified" = true
         AND u."createdAt" <= ${trustedBefore}
         AND u."lastActiveAt" >= ${activeSince}
-        AND ${dating}
         AND (${viewer.cityOnly} = false OR p."cityKey" = ${viewer.cityKey})
         AND (mp."cityOnly" = false OR (${viewer.cityKey}::text IS NOT NULL AND p."cityKey" = ${viewer.cityKey}))
         AND NOT EXISTS (

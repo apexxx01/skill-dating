@@ -515,7 +515,7 @@ and as a notification of kind `ACHIEVEMENT_UNLOCKED`.
 
 ## Matching pages: Setup, Drops, Sparks, Matches
 
-The rules (scoring, daily drops, the dating gate, anti-spam) are in [MATCHING.md](MATCHING.md); the routes in [API.md](API.md#matching).
+The rules (scoring, daily drops, anti-spam) are in [MATCHING.md](MATCHING.md); the routes in [API.md](API.md#matching). The romance mode has its own pages (below, "Romance pages") and is never part of these.
 Types: `MatchPerson`, `DropItem`, `TodayDrops` and `MatchTypeName` in `src/types/api.ts`.
 
 ### Setup (`/matching/setup`)
@@ -523,14 +523,11 @@ Types: `MatchPerson`, `DropItem`, `TodayDrops` and `MatchTypeName` in `src/types
 | Need | Call |
 | --- | --- |
 | The quiz questions | `GET /api/matching/quiz` → `{ version, questions: [{ id, prompt, options: [{ id, label }] }] }` (options run from one end of a spectrum to the other; show them in order) |
-| Load / save the profile | `GET` / `PUT /api/matching/profile` (**write**, saves the whole profile) → `{ exists, profile, dating }` |
-| Date of birth | `PATCH /api/users/me/profile { birthDate: "YYYY-MM-DD" }` (**write, once**); read back with `GET /api/users/me/profile`. Never shown to anyone else |
+| Load / save the profile | `GET` / `PUT /api/matching/profile` (**write**, saves the whole profile) → `{ exists, profile }` (the professional types only: `COFOUNDER`, `HACKATHON_TEAMMATE`, `COLLABORATOR`, `MENTOR`, `MENTEE`; sending `DATING` is `400 VALIDATION_FAILED`) |
+| Date of birth | asked at **onboarding**: `PATCH /api/users { birthDate: "YYYY-MM-DD", headline }` (**write, once**), required to finish onboarding (`GET /api/users/me` → `ageRequired`); `PATCH /api/users/me/profile` takes it too. Read back with `GET /api/users/me/profile`. Never shown to anyone else. Under 16 is `403 AGE_BELOW_MINIMUM`; 16 and 17 make a minor (`isMinor`) who may share a country and nothing finer (`400 MINOR_LOCATION_LIMITED`) |
 | Skills to pick from | `GET /api/skills` (send the slugs as `lookingForSkills`) |
 
-`dating.eligible` says whether to offer DATING at all; when it is `false`, `dating.blockers` lists what is missing (`BIRTH_DATE_MISSING`, `UNDER_AGE`,
-`EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`). Offer a date-of-birth field for `BIRTH_DATE_MISSING`, a "verify your phone or connect GitHub" step for
-`NO_PHONE_OR_GITHUB`, and for `UNDER_AGE` simply do not offer it. Saving with DATING while the gate is shut is `403 DATING_BIRTH_DATE_REQUIRED`,
-`DATING_UNDERAGE` or `DATING_VERIFICATION_REQUIRED` and nothing is saved. A birth date cannot be changed once set (`409 BIRTH_DATE_LOCKED`), so confirm it before
+A birth date cannot be changed once set (`409 BIRTH_DATE_LOCKED`), so confirm it before
 saving. `PUT` replaces the whole profile: send every field the user has, including `paused` (to pause, send the profile back with `paused: true`).
 
 ### Discover / Drops (`/discover`, the daily tab)

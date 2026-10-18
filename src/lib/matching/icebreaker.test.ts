@@ -87,15 +87,8 @@ describe('buildIcebreaker', () => {
     expect(buildIcebreaker('MENTEE', none)).toContain('what are you stuck on')
   })
 
-  it('leaves skills and technologies out of a dating match, and uses nothing else about work history', () => {
-    const text = buildIcebreaker('DATING', { skills: ['React'], stack: ['Postgres'], intents: ['open-source'], sameHackathon: false })
-    expect(text).not.toMatch(/React|Postgres|know|build with/)
-    expect(text).toContain('Both want to build in the open.')
-    expect(text.startsWith('It is a match.')).toBe(true)
-  })
-
   it('never guesses a pronoun and stays short', () => {
-    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE', 'DATING'] as const) {
+    for (const type of ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE'] as const) {
       const text = buildIcebreaker(type, { skills: ['React', 'Go', 'Rust'], stack: ['a', 'b', 'c'], intents: ['open-source'], sameHackathon: true })
       expect(text).not.toMatch(/\b(she|he|her|his|him)\b/i)
       expect(text.length).toBeLessThanOrEqual(500)

@@ -13,7 +13,7 @@ export async function matchesWithTeammates(tx: Tx, userId: string, teamId: strin
   if (members.length === 0) return []
   const ids = members.map((member) => member.userId)
   return tx.match.findMany({
-    where: { endedAt: null, OR: [{ userAId: userId, userBId: { in: ids } }, { userBId: userId, userAId: { in: ids } }] },
+    where: { endedAt: null, connectionType: { not: 'DATING' }, OR: [{ userAId: userId, userBId: { in: ids } }, { userBId: userId, userAId: { in: ids } }] },
     select: { id: true, userAId: true, userBId: true },
   })
 }

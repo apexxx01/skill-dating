@@ -253,7 +253,7 @@ Deletes the caller's own `CurrentBuild`. `404` if none exists.
 ## Connections
 
 ### `POST /api/connections`
-Sends a typed connection request (`TEAMMATE|COLLABORATOR|MENTOR|FRIEND|NETWORK|DATING`). Checks both directions for a conflict — an existing `PENDING` or `ACCEPTED` row either way blocks a new request. Notifies the receiver.
+Sends a typed connection request (`TEAMMATE|COLLABORATOR|MENTOR|FRIEND|NETWORK`; `DATING` is no longer accepted: the romance mode is separate). Checks both directions for a conflict — an existing `PENDING` or `ACCEPTED` row either way blocks a new request. Notifies the receiver.
 **Body:** `{ receiverId, type?, message? }`
 **Errors:** `400` self-connect, `404` receiver not found (also when the receiver has blocked the caller), `403` the caller has blocked the receiver, `400` already connected, `409` already pending.
 
@@ -509,18 +509,18 @@ Everything the dashboard page shows, through the same rules as every other endpo
 
 ## Matching
 
-The matching engine's profile and quiz. The rules (scoring, daily drops, the dating gate, anti-spam) are in [MATCHING.md](MATCHING.md).
+The matching engine's profile and quiz. The rules (scoring, daily drops, anti-spam) are in [MATCHING.md](MATCHING.md); the romance mode's are in [ROMANCE.md](ROMANCE.md).
 
 ### `GET /api/matching/quiz`
 The fixed working-style quiz: `{ version, questions: [{ id, prompt, options: [{ id, label }] }] }`. The options of a question are ordered from one end of a spectrum to the other. Answers go in `workingStyle` of the profile as `{ [questionId]: optionId }`; any subset of the questions may be answered.
 
 ### `GET /api/matching/profile`
-The caller's matching profile: `{ exists, profile, dating }`. `profile` is `{ connectionTypes, intentTags, hoursPerWeek, availableFrom, remoteOk, cityOnly, lookingForSkills, workingStyle, dropTimeLocal, paused }`, with defaults (and no connection types) until the first save; nothing is created by reading. `dating` is `{ eligible, blockers, minAge }`: whether the dating gate is open for the caller and, if not, what is missing (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`).
+The caller's matching profile: `{ exists, profile }`. `profile` is `{ connectionTypes, intentTags, hoursPerWeek, availableFrom, remoteOk, cityOnly, lookingForSkills, workingStyle, dropTimeLocal, paused }`, with defaults (and no connection types) until the first save; nothing is created by reading.
 
 ### `PUT /api/matching/profile`
-Saves the whole profile (what is left out takes its default). **Body:** `{ connectionTypes: ("COFOUNDER"|"HACKATHON_TEAMMATE"|"COLLABORATOR"|"MENTOR"|"MENTEE"|"DATING")[] (1 to 6, each once), intentTags?: { tag, hackathonId?, expiresAt? }[] (≤10; tag is 2 to 40 characters of a-z, 0-9 and "-"; expiresAt is a future ISO 8601 instant within a year), hoursPerWeek?: 1..100|null, availableFrom?: "YYYY-MM-DD"|null, remoteOk?, cityOnly?, lookingForSkills?: string[] (skill slugs, ≤20, each must exist), workingStyle?: { [questionId]: optionId }, dropTimeLocal?: "HH:MM" (default "09:00", in the caller's own time zone), paused? }`. Unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED` (an unknown skill or hackathon is reported in `details`).
+Saves the whole profile (what is left out takes its default). **Body:** `{ connectionTypes: ("COFOUNDER"|"HACKATHON_TEAMMATE"|"COLLABORATOR"|"MENTOR"|"MENTEE")[] (1 to 5, each once; `DATING` is refused: the romance mode has its own profile), intentTags?: { tag, hackathonId?, expiresAt? }[] (≤10; tag is 2 to 40 characters of a-z, 0-9 and "-"; expiresAt is a future ISO 8601 instant within a year), hoursPerWeek?: 1..100|null, availableFrom?: "YYYY-MM-DD"|null, remoteOk?, cityOnly?, lookingForSkills?: string[] (skill slugs, ≤20, each must exist), workingStyle?: { [questionId]: optionId }, dropTimeLocal?: "HH:MM" (default "09:00", in the caller's own time zone), paused? }`. Unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED` (an unknown skill or hackathon is reported in `details`).
 
-**DATING is opt-in and gated.** Saving a profile with `DATING` needs a date of birth on file that makes the caller 18 or older, a verified email, and a verified phone or a connected GitHub account: `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` or `403 DATING_VERIFICATION_REQUIRED` (`details.blockers` lists everything missing), and nothing is saved. Set the date of birth with `PATCH /api/users/me/profile`.
+**The romance mode is not a type here.** `DATING` (the storage key of a romance match) is refused with `400 VALIDATION_FAILED`; join the romance mode with `PUT /api/romance/profile` (see [ROMANCE.md](ROMANCE.md)). The 18+ gate (`403 DATING_BIRTH_DATE_REQUIRED`, `DATING_UNDERAGE`, `DATING_VERIFICATION_REQUIRED`) applies there.
 
 ### `GET /api/drops/today`
 The caller's daily drops for their own current date: `{ date, drops, hasProfile, paused, dropTimeLocal, nextDropAt }`. Each drop is `{ id, connectionType, score (0-100), reasons (≤3 lines), status (NEW|SPARKED|PASSED|EXPIRED), secondLook, expiresAt, candidate: { id, name, username, image, headline, builderRole, location, level, tier, skills (top 5), proof: { verifiedEvidence, shipped } } }`, best first. Someone who has been blocked either way since, or whose account is gone, is left out. The first read of a new drop counts one `drop_viewed`. `hasProfile: false` means the caller has not saved a matching profile (show the setup). `nextDropAt` is when the next drops arrive, to the hour (an hourly job makes them); `null` while paused or without a profile. Drops are made by the job `drops/generate`, not by this request, so it can be empty early in the day.
@@ -529,7 +529,7 @@ The caller's daily drops for their own current date: `{ date, drops, hasProfile,
 Passes on a drop: the person is not shown to the caller again for 30 days. **Response:** `{ id, status: "PASSED" }`; passing twice returns the same. `404 DROP_NOT_FOUND` for a drop that does not exist or is not the caller's; `409 DROP_NOT_PENDING` for one already sparked or expired.
 
 ### `POST /api/sparks`
-Sends a spark. Honours `Idempotency-Key`. **Body:** `{ toId, connectionType, opener, dropId? }`: `connectionType` is the caller's side (`MENTEE` to spark a mentor); `opener` is 20 to 280 characters (judged by the opener rules, so the refusal says why); `dropId`, when sparking from a drop, must be the caller's own open drop for that person. Unknown keys are refused. **Response `201`:** `{ spark: { id, toId, connectionType, opener, status, createdAt }, match: MatchItem | null }`; `match` is set when the person had already sparked the caller with the counterpart type (the two are matched in the same request, with a conversation, notifications and a realtime push). Sparks and matches pay no XP. **Errors:** `400 CANNOT_SPARK_SELF`, `400 MATCHING_PROFILE_REQUIRED`, `400 SPARK_TYPE_NOT_CHOSEN`, `400 SPARK_OPENER_REJECTED` (`details: { reason, message }`), `403 DATING_BIRTH_DATE_REQUIRED` / `DATING_UNDERAGE` / `DATING_VERIFICATION_REQUIRED` for a dating spark, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`, `404 SPARK_TARGET_UNAVAILABLE`, `404 DROP_NOT_FOUND`, `409 DROP_NOT_PENDING`, `409 SPARK_ALREADY_SENT`, `409 MATCH_EXISTS`, `409 MATCH_ENDED`, `429 SPARK_LIMIT_REACHED` (`params.limit`), `429 SPARK_THROTTLED` (`params.retryAfter`).
+Sends a spark. Honours `Idempotency-Key`. **Body:** `{ toId, connectionType, opener, dropId? }`: `connectionType` is the caller's side (`MENTEE` to spark a mentor); `opener` is 20 to 280 characters (judged by the opener rules, so the refusal says why); `dropId`, when sparking from a drop, must be the caller's own open drop for that person. Unknown keys are refused. **Response `201`:** `{ spark: { id, toId, connectionType, opener, status, createdAt }, match: MatchItem | null }`; `match` is set when the person had already sparked the caller with the counterpart type (the two are matched in the same request, with a conversation, notifications and a realtime push). Sparks and matches pay no XP. **Errors:** `400 CANNOT_SPARK_SELF`, `400 MATCHING_PROFILE_REQUIRED`, `400 SPARK_TYPE_NOT_CHOSEN`, `400 SPARK_OPENER_REJECTED` (`details: { reason, message }`), `403 USER_BLOCKED`, `404 USER_NOT_FOUND`, `404 SPARK_TARGET_UNAVAILABLE`, `404 DROP_NOT_FOUND`, `409 DROP_NOT_PENDING`, `409 SPARK_ALREADY_SENT`, `409 MATCH_EXISTS`, `409 MATCH_ENDED`, `429 SPARK_LIMIT_REACHED` (`params.limit`), `429 SPARK_THROTTLED` (`params.retryAfter`).
 
 ### `GET /api/sparks/received`
 **Query:** `limit` (1 to 50, default 20), `cursor`. The caller's unanswered sparks, newest first: `{ canSee, count, sparks: [{ id, connectionType, opener, createdAt, from: MatchPerson }], nextCursor }`. `connectionType` is the sender's side; answer with a spark of the counterpart type. Who sparked and what they wrote needs the `SEE_WHO_SPARKED` entitlement: without it `canSee` is `false`, `sparks` is `[]` and only `count` is returned. Senders blocked either way, or gone, are not counted. `400 INVALID_CURSOR`.
@@ -720,9 +720,9 @@ and a unit test fails if a code is missing here.
 | `JOB_NOT_FOUND` | 404 | No such job |
 | `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
 | `COSMETIC_WRONG_SLOT` | 400 | This cosmetic does not go in that slot |
-| `DATING_BIRTH_DATE_REQUIRED` | 403 | Add your date of birth in your profile settings to use dating |
-| `DATING_UNDERAGE` | 403 | Dating is only available to people who are 18 or older |
-| `DATING_VERIFICATION_REQUIRED` | 403 | Dating needs a verified email and either a verified phone number or a connected GitHub account |
+| `DATING_BIRTH_DATE_REQUIRED` | 403 | Add your date of birth in your profile settings to use {mode} |
+| `DATING_UNDERAGE` | 403 | {mode} is only available to people who are 18 or older |
+| `DATING_VERIFICATION_REQUIRED` | 403 | {mode} needs a verified email and either a verified phone number or a connected GitHub account |
 | `BIRTH_DATE_LOCKED` | 409 | Your date of birth is already set and cannot be changed |
 | `AGE_BELOW_MINIMUM` | 403 | You need to be at least {minAge} to use Skill Dating |
 | `BIRTH_DATE_REQUIRED` | 400 | Your date of birth is required |

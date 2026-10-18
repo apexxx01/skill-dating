@@ -10,7 +10,7 @@ One row per person (`MatchingProfile`), saved whole by `PUT /api/matching/profil
 
 | Field | Meaning |
 | --- | --- |
-| `connectionTypes` | What they are looking for, one or more of `COFOUNDER`, `HACKATHON_TEAMMATE`, `COLLABORATOR`, `MENTOR`, `MENTEE`, `DATING`. |
+| `connectionTypes` | What they are looking for, one or more of `COFOUNDER`, `HACKATHON_TEAMMATE`, `COLLABORATOR`, `MENTOR`, `MENTEE`. (The romance mode is not a type: it has its own profile, `PUT /api/romance/profile`; see [ROMANCE.md](ROMANCE.md).) |
 | `intentTags` | What they want right now: up to 10 `{ tag, hackathonId?, expiresAt? }`. A tag is lower-case words joined by dashes (`ship-mvp-90-days`). A few are suggested by the client and have a hand-written line for "why you matched"; any other well-formed tag is matched on and shown as its words. A tag tied to a hackathon only matches the same hackathon; an expired tag stops counting at its `expiresAt` (at most a year ahead). |
 | `hoursPerWeek`, `availableFrom` | How much time they can give and from when. |
 | `remoteOk`, `cityOnly` | `cityOnly` means "only people in my city" (`Profile.cityKey`); it is a filter and a score component. |
@@ -23,28 +23,26 @@ One row per person (`MatchingProfile`), saved whole by `PUT /api/matching/profil
 one has it and the other has its counterpart. A match is stored under the name of the relationship (a mentor and a mentee are a `MENTOR`
 match).
 
-## The dating gate
+## The romance mode is separate (and its 18+ gate)
 
-`DATING` is strictly opt-in and gated, by one rule in `src/lib/matching/dating.ts` that is used everywhere dating appears (saving the
-profile, building drops, sending a spark). A person may use dating only with **all** of:
+**Romance is not a connection type.** It used to be `DATING` among the types of a matching profile; it is now its own mode with its own profile, pool, weekly drop, sparks and
+matches (see [ROMANCE.md](ROMANCE.md)). `DATING` survives only as the storage key of a romance `Match` (and its sparks), and is refused as a type of the matching profile
+(`400 VALIDATION_FAILED`) and of `POST /api/sparks`. The professional pool, the daily drops, the second look, the dashboard, the gap finder and every professional list leave romance out, and
+romance matches never count toward the match achievements. A migration removed `DATING` from existing matching profiles, deleted the old dating drops and unanswered dating sparks, and
+left existing matches alone.
+
+**The 18+ gate** is still one rule, in `src/lib/matching/dating.ts`, used by the romance mode everywhere it appears (saving the profile, building the weekly drop, sending a spark). A
+person may use it only with **all** of:
 
 - a **verified email**, and a **verified phone or a connected GitHub account**;
-- a **date of birth on file that makes them 18 or older**. No date of birth, no dating. A minor is refused outright.
+- a **date of birth on file that makes them 18 or older**. No date of birth, no romance mode. A minor (16 or 17) is refused outright, whatever else is true.
 
-Refusals are `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` and `403 DATING_VERIFICATION_REQUIRED`, and `GET /api/matching/profile`
-tells the owner what is missing. Age is counted on the UTC calendar date, so in the hours when a birthday has come in one zone and not yet
-in another the person is treated as not yet 18; a 29 February birthday is reached on 1 March in a common year. The same rule exists as SQL
-for the candidate query (`datingEligibleSql`), and a test proves the two agree for every day across four years.
+Refusals are `403 DATING_BIRTH_DATE_REQUIRED`, `403 DATING_UNDERAGE` and `403 DATING_VERIFICATION_REQUIRED`, and `GET /api/romance/profile` tells the owner what is missing
+(`eligibility`). Age is counted on the UTC calendar date, so in the hours when a birthday has come in one zone and not yet in another the person is treated as not yet 18; a 29 February
+birthday is reached on 1 March in a common year. The same rule exists as SQL for the romance pool (`datingEligibleSql`), and a test proves the two agree for every day across four years.
 
-**The date of birth is private.** `User.birthDate` is set through `PATCH /api/users/me/profile` and returned only by that profile read, to its
-owner; no other route, list, card or search carries it (a test scans the source for every file that so much as names the column and
-fails when an unlisted one does, and an integration test reads every public surface for it). It is **set once and then locked**, so a minor
-cannot change it to pass for an adult (a different date afterwards is `409 BIRTH_DATE_LOCKED`; the same date again is fine). It is wiped
-when the account is deleted, along with the matching profile.
-
-**Dating never mixes with the other types, in either direction.** A drop or a spark of type `DATING` needs `DATING` on both profiles and both
-people eligible; a drop of any other type never shows somebody who has only `DATING`; and somebody who chose `COFOUNDER` and `DATING` is
-shown cofounder candidates for the one and dating candidates for the other, each only from people who chose that same type.
+**The date of birth is private.** It is set once (at onboarding, or through `PATCH /api/users/me/profile`), returned only by the owner's own profile read, locked afterwards and
+governed by the platform age policy; see [SAFETY.md](SAFETY.md).
 
 ## Compatibility score (v2)
 
@@ -75,8 +73,8 @@ unknown when one side has not said, counts as the neutral value (0.4) and never 
 punished nor inflated.
 
 **The type of relationship moves the weights**, and they are scaled back to 100 afterwards (`typeMultipliers`): a mentee chooses a mentor for what
-they have shown (proof ×1.8, shared skills ×0.25), a mentor looks at a mentee for drive (recent activity ×2, intent ×1.3, proof ×0.7), and
-dating leans on how two people work and what they want (working style ×1.8, intent ×1.6) and hardly on skills (complement ×0.2, proof ×0.3).
+they have shown (proof ×1.8, shared skills ×0.25), a mentor looks at a mentee for drive (recent activity ×2, intent ×1.3, proof ×0.7).
+(The romance mode is scored by its own function, `scoreRomance()`, with its own components: see [ROMANCE.md](ROMANCE.md).)
 
 **Excluded people are not scored.** Someone the viewer blocked (or who blocked them), or passed within the last 30 days, scores 0 with
 `excluded` set. In practice they never reach the scorer, because the candidate query leaves them out first.
@@ -110,7 +108,7 @@ with no time zone is on UTC. `drops/expire` runs hourly (`:20`) and marks `NEW` 
 - **Who is in the pool** (`src/lib/matching/candidates.ts`, one SQL query per type of relationship the viewer chose):
   has the counterpart type · not paused · not deleted · seen in the last 60 days · **a trusted account** (verified email, at least 7 days old: the same
   rule as the trusted-counterparty gate, `MIN_TRUSTED_ACCOUNT_AGE_DAYS`) · **not blocked either way** · not shown to the viewer in the last 7 days ·
-  **not passed in the last 30 days** · for DATING only, dating-eligible · the "only my city" wish of either side · and under the **exposure
+  **not passed in the last 30 days** · the "only my city" wish of either side · and under the **exposure
   cap**. (Existing matches and people already sparked are left out too: see Sparks and matches.)
 - **Fairness: the exposure cap.** One person is shown to at most **20** people a UTC day (`DROP_CONFIG.exposureCapPerDay`). Drops are made
   one viewer at a time, so each sees what the viewers before them were shown, and the order of viewers is shuffled by the day
@@ -121,7 +119,7 @@ with no time zone is on UTC. `drops/expire` runs hourly (`:20`) and marks `NEW` 
 - **Floor:** a candidate scoring under 30 is not shown.
 - **Diversity:** somebody who chose **several types** gets **at most one drop per type** a day (the best cofounder, the best teammate, the best mentor, each
   a different person); somebody who chose **only one type** gets as many as their allowance. A person who fits two types is shown once, as the better fit.
-- **Dating** pools are separate queries from every other type (see "The dating gate"), and a viewer who is no longer eligible is simply given no dating drops.
+- **Romance** is never in the pool or in a daily drop: it has its own weekly drop (see [ROMANCE.md](ROMANCE.md)).
 
 Writing the drops is one transaction under a per-person advisory lock that re-checks the marker and the allowance, so two runs at once (or an
 admin run during the hourly one) cannot give anybody more than their allowance.
@@ -143,7 +141,7 @@ mentor as `MENTEE`). One spark per person per type. When the person had already 
 - a **Match** (`userAId` is always the smaller id, so a pair is one row whichever of them sparked first; unique on the pair and the
   relationship; a database check keeps the order);
 - a **conversation**: the direct one the two already had if it is still open, otherwise a new one, holding the platform's **icebreaker**
-  (what the two share: skills, technologies, intents; a first question for the type; for dating only intents), then the two openers in the
+  (what the two share: skills, technologies, intents; a first question for the type), then the two openers in the
   order they were written. These are written directly, so they pay nothing and raise no "first message" event;
 - a **notification** (`MATCH`) for each, a **realtime push** `match.created` on each `user:{id}` channel, and the event `MATCH_CREATED`;
 - both sparks `MATCHED`, and any still-open drop between the two `SPARKED`.
@@ -164,9 +162,7 @@ either way or gone are not counted.
 
 ### Safety
 
-- **Dating** needs both people eligible (see "The dating gate"); a minor is refused with `403 DATING_UNDERAGE` and can neither send nor
-  receive a dating spark, appear in a dating drop, or be matched for dating. Dating and the other types never mix: a spark of one type cannot
-  be answered with another, a `DATING`-only person is not available for any other type and the other way round.
+- **Romance** is a separate mode with its own sparks (`POST /api/romance/sparks`) and gates: see [ROMANCE.md](ROMANCE.md) and [SAFETY.md](SAFETY.md). A professional spark of type `DATING` is refused.
 - **Trust.** The person sparked must be a trusted account (verified email, at least 7 days old) and must have chosen the counterpart type and not
   be paused; every way of being unavailable looks the same (`404 SPARK_TARGET_UNAVAILABLE`), so none can be probed. A person blocked by the sender is
   told so plainly; a person who blocked the sender gets `404 USER_NOT_FOUND`.
@@ -234,8 +230,7 @@ a team with someone you matched with). See
 The job `drops/second-look` (Mondays, 07:15 UTC; safe to repeat) gives each person **at most one** previously passed candidate a week, as an extra drop
 flagged `secondLook: true`, when that candidate **has grown since the pass**: a higher tier, or more verified evidence than the snapshot taken when the
 drop was passed (`Drop.passSnapshot`). It looks at passes between 14 and 120 days old, picks the candidate who grew most (a tier counts as five pieces of
-evidence; ties go to the more recent pass), and checks them against the same pool rules as any drop (still eligible, not blocked, not matched, dating
-eligibility for dating) except that the 30-day cooldown after a pass does not apply: that is the point. The drop is for the person's current local day, has a
+evidence; ties go to the more recent pass), and checks them against the same pool rules as any drop (still eligible, not blocked, not matched) except that the 30-day cooldown after a pass does not apply: that is the point. The drop is for the person's current local day, has a
 fresh score and reasons with the growth first ("Since you last saw them they moved up to Gold"), is **extra** (it does not use up the daily allowance), and a
 person gets one a **local week** (Monday to Sunday), however often the job runs.
 
@@ -245,7 +240,7 @@ person gets one a **local week** (Monday to Sunday), however often the job runs.
 
 | Step | Work | Why it is bounded |
 | --- | --- | --- |
-| Pool, one SQL query per type | `MatchingProfile ⋈ User ⋈ Profile` with the cheap filters as hash joins and anti-joins (type, paused, deleted, trusted, active in 60 days, dating, city, blocks, matches, sparks, recent drops), then one index scan of `UserSkill(skillId)` for the viewer's wanted skills, a top-N sort, and the exposure cap checked for the best 600 only | Linear in *M*, the people who hold the counterpart type and were active lately (about 0.4 µs a row), plus the holders of the wanted skills. Returns at most 300 ids per type. |
+| Pool, one SQL query per type | `MatchingProfile ⋈ User ⋈ Profile` with the cheap filters as hash joins and anti-joins (type, paused, deleted, trusted, active in 60 days, city, blocks, matches, sparks, recent drops), then one index scan of `UserSkill(skillId)` for the viewer's wanted skills, a top-N sort, and the exposure cap checked for the best 600 only | Linear in *M*, the people who hold the counterpart type and were active lately (about 0.4 µs a row), plus the holders of the wanted skills. Returns at most 300 ids per type. |
 | Load the pool | 4 queries for 300 candidates (users with their profile, skills, current build and projects; verified evidence grouped; counters), never one per person; a person who is a candidate for many viewers is loaded once per run | 300 per batch |
 | Score | `scoreCompatibility` for each: pure arithmetic over a few dozen numbers, about 5 µs each | 300 per type |
 | Write | one transaction under a per-person lock | at most the daily allowance |

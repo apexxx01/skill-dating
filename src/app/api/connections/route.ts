@@ -5,7 +5,7 @@ import type { Prisma } from '@prisma/client'
 import { cursorParam, paginate } from '@/lib/api/pagination'
 import { blockGuard } from '@/lib/blocks'
 
-const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK', 'DATING'] as const
+const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK'] as const
 
 const createConnectionSchema = z.object({
   receiverId: z.string().min(1),

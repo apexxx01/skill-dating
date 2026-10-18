@@ -10,13 +10,11 @@ import { createNotification } from '@/lib/notifications'
 import { advisoryLock } from '@/lib/progress'
 import { localDayStart } from '@/lib/time'
 import { accountDistrust } from '@/lib/trust'
-import { datingBlockers } from './dating'
 import { buildIcebreaker, sharedGround } from './icebreaker'
 import { loadScoringProfiles } from './loader'
 import { checkOpener, openerHash } from './opener'
-import { datingFactsSelect, datingRefusal } from './profile'
 import { ensureSystemUser } from './system-user'
-import { counterpartType, relationshipType, type MatchType } from './types'
+import { counterpartType, relationshipType, type MatchType, type ProfessionalType } from './types'
 
 // Sparks and matches.
 //
@@ -67,6 +65,8 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
   const now = options.now ?? new Date()
   const { toId, connectionType } = input
   if (fromId === toId) return fail('CANNOT_SPARK_SELF')
+  // The romance mode is not a connection type: it has its own profile, pool and sparks (src/lib/romance/sparks.ts).
+  if (connectionType === 'DATING') return fail('SPARK_TYPE_NOT_CHOSEN')
 
   const [sender, target] = await Promise.all([
     db.user.findUnique({
@@ -75,7 +75,6 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
         id: true,
         timezone: true,
         deletedAt: true,
-        ...datingFactsSelect,
         profile: { select: { cityKey: true } },
         matchingProfile: { select: { connectionTypes: true, cityOnly: true } },
       },
@@ -86,7 +85,7 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
         id: true,
         deletedAt: true,
         createdAt: true,
-        ...datingFactsSelect,
+        isEmailVerified: true,
         profile: { select: { cityKey: true } },
         matchingProfile: { select: { connectionTypes: true, paused: true, cityOnly: true } },
       },
@@ -100,24 +99,18 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
   if (relation === 'BLOCKED_BY_ME') return fail('USER_BLOCKED')
   if (relation === 'BLOCKED_BY_THEM') return fail('USER_NOT_FOUND')
 
-  // The sender: a matching profile that includes the type, and for dating the whole gate.
+  // The sender: a matching profile that includes the type.
   if (!sender.matchingProfile || sender.matchingProfile.connectionTypes.length === 0) return fail('MATCHING_PROFILE_REQUIRED')
   if (!sender.matchingProfile.connectionTypes.includes(connectionType)) return fail('SPARK_TYPE_NOT_CHOSEN')
-  if (connectionType === 'DATING') {
-    const blockers = datingBlockers(sender, now)
-    const refusal = datingRefusal(blockers)
-    if (refusal) return fail(refusal, { details: { blockers } })
-  }
 
   // The person sparked: someone who can be paired with the sender on this type, and whom the platform trusts to be shown. Everything that makes
-  // them unavailable looks the same from outside, so none of it can be probed (paused, wrong type, too new, not a dating match).
+  // them unavailable looks the same from outside, so none of it can be probed (paused, wrong type, too new).
   const them = target.matchingProfile
   const unavailable =
     !them ||
     them.paused ||
     !them.connectionTypes.includes(counterpartType(connectionType)) ||
-    accountDistrust(target, now) !== null ||
-    (connectionType === 'DATING' && datingBlockers(target, now).length > 0)
+    accountDistrust(target, now) !== null
   if (unavailable) return fail('SPARK_TARGET_UNAVAILABLE')
   // "Only people in my city", from either side, is a wish about who may be matched, so it holds here as it does in a drop.
   const senderCity = sender.profile?.cityKey ?? null
@@ -216,11 +209,40 @@ async function notifySparked(tx: Tx, spark: Spark, options: SendSparkOptions): P
 
 // --- Matching -----------------------------------------------------------------------------------------------
 
+/** How a match is written, which is the only thing that differs between a professional match and a romance one (src/lib/romance/sparks.ts). */
+export interface MatchStyle {
+  /** The system message that opens the conversation. */
+  icebreaker: string
+  notificationTitle: string
+  notificationMessage: (otherName: string) => string
+  /** Announce MATCH_CREATED (it counts toward the match achievements). A romance match never does: achievements are public and nothing about romance is. */
+  announce: boolean
+  analyticsEvent: 'match_created' | 'romance_match_created'
+}
+
 /**
  * Makes the match for two sparks that answer each other, inside the transaction that wrote the second one (and under the pair's lock): the
  * Match, the conversation with both openers and the icebreaker, both sparks marked, a notification each, the event, and the push after commit.
  */
 async function createMatch(tx: Tx, first: Spark, second: Spark, now: Date): Promise<Match> {
+  const connectionType = relationshipType(first.connectionType)
+  const [userAId, userBId] = pairOf(first.fromId, second.fromId)
+  const existing = await tx.match.findUnique({ where: { userAId_userBId_connectionType: { userAId, userBId, connectionType } } })
+  if (existing) return existing
+
+  // What the two have in common, for the icebreaker.
+  const [self, other] = await loadScoringProfiles(tx, [first.fromId, second.fromId], now, undefined, { includeWithoutMatchingProfile: true })
+  const icebreaker = buildIcebreaker(connectionType as ProfessionalType, self && other ? sharedGround(self, other, now) : { skills: [], stack: [], intents: [], sameHackathon: false })
+  return makeMatch(tx, first, second, now, {
+    icebreaker,
+    notificationTitle: 'It is a match',
+    notificationMessage: (name) => `You and ${name} sparked each other`,
+    announce: true,
+    analyticsEvent: 'match_created',
+  })
+}
+
+export async function makeMatch(tx: Tx, first: Spark, second: Spark, now: Date, style: MatchStyle): Promise<Match> {
   const [userAId, userBId] = pairOf(first.fromId, second.fromId)
   const roleOf = (userId: string): MatchType => (userId === first.fromId ? first.connectionType : second.connectionType)
   const connectionType = relationshipType(first.connectionType)
@@ -228,9 +250,6 @@ async function createMatch(tx: Tx, first: Spark, second: Spark, now: Date): Prom
   const existing = await tx.match.findUnique({ where: { userAId_userBId_connectionType: { userAId, userBId, connectionType } } })
   if (existing) return existing
 
-  // What the two have in common, for the icebreaker.
-  const [self, other] = await loadScoringProfiles(tx, [first.fromId, second.fromId], now, undefined, { includeWithoutMatchingProfile: true })
-  const icebreaker = buildIcebreaker(connectionType, self && other ? sharedGround(self, other, now) : { skills: [], stack: [], intents: [], sameHackathon: false })
   const systemUserId = await ensureSystemUser(tx)
 
   // One conversation for the pair: a direct one they already have and that is still open, otherwise a new one.
@@ -250,7 +269,7 @@ async function createMatch(tx: Tx, first: Spark, second: Spark, now: Date): Prom
   // The icebreaker first, then the two openers in the order they were written. Written directly, not through the messages route: no event, no XP.
   const at = (offsetMs: number) => new Date(first.createdAt.getTime() + offsetMs)
   await tx.message.create({
-    data: { conversationId: conversation.id, senderId: systemUserId, content: icebreaker, type: 'SYSTEM', metadata: { kind: 'MATCH_ICEBREAKER' }, createdAt: at(-1) },
+    data: { conversationId: conversation.id, senderId: systemUserId, content: style.icebreaker, type: 'SYSTEM', metadata: { kind: 'MATCH_ICEBREAKER' }, createdAt: at(-1) },
   })
   await tx.message.create({
     data: { conversationId: conversation.id, senderId: first.fromId, content: first.opener, type: 'TEXT', metadata: { kind: 'SPARK_OPENER', sparkId: first.id }, createdAt: first.createdAt },
@@ -265,6 +284,7 @@ async function createMatch(tx: Tx, first: Spark, second: Spark, now: Date): Prom
   })
   await tx.spark.updateMany({ where: { id: { in: [first.id, second.id] } }, data: { status: 'MATCHED' } })
   await tx.drop.updateMany({ where: { status: 'NEW', OR: [{ userId: userAId, candidateId: userBId }, { userId: userBId, candidateId: userAId }] }, data: { status: 'SPARKED' } })
+  await tx.romanceDrop.updateMany({ where: { status: 'NEW', OR: [{ userId: userAId, candidateId: userBId }, { userId: userBId, candidateId: userAId }] }, data: { status: 'SPARKED' } })
 
   const people = await tx.user.findMany({ where: { id: { in: [userAId, userBId] } }, select: { id: true, name: true, username: true } })
   const label = (id: string) => {
@@ -275,20 +295,20 @@ async function createMatch(tx: Tx, first: Spark, second: Spark, now: Date): Prom
     data: [userAId, userBId].map((userId) => ({
       userId,
       type: 'MATCH' as const,
-      title: 'It is a match',
-      message: `You and ${label(userId === userAId ? userBId : userAId)} sparked each other`,
+      title: style.notificationTitle,
+      message: style.notificationMessage(label(userId === userAId ? userBId : userAId)),
       link: `/messages/${conversation.id}`,
       metadata: { kind: 'MATCH_CREATED', matchId: match.id, conversationId: conversation.id, connectionType },
     })),
   })
 
   // Announced last: the achievements it counts toward are merged in after the match itself. It pays no XP.
-  await emit(tx, 'MATCH_CREATED', { userId: second.fromId, otherUserId: first.fromId, matchId: match.id, connectionType, conversationId: conversation.id })
+  if (style.announce) await emit(tx, 'MATCH_CREATED', { userId: second.fromId, otherUserId: first.fromId, matchId: match.id, connectionType, conversationId: conversation.id })
 
   // After the commit only: a rolled-back match is never pushed or counted.
   afterCommit(tx, async () => {
     for (const userId of [userAId, userBId]) {
-      await track(userId, 'match_created', { connectionType, matchId: match.id })
+      await track(userId, style.analyticsEvent, { connectionType, matchId: match.id })
       try {
         await getRealtime().publish(userChannel(userId), 'match.created', { matchId: match.id, conversationId: conversation.id, connectionType })
       } catch (error) {

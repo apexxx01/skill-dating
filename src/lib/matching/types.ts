@@ -1,7 +1,9 @@
 // The vocabulary of the matching engine, free of Prisma so the pure modules (score.ts, opener.ts, ...) can use it.
 
 /** What a person can be looking for. MENTOR and MENTEE are the two sides of one relationship; every other type pairs with itself. */
-export const MATCH_TYPES = ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE', 'DATING'] as const
+export const PROFESSIONAL_TYPES = ['COFOUNDER', 'HACKATHON_TEAMMATE', 'COLLABORATOR', 'MENTOR', 'MENTEE'] as const
+export type ProfessionalType = (typeof PROFESSIONAL_TYPES)[number]
+export const MATCH_TYPES = [...PROFESSIONAL_TYPES, 'DATING'] as const
 export type MatchType = (typeof MATCH_TYPES)[number]
 
 /** The type the other side has to have for the two to fit: a mentee looks for a mentor, a cofounder for a cofounder. */
@@ -40,7 +42,11 @@ export function activeIntentTags(tags: readonly IntentTag[], now: Date): IntentT
 /** A person's answers to the working-style quiz: question id to option id. Questions may be left unanswered. */
 export type WorkingStyleAnswers = Record<string, string>
 
-/** Every type that is not DATING. A DATING pair never mixes with any of them, in either direction. */
-export const NON_DATING_TYPES: readonly MatchType[] = MATCH_TYPES.filter((type) => type !== 'DATING')
+/**
+ * PROFESSIONAL_TYPES (above) are every type that is not DATING. DATING is the storage key of the romance mode (src/lib/romance), which has its own profile, pool, drops and
+ * sparks; it never appears in a matching profile, a daily drop or a professional list, and a professional pair never becomes a DATING one.
+ */
+/** @deprecated the same list as PROFESSIONAL_TYPES. */
+export const NON_DATING_TYPES: readonly MatchType[] = PROFESSIONAL_TYPES
 
 export const DATING_MIN_AGE = 18

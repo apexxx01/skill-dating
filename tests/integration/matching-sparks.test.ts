@@ -195,7 +195,7 @@ describe('sparks and matches', () => {
       expect(code(await spark(a.id, targets[5].id, { enforced: true, at: now }))).toBe('OK')
     })
 
-    it('slows down somebody sending a burst', async () => {
+    it('slows down somebody sending a burst, whatever their plan allows in a day', async () => {
       const a = await person()
       // A plan with room for more than the burst in a day (the free allowance is five), so it is the throttle that stops them.
       await testPrisma.subscription.create({ data: { userId: a.id, plan: 'PRO', status: 'ACTIVE' } })
@@ -232,56 +232,25 @@ describe('sparks and matches', () => {
     })
   })
 
-  describe('dating', () => {
+  describe('the romance mode is not a connection type', () => {
     const adult = bornYearsAgo(30)
 
-    it('refuses a spark of type DATING from anyone who does not pass the gate', async () => {
-      const target = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const noDate = await person({ types: ['DATING'], birthDate: null, phone: true })
-      const minor = await person({ types: ['DATING'], birthDate: bornYearsAgo(16), phone: true })
-      const dayShort = await person({ types: ['DATING'], birthDate: bornYearsAgo(18, -1), phone: true })
-      const unverified = await person({ types: ['DATING'], birthDate: adult, phone: true, emailVerified: false })
-      const noContact = await person({ types: ['DATING'], birthDate: adult })
-      expect(code(await spark(noDate.id, target.id, { connectionType: 'DATING' }))).toBe('DATING_BIRTH_DATE_REQUIRED')
-      expect(code(await spark(minor.id, target.id, { connectionType: 'DATING' }))).toBe('DATING_UNDERAGE')
-      expect(code(await spark(dayShort.id, target.id, { connectionType: 'DATING' }))).toBe('DATING_UNDERAGE')
-      expect(code(await spark(unverified.id, target.id, { connectionType: 'DATING' }))).toBe('DATING_VERIFICATION_REQUIRED')
-      expect(code(await spark(noContact.id, target.id, { connectionType: 'DATING' }))).toBe('DATING_VERIFICATION_REQUIRED')
-      expect(await testPrisma.spark.count({ where: { toId: target.id } })).toBe(0)
+    it('is refused by the professional spark route and the library, even for a profile that still holds DATING', async () => {
+      const a = await person({ types: ['DATING', 'COFOUNDER'], birthDate: adult, phone: true })
+      const b = await person({ types: ['DATING', 'COFOUNDER'], birthDate: adult, phone: true })
+      expect(code(await spark(a.id, b.id, { connectionType: 'DATING' }))).toBe('SPARK_TYPE_NOT_CHOSEN')
+      expect(await testPrisma.spark.count({ where: { fromId: a.id, connectionType: 'DATING' } })).toBe(0)
+
+      const me = await registerAndLogin(`${tag}.romance@test.dev`, `${tag}romance`)
+      const res = await req(me.jar, 'POST', '/api/sparks', { toId: b.id, connectionType: 'DATING', opener: nextOpener() })
+      expect(res.status).toBe(400)
+      expect(res.data.error.code).toBe('VALIDATION_FAILED')
     })
 
-    it('refuses sparking a person who is not dating-eligible, whatever they chose', async () => {
-      const sender = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const minorTarget = await person({ types: ['DATING'], birthDate: bornYearsAgo(17), phone: true })
-      const noGithubTarget = await person({ types: ['DATING'], birthDate: adult })
-      const adultTarget = await person({ types: ['DATING'], birthDate: adult, github: true })
-      expect(code(await spark(sender.id, minorTarget.id, { connectionType: 'DATING' }))).toBe('SPARK_TARGET_UNAVAILABLE')
-      expect(code(await spark(sender.id, noGithubTarget.id, { connectionType: 'DATING' }))).toBe('SPARK_TARGET_UNAVAILABLE')
-      expect(code(await spark(sender.id, adultTarget.id, { connectionType: 'DATING' }))).toBe('OK')
-    })
-
-    it('never crosses dating with another type, in either direction', async () => {
-      const datingOnly = await person({ types: ['DATING'], birthDate: adult, phone: true })
-      const cofounderOnly = await person({ types: ['COFOUNDER'], birthDate: adult, phone: true })
-      const both = await person({ types: ['COFOUNDER', 'DATING'], birthDate: adult, phone: true })
-      expect(code(await spark(cofounderOnly.id, datingOnly.id, { connectionType: 'COFOUNDER' }))).toBe('SPARK_TARGET_UNAVAILABLE')
-      expect(code(await spark(datingOnly.id, cofounderOnly.id, { connectionType: 'DATING' }))).toBe('SPARK_TARGET_UNAVAILABLE')
-      expect(code(await spark(datingOnly.id, cofounderOnly.id, { connectionType: 'COFOUNDER' }))).toBe('SPARK_TYPE_NOT_CHOSEN')
-      expect(code(await spark(cofounderOnly.id, cofounderOnly.id, { connectionType: 'DATING' }))).toBe('CANNOT_SPARK_SELF')
-      expect(code(await spark(cofounderOnly.id, both.id, { connectionType: 'DATING' }))).toBe('SPARK_TYPE_NOT_CHOSEN')
-      // A dating spark and a cofounder spark between the same two people are different pairs: answering one type with the other makes no match.
-      expect(code(await spark(both.id, cofounderOnly.id, { connectionType: 'COFOUNDER' }))).toBe('OK')
-      expect(code(await spark(cofounderOnly.id, both.id, { connectionType: 'COFOUNDER' }))).toBe('OK')
-      expect((await matchBetween(both.id, cofounderOnly.id))?.connectionType).toBe('COFOUNDER')
-      expect(code(await spark(both.id, datingOnly.id, { connectionType: 'DATING' }))).toBe('OK')
-      expect(code(await spark(datingOnly.id, both.id, { connectionType: 'DATING' }))).toBe('OK')
-      expect((await matchBetween(both.id, datingOnly.id))?.connectionType).toBe('DATING')
-    })
-
-    it('does not pair a dating spark with a spark of another type', async () => {
-      const a = await person({ types: ['DATING', 'COLLABORATOR'], birthDate: adult, phone: true })
-      const b = await person({ types: ['DATING', 'COLLABORATOR'], birthDate: adult, phone: true })
-      expect(code(await spark(a.id, b.id, { connectionType: 'DATING' }))).toBe('OK')
+    it('keeps a professional spark from ever making a romance match, and the other way round is the romance mode\'s own test', async () => {
+      const a = await person({ types: ['COFOUNDER', 'COLLABORATOR'] })
+      const b = await person({ types: ['COFOUNDER', 'COLLABORATOR'] })
+      expect(code(await spark(a.id, b.id, { connectionType: 'COFOUNDER' }))).toBe('OK')
       const answer = await spark(b.id, a.id, { connectionType: 'COLLABORATOR' })
       expect(answer.ok && answer.match).toBe(null)
       expect(await matchBetween(a.id, b.id)).toBeNull()

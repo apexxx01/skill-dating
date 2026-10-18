@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { ROMANCE_MODE_LABEL } from '@/lib/romance/config'
 
 // The error contract. Every API error is
 //
@@ -126,9 +127,9 @@ export const ERROR_CATALOG = {
   COSMETIC_WRONG_SLOT: { status: 400, message: 'This cosmetic does not go in that slot' },
 
   // --- Matching ----------------------------------------------------------------------------
-  DATING_BIRTH_DATE_REQUIRED: { status: 403, message: 'Add your date of birth in your profile settings to use dating' },
-  DATING_UNDERAGE: { status: 403, message: 'Dating is only available to people who are 18 or older' },
-  DATING_VERIFICATION_REQUIRED: { status: 403, message: 'Dating needs a verified email and either a verified phone number or a connected GitHub account' },
+  DATING_BIRTH_DATE_REQUIRED: { status: 403, message: 'Add your date of birth in your profile settings to use {mode}' },
+  DATING_UNDERAGE: { status: 403, message: '{mode} is only available to people who are 18 or older' },
+  DATING_VERIFICATION_REQUIRED: { status: 403, message: '{mode} needs a verified email and either a verified phone number or a connected GitHub account' },
   BIRTH_DATE_LOCKED: { status: 409, message: 'Your date of birth is already set and cannot be changed' },
   AGE_BELOW_MINIMUM: { status: 403, message: 'You need to be at least {minAge} to use Skill Dating' },
   BIRTH_DATE_REQUIRED: { status: 400, message: 'Your date of birth is required' },
@@ -205,8 +206,10 @@ export function errorStatus(code: ErrorCode): number {
 
 /** The English default for a code, with `{placeholders}` filled in. A missing param is left visible. */
 export function errorMessage(code: ErrorCode, params: ErrorParams = {}): string {
+  // {mode} is the romance mode's name wherever a message says it, so renaming the mode is one constant (src/lib/romance/config.ts).
+  const all: ErrorParams = { mode: ROMANCE_MODE_LABEL, ...params }
   return ERROR_CATALOG[code].message.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
-    name in params ? String(params[name]) : placeholder
+    name in all ? String(all[name]) : placeholder
   )
 }
 

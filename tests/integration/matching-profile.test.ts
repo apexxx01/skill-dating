@@ -183,75 +183,19 @@ describe('matching profile', () => {
     })
   })
 
-  describe('DATING: opt-in, verified, and 18 or older', () => {
-    const dating = { connectionTypes: ['DATING'] }
-
-    it('is refused without a date of birth, however well verified the account is', async () => {
-      const u = await user({ birthDate: null, phone: true, github: true })
-      const res = await put(u, dating)
-      expect(res.status).toBe(403)
-      expect(res.data.error.code).toBe('DATING_BIRTH_DATE_REQUIRED')
-      expect(res.data.error.details.blockers).toContain('BIRTH_DATE_MISSING')
-      expect(await testPrisma.matchingProfile.count({ where: { userId: u.userId } })).toBe(0)
-    })
-
-    it('is refused to anyone under 18, to the day', async () => {
-      const dayShort = await user({ birthDate: bornYearsAgo(18, -1), phone: true })
-      const res = await put(dayShort, dating)
-      expect(res.status).toBe(403)
-      expect(res.data.error.code).toBe('DATING_UNDERAGE')
-      const child = await user({ birthDate: bornYearsAgo(12), phone: true, github: true })
-      expect((await put(child, dating)).data.error.code).toBe('DATING_UNDERAGE')
-      const newborn = await user({ birthDate: bornYearsAgo(0), phone: true })
-      expect((await put(newborn, dating)).status).toBe(403)
-      for (const refused of [dayShort, child, newborn]) expect(await testPrisma.matchingProfile.count({ where: { userId: refused.userId } })).toBe(0)
-    })
-
-    it('is allowed from the day someone turns 18', async () => {
-      const adult = await user({ birthDate: bornYearsAgo(18), phone: true })
-      const res = await put(adult, dating)
-      expect(res.status).toBe(200)
-      expect(res.data.profile.connectionTypes).toEqual(['DATING'])
-      expect(res.data.dating).toEqual({ eligible: true, blockers: [], minAge: 18 })
-    })
-
-    it('needs a verified email', async () => {
-      const u = await user({ birthDate: bornYearsAgo(30), verified: false, phone: true })
-      const res = await put(u, dating)
-      expect(res.status).toBe(403)
-      expect(res.data.error.code).toBe('DATING_VERIFICATION_REQUIRED')
-    })
-
-    it('needs a verified phone or a connected GitHub account, and either is enough', async () => {
-      const neither = await user({ birthDate: bornYearsAgo(30) })
-      const refused = await put(neither, dating)
-      expect(refused.status).toBe(403)
-      expect(refused.data.error.code).toBe('DATING_VERIFICATION_REQUIRED')
-      expect(refused.data.error.details.blockers).toEqual(['NO_PHONE_OR_GITHUB'])
-      expect((await put(await user({ birthDate: bornYearsAgo(30), phone: true }), dating)).status).toBe(200)
-      expect((await put(await user({ birthDate: bornYearsAgo(30), github: true }), dating)).status).toBe(200)
-    })
-
-    it('is checked when DATING is one of several types, and not when it is not asked for', async () => {
-      const minor = await user({ birthDate: bornYearsAgo(16), phone: true })
-      expect((await put(minor, { connectionTypes: ['COFOUNDER', 'DATING'] })).status).toBe(403)
-      expect((await put(minor, { connectionTypes: ['COFOUNDER', 'MENTEE'] })).status).toBe(200)
-    })
-
-    it('tells the owner what is missing, on the profile read', async () => {
-      const u = await user({ birthDate: null })
-      expect((await get(u)).data.dating).toEqual({ eligible: false, blockers: ['BIRTH_DATE_MISSING', 'NO_PHONE_OR_GITHUB'], minAge: 18 })
-      const fixed = await user({ birthDate: bornYearsAgo(25), phone: true })
-      expect((await get(fixed)).data.dating.eligible).toBe(true)
-    })
-
-    it('lets someone who lost eligibility take DATING off, and not put it back until they are eligible again', async () => {
-      const u = await user({ birthDate: bornYearsAgo(30), phone: true })
-      expect((await put(u, { connectionTypes: ['DATING', 'COFOUNDER'] })).status).toBe(200)
-      await testPrisma.user.update({ where: { id: u.userId }, data: { isPhoneVerified: false } })
-      expect((await get(u)).data.dating.eligible).toBe(false)
-      expect((await put(u, { connectionTypes: ['DATING', 'COFOUNDER'], hoursPerWeek: 5 })).status).toBe(403)
-      expect((await put(u, { connectionTypes: ['COFOUNDER'] })).status).toBe(200)
+  describe('the romance mode is not a connection type', () => {
+    it('is refused as a type of the matching profile, alone or among others, and the read carries no dating block', async () => {
+      const adult = await user({ birthDate: bornYearsAgo(30), phone: true, github: true })
+      for (const connectionTypes of [['DATING'], ['COFOUNDER', 'DATING']]) {
+        const res = await put(adult, { connectionTypes })
+        expect(res.status, JSON.stringify(connectionTypes)).toBe(400)
+        expect(res.data.error.code).toBe('VALIDATION_FAILED')
+      }
+      expect(await testPrisma.matchingProfile.count({ where: { userId: adult.userId } })).toBe(0)
+      const saved = await put(adult, { connectionTypes: ['COFOUNDER', 'MENTEE'] })
+      expect(saved.status).toBe(200)
+      expect(Object.keys(saved.data).sort()).toEqual(['exists', 'profile'])
+      expect(Object.keys((await get(adult)).data).sort()).toEqual(['exists', 'profile'])
     })
   })
 
@@ -281,7 +225,7 @@ describe('matching profile', () => {
     it('is how a minor stays a minor: they cannot change it to pass for an adult', async () => {
       const minor = await user({ birthDate: bornYearsAgo(15), phone: true })
       expect((await req(minor.jar, 'PATCH', '/api/users/me/profile', { birthDate: bornYearsAgo(30) })).status).toBe(409)
-      expect((await put(minor, { connectionTypes: ['DATING'] })).data.error.code).toBe('DATING_UNDERAGE')
+      expect((await req(minor.jar, 'GET', '/api/users/me/profile')).data.birthDate).toBe(bornYearsAgo(15))
     })
 
     it('refuses what is not a real date in the past', async () => {

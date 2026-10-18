@@ -25,6 +25,14 @@ export const ANALYTICS_EVENTS = [
   'spark_sent',
   'match_created',
   'unmatch',
+  // The romance mode's own events (named "romance", never by its product name: docs/ROMANCE.md).
+  'romance_joined',
+  'romance_left',
+  'romance_drop_viewed',
+  'romance_spark_sent',
+  'romance_match_created',
+  'romance_reveal_agreed',
+  'romance_duo_formed',
 ] as const
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]

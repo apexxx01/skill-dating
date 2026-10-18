@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { ROMANCE_MODE_LABEL } from '@/lib/romance/config'
 import { ERROR_CATALOG, errorBody, errorMessage, errorResponse, errorStatus, isErrorCode, type ErrorCode } from './errors'
 
 const codes = Object.keys(ERROR_CATALOG) as ErrorCode[]
@@ -96,6 +97,20 @@ describe('no raw error bodies', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('the romance mode\'s name', () => {
+  it('is filled into the messages that say it, from the one constant', () => {
+    expect(errorMessage('DATING_UNDERAGE')).toBe(`${ROMANCE_MODE_LABEL} is only available to people who are 18 or older`)
+    expect(errorMessage('DATING_BIRTH_DATE_REQUIRED')).toContain(ROMANCE_MODE_LABEL)
+    expect(errorMessage('DATING_VERIFICATION_REQUIRED')).toContain(ROMANCE_MODE_LABEL)
+    expect(errorMessage('DATING_UNDERAGE')).not.toContain('{mode}')
+  })
+
+  it('can be overridden by a caller, and leaves no other message touched', () => {
+    expect(errorMessage('DATING_UNDERAGE', { mode: 'Orbit' })).toBe('Orbit is only available to people who are 18 or older')
+    expect(errorMessage('TEAM_FULL')).toBe('Team is full')
   })
 })
 

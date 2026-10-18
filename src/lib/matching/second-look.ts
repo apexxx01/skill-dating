@@ -5,10 +5,8 @@ import { utcTimestamp } from '@/lib/sql'
 import { addDaysToDateKey, localDateKey, localDayEnd, mondayOfDateKey } from '@/lib/time'
 import { findCandidateIds, viewerFor } from './candidates'
 import { DROP_CONFIG, SECOND_LOOK_CONFIG } from './config'
-import { datingBlockers } from './dating'
 import { growthReason, growthSince, growthWeight, hasGrown, readSnapshot, type Growth, type ProofSnapshot } from './growth'
 import { loadScoringProfiles, type ProfileCache } from './loader'
-import { datingFactsSelect } from './profile'
 import { scoreCompatibility } from './score'
 import { loadPersonSummaries } from './summary'
 import type { MatchType } from './types'
@@ -64,7 +62,6 @@ export async function generateSecondLookForUser(db: Db, userId: string, now: Dat
       id: true,
       timezone: true,
       deletedAt: true,
-      ...datingFactsSelect,
       profile: { select: { cityKey: true } },
       matchingProfile: true,
       skills: { select: { skill: { select: { slug: true } } } },
@@ -103,9 +100,8 @@ export async function generateSecondLookForUser(db: Db, userId: string, now: Dat
     if (pass && earlier.createdAt.getTime() >= pass.updatedAt.getTime()) latest.delete(earlier.candidateId)
   }
 
-  // Only for a type the viewer still has, and for dating only while they still pass the gate.
-  const datingOpen = datingBlockers(user, now).length === 0
-  const usable = new Set((stored.connectionTypes as MatchType[]).filter((type) => type !== 'DATING' || datingOpen))
+  // Only for a type the viewer still has (the romance mode has no second look: it is one drop a week).
+  const usable = new Set<MatchType>((stored.connectionTypes as MatchType[]).filter((type) => type !== 'DATING'))
   const people = await loadPersonSummaries(db, [...latest.keys()])
   const growers: Grower[] = []
   for (const pass of latest.values()) {
@@ -119,7 +115,7 @@ export async function generateSecondLookForUser(db: Db, userId: string, now: Dat
   growers.sort((a, b) => growthWeight(b.growth) - growthWeight(a.growth) || b.passedAt.getTime() - a.passedAt.getTime() || a.candidateId.localeCompare(b.candidateId))
   if (growers.length === 0) return { userId, created: 0 }
 
-  // The same rules as any drop (blocks, matches, trust, pausing, dating, the exposure cap), except that the 30 days after a pass do not apply.
+  // The same rules as any drop (blocks, matches, trust, pausing, the exposure cap), except that the 30 days after a pass do not apply.
   const viewer = await viewerFor(db, {
     userId,
     cityOnly: stored.cityOnly,

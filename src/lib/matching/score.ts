@@ -50,12 +50,11 @@ export const SCORE_CONFIG = {
    * What a type of relationship does to the weights, as multipliers (default 1). The weights are scaled back to 100 afterwards, so
    * these say what matters MORE OR LESS for that type. The types are from the viewer's side: a MENTEE chooses a mentor for what they have
    * shown, not for what they share, while a MENTOR looks at a mentee for drive (recent activity, the time they can give) more than for
-   * proof; a dating match leans on how two people work and what they want, and hardly on skills.
+   * proof. (The romance mode is scored by scoreRomance() below, with its own components: it never uses these.)
    */
   typeMultipliers: {
     MENTEE: { skillOverlap: 0.25, sharedStack: 0.5, commitmentFit: 0.6, proofStrength: 1.8, skillComplement: 1.2 },
     MENTOR: { skillOverlap: 0.25, sharedStack: 0.5, proofStrength: 0.7, activityRecency: 2, intentMatch: 1.3, skillComplement: 1.2 },
-    DATING: { skillComplement: 0.2, skillOverlap: 0.6, sharedStack: 0.6, proofStrength: 0.3, workingStyle: 1.8, intentMatch: 1.6, activityRecency: 1.2, commitmentFit: 0.6 },
   } satisfies Partial<Record<MatchType, Partial<Record<ComponentKey, number>>>>,
   /** The value of a component the data cannot say anything about. */
   neutral: 0.4,

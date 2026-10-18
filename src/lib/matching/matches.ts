@@ -8,6 +8,7 @@ import { getRealtime, userChannel } from '@/lib/infra/realtime'
 import { log } from '@/lib/log'
 import { advisoryLock } from '@/lib/progress'
 import { decodeKeysetCursor, keysetPage, keysetWhere, keysetOrderBy } from '@/lib/api/pagination'
+import { onRomanceMatchEnded } from '@/lib/romance/ended'
 import { loadPersonSummaries } from './summary'
 import { counterpartType, type MatchType } from './types'
 
@@ -39,6 +40,8 @@ export async function listMatches(db: Db, userId: string, options: { cursor?: st
   const hidden = await blockedPeerIds(db, userId)
   const visible = (side: 'userA' | 'userB'): Prisma.MatchWhereInput => ({
     endedAt: null,
+    // A romance match is listed by the romance mode (/api/romance/matches), never among the professional ones.
+    connectionType: { not: 'DATING' },
     [`${side}Id`]: userId,
     [side === 'userA' ? 'userB' : 'userA']: { deletedAt: null, ...(hidden.length > 0 ? { id: { notIn: hidden } } : {}) },
   })
@@ -72,14 +75,15 @@ async function publishEnded(userIds: string[], matchId: string) {
   }
 }
 
-/** Ends a match inside a transaction and closes its conversation for both. Returns false when it was already over. */
-async function endMatchIn(tx: Tx, match: Match, endedById: string, reason: 'UNMATCHED' | 'REPORTED' | 'BLOCKED', now: Date): Promise<boolean> {
+/** Ends a match inside a transaction and closes its conversation for both. Returns false when it was already over. A romance match also loses its photo reveal and any Duo (src/lib/romance/ended.ts). */
+export async function endMatchIn(tx: Tx, match: Match, endedById: string, reason: 'UNMATCHED' | 'REPORTED' | 'BLOCKED', now: Date): Promise<boolean> {
   if (match.endedAt) return false
   const changed = await tx.match.updateMany({ where: { id: match.id, endedAt: null }, data: { endedAt: now, endedById, endReason: reason } })
   if (changed.count === 0) return false
   if (match.conversationId) {
     await tx.conversation.updateMany({ where: { id: match.conversationId, closedAt: null }, data: { closedAt: now, closedReason: reason } })
   }
+  if (match.connectionType === 'DATING') await onRomanceMatchEnded(tx, match, endedById, now)
   return true
 }
 
@@ -177,6 +181,8 @@ export async function loadReceivedSparks(
   const base: Prisma.SparkWhereInput = {
     toId: userId,
     status: 'PENDING',
+    // Romance sparks are the romance mode's (/api/romance/sparks/received).
+    connectionType: { not: 'DATING' },
     from: { deletedAt: null, ...(hidden.length > 0 ? { id: { notIn: hidden } } : {}) },
   }
   const subject = await subjectFor(db, userId)

@@ -7,9 +7,7 @@ import { isValidTimeZone, localDateKey, localDayEnd, localTimeKey } from '@/lib/
 import type { JobQueue } from '@/lib/infra/jobs'
 import { findCandidateIds, viewerFor } from './candidates'
 import { DROP_CONFIG } from './config'
-import { datingBlockers } from './dating'
 import { loadScoringProfiles, type ProfileCache } from './loader'
-import { datingFactsSelect } from './profile'
 import { scoreCompatibility } from './score'
 import { selectDrops, type ScoredCandidate } from './select'
 import type { MatchType } from './types'
@@ -122,7 +120,6 @@ export async function generateDropsForUser(
       id: true,
       timezone: true,
       deletedAt: true,
-      ...datingFactsSelect,
       profile: { select: { cityKey: true } },
       matchingProfile: true,
       skills: { select: { skill: { select: { slug: true } } } },
@@ -138,9 +135,8 @@ export async function generateDropsForUser(
   if (!options.force && stored.lastDropDate === localDate) return { userId, created: 0, considered: 0, skipped: 'ALREADY_GENERATED' }
 
   const selected = stored.connectionTypes as MatchType[]
-  // Dating only for somebody who still passes the gate; the other types are unaffected.
-  const datingOpen = datingBlockers(user, now).length === 0
-  const types = selected.filter((type) => type !== 'DATING' || datingOpen)
+  // The professional types only: the romance mode has its own weekly drop (src/lib/romance/drops.ts), and a stored DATING (from before it had its own profile) is ignored.
+  const types = selected.filter((type) => type !== 'DATING')
 
   const subject = await subjectFor(db, userId, now)
   const allowance = limit(subject, 'DAILY_DROPS', { enforced: options.enforced })
