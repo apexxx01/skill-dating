@@ -84,8 +84,8 @@ describe('media uploads', () => {
     // Repeating the confirmation is fine.
     expect((await req(alice.jar, 'POST', `/api/media/${declared.data.asset.id}/complete`, {})).data.status).toBe('READY')
 
-    // The same file again (even with other numbers declared): nothing to upload.
-    const again = await req(alice.jar, 'POST', '/api/media/uploads', declaration({ width: 1, height: 1 }, f))
+    // The same file again (even with other, valid, numbers declared): nothing to upload.
+    const again = await req(alice.jar, 'POST', '/api/media/uploads', declaration({ width: 640, height: 480 }, f))
     expect(again.status).toBe(200)
     expect(again.data).toMatchObject({ duplicate: true, upload: null })
     expect(again.data.asset.id).toBe(declared.data.asset.id)
