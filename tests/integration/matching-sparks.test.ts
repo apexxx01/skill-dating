@@ -197,10 +197,12 @@ describe('sparks and matches', () => {
 
     it('slows down somebody sending a burst', async () => {
       const a = await person()
+      // A plan with room for more than the burst in a day (the free allowance is five), so it is the throttle that stops them.
+      await testPrisma.subscription.create({ data: { userId: a.id, plan: 'PRO', status: 'ACTIVE' } })
       const targets = []
       for (let i = 0; i < SPARK_HOURLY_BURST + 1; i++) targets.push(await person())
-      for (let i = 0; i < SPARK_HOURLY_BURST; i++) expect(code(await spark(a.id, targets[i].id))).toBe('OK')
-      const next = await spark(a.id, targets[SPARK_HOURLY_BURST].id)
+      for (let i = 0; i < SPARK_HOURLY_BURST; i++) expect(code(await spark(a.id, targets[i].id, { enforced: true }))).toBe('OK')
+      const next = await spark(a.id, targets[SPARK_HOURLY_BURST].id, { enforced: true })
       expect(next).toMatchObject({ ok: false, code: 'SPARK_THROTTLED' })
       expect((next as unknown as { params: { retryAfter: number } }).params.retryAfter).toBeGreaterThan(0)
       // An hour later the burst is over.
@@ -749,9 +751,11 @@ describe('sparks and matches', () => {
   describe('ten matches', () => {
     it('unlock the ten-matches achievement, which pays 25 for the first and 50 for the tenth and nothing for the matches in between', async () => {
       const hub = await person({ types: ['COLLABORATOR'] })
+      // Ten sparks in a day is more than the free allowance, so the hub is on a plan that has room.
+      await testPrisma.subscription.create({ data: { userId: hub.id, plan: 'PRO', status: 'ACTIVE' } })
       for (let i = 0; i < 10; i++) {
         const other = await person({ types: ['COLLABORATOR'] })
-        const first = await spark(hub.id, other.id, { connectionType: 'COLLABORATOR', at: new Date(Date.now() - (11 - i) * 61 * 60_000) })
+        const first = await spark(hub.id, other.id, { connectionType: 'COLLABORATOR', enforced: true, at: new Date(Date.now() - (11 - i) * 61 * 60_000) })
         const second = await spark(other.id, hub.id, { connectionType: 'COLLABORATOR' })
         expect([code(first), code(second)], `round ${i}`).toEqual(['OK', 'OK'])
       }

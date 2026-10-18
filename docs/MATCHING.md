@@ -183,8 +183,8 @@ Checked, in order, before anything is written (`src/lib/matching/opener.ts` and 
    repeated to fill space. `reason` is one of `TOO_SHORT`, `TOO_LONG`, `TOO_FEW_WORDS`, `LOW_EFFORT`, `LINK`, `CONTACT_DETAILS`, `REPEATED_CHARACTERS`, `DUPLICATE`.
 2. **The same opener to many** (`DUPLICATE`): an opener with the same words as, or at least 80% of the words of, any of the sender's last 50 openers in the
    last 30 days is refused, whatever its case and punctuation. A different sender may use the same words; an old repeat is forgotten.
-3. **Daily limit** (`429 SPARK_LIMIT_REACHED`, `params.limit`): `DAILY_SPARKS` from the entitlements table (5 on FREE, 25 on PRO/CREW_PRO/ORG when
-   `ENTITLEMENTS_ENFORCED=true`; the hard ceiling of 40 when off), counted in the **sender's own local day**.
+3. **Daily limit** (`429 SPARK_LIMIT_REACHED`, `params.limit`): `DAILY_SPARKS` from the entitlements table (**5 for everyone** while `ENTITLEMENTS_ENFORCED=false`, since scarcity is the product; 5 on FREE and 25 on
+   PRO/CREW_PRO/ORG once it is `true`; the hard ceiling of 40 is an abuse limit either way), counted in the **sender's own local day**.
 4. **Burst throttle** (`429 SPARK_THROTTLED`, `params.retryAfter`): at most 8 sparks in any hour, whatever the plan.
 5. **Rate limit**: 20 requests a minute per user on `POST /api/sparks`, like any route.
 

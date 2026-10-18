@@ -281,7 +281,9 @@ counted limits (`DAILY_DROPS`, `DAILY_SPARKS`, `BUILD_DATES_PER_WEEK`) and switc
 (`subjectFor`): none, expired, or lapsed means `FREE`. A paywall is therefore a config change:
 
 - `ENTITLEMENTS_ENFORCED=false` (default) opens every switch to everyone and lifts counted limits to
-  their **hard safety ceiling** (`hardLimit`, an abuse bound that applies to every plan, enforced or not);
+  their **hard safety ceiling** (`hardLimit`, an abuse bound that applies to every plan, enforced or not),
+  except the **scarce** ones (`DAILY_DROPS`, `DAILY_SPARKS`, marked `scarce` in the table): scarcity is the
+  product in matching, so everybody gets the FREE numbers, 3 drops and 5 sparks a day, until plans are enforced;
 - `ENTITLEMENTS_ENFORCED=true` applies the limits of the user's plan.
 
 Nothing consumes `can()` or `limit()` yet; the first caller arrives with the features they guard.

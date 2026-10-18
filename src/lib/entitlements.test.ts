@@ -73,23 +73,40 @@ describe('enforcement off', () => {
     }
   })
 
-  it('lifts counted limits to the hard safety ceiling, the same for every plan', () => {
+  it('lifts the counted limits that are not scarce to the hard safety ceiling, the same for every plan', () => {
+    for (const plan of PLANS) expect(limit(subject(plan), 'BUILD_DATES_PER_WEEK', off)).toBe(ENTITLEMENTS.BUILD_DATES_PER_WEEK.hardLimit)
+  })
+
+  it('keeps scarcity the product: three drops and five sparks a day for every plan, not the ceiling', () => {
     for (const plan of PLANS) {
-      expect(limit(subject(plan), 'DAILY_DROPS', off)).toBe(ENTITLEMENTS.DAILY_DROPS.hardLimit)
-      expect(limit(subject(plan), 'BUILD_DATES_PER_WEEK', off)).toBe(ENTITLEMENTS.BUILD_DATES_PER_WEEK.hardLimit)
+      expect(limit(subject(plan), 'DAILY_DROPS', off)).toBe(3)
+      expect(limit(subject(plan), 'DAILY_SPARKS', off)).toBe(5)
+      expect(limit(subject(plan), 'DAILY_DROPS', off)).toBe(ENTITLEMENTS.DAILY_DROPS.plans.FREE)
+      expect(limit(subject(plan), 'DAILY_SPARKS', off)).toBe(ENTITLEMENTS.DAILY_SPARKS.plans.FREE)
     }
   })
 
-  it('still stops at the hard ceiling', () => {
-    const ceiling = ENTITLEMENTS.DAILY_DROPS.hardLimit
-    expect(withinLimit(subject('FREE'), 'DAILY_DROPS', ceiling - 1, off)).toBe(true)
-    expect(withinLimit(subject('FREE'), 'DAILY_DROPS', ceiling, off)).toBe(false)
+  it('lets a plan lift scarcity once plans are enforced, still under the hard ceiling', () => {
+    expect(limit(subject('PRO'), 'DAILY_DROPS', on)).toBe(10)
+    expect(limit(subject('PRO'), 'DAILY_SPARKS', on)).toBe(25)
+    expect(limit(subject('FREE'), 'DAILY_SPARKS', on)).toBe(5)
+  })
+
+  it('marks exactly the scarce features', () => {
+    const scarce = Object.entries(ENTITLEMENTS).filter(([, spec]) => 'scarce' in spec).map(([name]) => name)
+    expect(scarce.sort()).toEqual(['DAILY_DROPS', 'DAILY_SPARKS'])
+  })
+
+  it('still stops at the hard ceiling for a feature that is not scarce', () => {
+    const ceiling = ENTITLEMENTS.BUILD_DATES_PER_WEEK.hardLimit
+    expect(withinLimit(subject('FREE'), 'BUILD_DATES_PER_WEEK', ceiling - 1, off)).toBe(true)
+    expect(withinLimit(subject('FREE'), 'BUILD_DATES_PER_WEEK', ceiling, off)).toBe(false)
   })
 
   it('is what the environment says when no option is given', () => {
     // The unit-test environment leaves ENTITLEMENTS_ENFORCED unset, which means off.
     expect(can(subject('FREE'), 'CUSTOM_DOMAIN')).toBe(true)
-    expect(limit(subject('FREE'), 'DAILY_DROPS')).toBe(ENTITLEMENTS.DAILY_DROPS.hardLimit)
+    expect(limit(subject('FREE'), 'DAILY_DROPS')).toBe(3)
   })
 })
 

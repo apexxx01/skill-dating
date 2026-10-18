@@ -34,6 +34,14 @@ describe('daily drops', () => {
   const now = () => new Date()
   const generate = (id: string, over: { enforced?: boolean; at?: Date; force?: boolean } = {}) =>
     generateDropsForUser(testPrisma, id, over.at ?? now(), { enforced: over.enforced ?? false, force: over.force })
+  // Scarcity is the product (three drops a day for everyone until plans are on), so a test that needs a particular person to be among the three gives the people involved a
+  // skill nobody else in this file has, and one that needs more than three gives the viewer a plan that allows it.
+  const ownSkill = async (name: string) => {
+    const [slug] = await makeSkills(`${tag}${name}`, ['own'])
+    slugs.push(slug)
+    return slug
+  }
+  const makePro = (userId: string) => testPrisma.subscription.create({ data: { userId, plan: 'PRO', status: 'ACTIVE' } })
   const dropsOf = (userId: string) => testPrisma.drop.findMany({ where: { userId }, orderBy: [{ score: 'desc' }, { id: 'asc' }] })
   const shown = async (userId: string) => (await dropsOf(userId)).map((drop) => drop.candidateId)
 
@@ -114,20 +122,22 @@ describe('daily drops', () => {
 
   describe('who is left out', () => {
     it('leaves out everybody who must not be shown, and still shows a control who fits', async () => {
-      const viewer = await person({ lookingForSkills: [ml] })
-      const control = await person({ skills: [[ml, 5]] })
-      const blockedByMe = await person({ skills: [[ml, 5]] })
-      const blockedMe = await person({ skills: [[ml, 5]] })
-      const paused = await person({ skills: [[ml, 5]], paused: true })
-      const deleted = await person({ skills: [[ml, 5]], deleted: true })
-      const young = await person({ skills: [[ml, 5]], ageDays: 3 })
-      const unverified = await person({ skills: [[ml, 5]], emailVerified: false })
-      const dormant = await person({ skills: [[ml, 5]], lastActiveDaysAgo: 90 })
-      const wrongType = await person({ skills: [[ml, 5]], types: ['COLLABORATOR'] })
-      const noProfile = await person({ skills: [[ml, 5]], profile: false })
-      const passedRecently = await person({ skills: [[ml, 5]] })
-      const shownLately = await person({ skills: [[ml, 5]] })
-      const passedLongAgo = await person({ skills: [[ml, 5]] })
+      const mark = await ownSkill('left')
+      const viewer = await person({ lookingForSkills: [mark] })
+      await makePro(viewer.id)
+      const control = await person({ skills: [[mark, 5]] })
+      const blockedByMe = await person({ skills: [[mark, 5]] })
+      const blockedMe = await person({ skills: [[mark, 5]] })
+      const paused = await person({ skills: [[mark, 5]], paused: true })
+      const deleted = await person({ skills: [[mark, 5]], deleted: true })
+      const young = await person({ skills: [[mark, 5]], ageDays: 3 })
+      const unverified = await person({ skills: [[mark, 5]], emailVerified: false })
+      const dormant = await person({ skills: [[mark, 5]], lastActiveDaysAgo: 90 })
+      const wrongType = await person({ skills: [[mark, 5]], types: ['COLLABORATOR'] })
+      const noProfile = await person({ skills: [[mark, 5]], profile: false })
+      const passedRecently = await person({ skills: [[mark, 5]] })
+      const shownLately = await person({ skills: [[mark, 5]] })
+      const passedLongAgo = await person({ skills: [[mark, 5]] })
       await testPrisma.block.create({ data: { blockerId: viewer.id, blockedId: blockedByMe.id } })
       await testPrisma.block.create({ data: { blockerId: blockedMe.id, blockedId: viewer.id } })
       const old = (candidateId: string, over: Record<string, unknown>) =>
@@ -136,7 +146,7 @@ describe('daily drops', () => {
       await old(shownLately.id, { status: 'EXPIRED', createdAt: daysAgo(3), updatedAt: daysAgo(2) })
       await old(passedLongAgo.id, { status: 'PASSED', createdAt: daysAgo(60), updatedAt: daysAgo(45) })
 
-      await generate(viewer.id)
+      await generate(viewer.id, { enforced: true })
       const chosen = new Set(await shown(viewer.id))
       // Only the drops written by the run itself count: the three set-up rows are from other days.
       const today = new Set((await testPrisma.drop.findMany({ where: { userId: viewer.id, localDate: localDateKey(now(), null) } })).map((d) => d.candidateId))
@@ -149,11 +159,12 @@ describe('daily drops', () => {
     })
 
     it('holds a candidate to the daily exposure cap: popular people are not shown to everyone', async () => {
-      const popular = await person({ skills: [[ml, 5]] })
+      const mark = await ownSkill('cap')
+      const popular = await person({ skills: [[mark, 5]] })
       const viewers = []
-      for (let i = 0; i < DROP_CONFIG.exposureCapPerDay + 5; i++) viewers.push(await person({ lookingForSkills: [ml] }))
+      for (let i = 0; i < DROP_CONFIG.exposureCapPerDay + 5; i++) viewers.push(await person({ lookingForSkills: [mark] }))
       // A filler or two so every viewer has someone else to be shown.
-      await person({ skills: [[ml, 1]] })
+      await person({ skills: [[mark, 1]] })
       for (const viewer of viewers) await generate(viewer.id)
       const exposures = await testPrisma.drop.count({ where: { candidateId: popular.id, createdAt: { gte: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())) } } })
       expect(exposures).toBe(DROP_CONFIG.exposureCapPerDay)
@@ -195,8 +206,9 @@ describe('daily drops', () => {
     })
 
     it('pairs mentees with mentors, and shows a mentor the mentees', async () => {
-      const mentee = await person({ types: ['MENTEE'] })
-      const mentor = await person({ types: ['MENTOR'], skills: [[ml, 5]] })
+      const mark = await ownSkill('mentor')
+      const mentee = await person({ types: ['MENTEE'], lookingForSkills: [mark], skills: [[mark, 1]] })
+      const mentor = await person({ types: ['MENTOR'], skills: [[mark, 5]], lookingForSkills: [mark] })
       const peer = await person({ types: ['MENTEE'] })
       await generate(mentee.id)
       const menteeDrops = await dropsOf(mentee.id)
@@ -209,11 +221,14 @@ describe('daily drops', () => {
       expect(mentorDrops.find((d) => d.candidateId === mentee.id)?.connectionType).toBe('MENTOR')
     })
 
-    it('gives somebody who chose only one type as many as the allowance', async () => {
-      const viewer = await person({ types: ['COLLABORATOR'], lookingForSkills: [ml] })
+    it('gives somebody who chose only one type as many as the plan allows', async () => {
+      const mark = await ownSkill('single')
+      const viewer = await person({ types: ['COLLABORATOR'], lookingForSkills: [mark] })
+      await makePro(viewer.id)
       const mine = []
-      for (let i = 0; i < 5; i++) mine.push(await person({ types: ['COLLABORATOR'], skills: [[ml, 3]] }))
-      expect((await generate(viewer.id)).created).toBeGreaterThanOrEqual(5)
+      for (let i = 0; i < 5; i++) mine.push(await person({ types: ['COLLABORATOR'], skills: [[mark, 3]] }))
+      // A plan that allows ten, so it is the plan and not the pool that sets the number; without one the same viewer gets three.
+      expect((await generate(viewer.id, { enforced: true })).created).toBeGreaterThanOrEqual(5)
       const chosen = await shown(viewer.id)
       for (const candidate of mine) expect(chosen).toContain(candidate.id)
     })

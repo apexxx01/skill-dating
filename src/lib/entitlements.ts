@@ -3,8 +3,10 @@ import { env } from '@/lib/env'
 
 // What a plan includes, in one table, so turning a paywall on is a config switch
 // and not a code change. Everyone is on FREE today and ENTITLEMENTS_ENFORCED is
-// off, which opens every feature to everyone; only the hard safety ceilings
-// below still apply (they exist to stop abuse, not to sell anything).
+// off, which opens every feature to everyone EXCEPT the scarce ones: scarcity is the
+// product in matching (three drops a day, five sparks a day), so those keep the FREE
+// numbers for everybody until a plan says otherwise. The hard ceilings below apply
+// whatever happens; they exist to stop abuse, not to sell anything.
 //
 // Ask in code with can() and limit(); never compare a plan name directly.
 
@@ -19,6 +21,11 @@ interface LimitSpec {
   plans: PlanValues<number>
   /** Applies whatever the plan and whatever ENTITLEMENTS_ENFORCED says. */
   hardLimit: number
+  /**
+   * Scarcity is the product here, so while plans are not enforced everybody gets the FREE number (not the ceiling). Plans then lift it for
+   * PRO and above once ENTITLEMENTS_ENFORCED is on.
+   */
+  scarce?: true
 }
 
 interface SwitchSpec {
@@ -30,9 +37,9 @@ const everyone = <T>(value: T): PlanValues<T> => ({ FREE: value, PRO: value, CRE
 
 export const ENTITLEMENTS = {
   // Profiles shown to the user per day.
-  DAILY_DROPS: { kind: 'limit', plans: { FREE: 3, PRO: 10, CREW_PRO: 10, ORG: 10 }, hardLimit: 50 },
+  DAILY_DROPS: { kind: 'limit', plans: { FREE: 3, PRO: 10, CREW_PRO: 10, ORG: 10 }, hardLimit: 50, scarce: true },
   // Sparks a user can send per local day. The hard ceiling is what stops one account messaging the whole network.
-  DAILY_SPARKS: { kind: 'limit', plans: { FREE: 5, PRO: 25, CREW_PRO: 25, ORG: 25 }, hardLimit: 40 },
+  DAILY_SPARKS: { kind: 'limit', plans: { FREE: 5, PRO: 25, CREW_PRO: 25, ORG: 25 }, hardLimit: 40, scarce: true },
   // Build dates a user can set up per week.
   BUILD_DATES_PER_WEEK: { kind: 'limit', plans: { FREE: 2, PRO: 10, CREW_PRO: 10, ORG: 10 }, hardLimit: 50 },
   SEE_WHO_SPARKED: { kind: 'switch', plans: { FREE: false, PRO: true, CREW_PRO: true, ORG: true } },
@@ -62,12 +69,12 @@ function isEnforced(options?: EntitlementOptions): boolean {
 }
 
 /**
- * How many the subject may have, for the features that are counted. With
- * enforcement off this is the hard ceiling for every plan.
+ * How many the subject may have, for the features that are counted. With enforcement off this is the hard ceiling for every plan, except for a scarce
+ * feature (daily drops, daily sparks), where everybody gets the FREE number.
  */
 export function limit(subject: Subject, feature: LimitFeature, options?: EntitlementOptions): number {
   const spec: LimitSpec = ENTITLEMENTS[feature]
-  if (!isEnforced(options)) return spec.hardLimit
+  if (!isEnforced(options)) return spec.scarce ? Math.min(spec.plans.FREE, spec.hardLimit) : spec.hardLimit
   return Math.min(spec.plans[subject.plan], spec.hardLimit)
 }
 
