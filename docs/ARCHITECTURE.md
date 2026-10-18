@@ -147,6 +147,8 @@ them. Handlers import their module lazily, so the registry stays light.
 | `drops/generate-batch` | event, 8 at a time | `src/lib/matching/drops.ts`: daily drops for one batch of people; safe to run twice |
 | `media/cleanup` | daily (04:50) | `src/lib/media-assets.ts`: removes uploads nobody finished (declared and never confirmed for a day, or rejected), with their objects |
 | `romance/drops` | hourly (:25) | `src/lib/romance/drops.ts`: from Monday 08:00 in each person's own zone, enqueues a `romance/drops-batch` job per chunk of 250 people of each time zone who have no drop for their local week (dispatch only) |
+| `posts/notify-watchers` | event | `src/lib/posts/watchers.ts`: tells the watchers of a project about a new post, 500 at a time, queuing itself for the next batch; one coalesced notification per project per hour |
+| `posts/ship-day-recap` | Saturday 12:30 UTC | `src/lib/posts/ship-day.ts`: writes the week's `ShipDayRecap` (best posts, counts per country, city and campus) once |
 | `romance/drops-batch` | event, 8 at a time | `src/lib/romance/drops.ts`: the weekly romance drop for one batch of people; safe to run twice |
 | `sparks/digest` | hourly (:35) | `src/lib/matching/spark-digest.ts`: once a local day from 09:00, "N people sparked you" (a count, no names) for plans that do not show who |
 | `drops/expire` | hourly (:20) | `src/lib/matching/drops.ts`: mark unanswered drops past their day EXPIRED |

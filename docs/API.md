@@ -319,7 +319,7 @@ The caller's own. Query: `page, cursor, limit, unreadOnly, type`. Response inclu
 Bulk mark-all-read. **Body:** `{ all: true }`
 
 ### `GET /api/notifications/preferences`
-Which kinds of notification the caller gets. **Response:** `{ preferences: [{ kind, label, type, enabled }] }`, for the kinds `SPARK` (each spark, with who sent it, for a plan that shows who) and `SPARK_DIGEST` (the daily count of people who sparked you, for one that does not). Every kind is on until it is switched off.
+Which kinds of notification the caller gets. **Response:** `{ preferences: [{ kind, label, type, enabled }] }`, for the kinds `SPARK` (each spark, with who sent it, for a plan that shows who) and `SPARK_DIGEST` (the daily count of people who sparked you, for one that does not). The kinds `PROPS`, `COMMENT`, `FOLLOW` and `WATCH` cover Props on your posts, comments and replies, new followers, and posts on projects you watch (docs/FEED.md); these notifications are batched, one per subject per hour with a `count`. Every kind is on until it is switched off.
 
 ### `PUT /api/notifications/preferences`
 **Body:** `{ preferences: { [kind]: boolean } }`: at least one known kind; the kinds left out keep what they were; unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED`.
@@ -441,7 +441,7 @@ Give or take back Props. Honours `Idempotency-Key`; giving twice answers `200` w
 List (oldest first, replies nested one level, blocked authors left out; `cursor`, `limit`) and create. **Body:** `{ body (1-2000), parentId? }`. Honours `Idempotency-Key`. `400 COMMENT_REPLY_DEPTH` (reply to a reply), `404 COMMENT_NOT_FOUND`, `404 POST_NOT_FOUND`.
 
 ### `PATCH /api/comments/[id]` and `DELETE /api/comments/[id]`
-Edit your comment within 15 minutes (`403 COMMENT_EDIT_WINDOW_CLOSED`, `params.minutes`) or soft-delete it (author or admin). `404 COMMENT_NOT_FOUND` for anyone else's.
+Edit your comment within 15 minutes (`403 COMMENT_EDIT_WINDOW_CLOSED`, `params.minutes`) or soft-delete it (its author, the author of the post, or an admin). `404 COMMENT_NOT_FOUND` for anyone else's.
 
 ### `POST /api/users/[id]/follow` and `DELETE /api/users/[id]/follow`
 Follow or unfollow. Honours `Idempotency-Key`; repeating answers the same. **Response:** `{ following }`. `400 CANNOT_FOLLOW_SELF`, `403 USER_BLOCKED`, `404 USER_NOT_FOUND`.

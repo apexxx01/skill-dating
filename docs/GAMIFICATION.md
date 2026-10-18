@@ -9,7 +9,7 @@ be tuned without touching a route:
 | `src/lib/levels.ts` | The level curve and the tiers (pure functions) |
 | `src/lib/streaks.ts` | The streak rules (pure functions) |
 | `src/lib/metrics.ts` | What is counted per user, and which event counts what |
-| `src/lib/achievement-definitions.ts` | The 43 achievements, their XP and what unlocks them |
+| `src/lib/achievement-definitions.ts` | The 47 achievements, their XP and what unlocks them |
 | `src/lib/quest-definitions.ts`, `src/lib/quests.ts` | The quest pool and the daily and weekly rotation |
 | `src/lib/cosmetic-definitions.ts` | The cosmetics and the rules that unlock them |
 | `src/lib/leaderboard-boards.ts` | The boards: periods, scopes, and what each is called in the cache |
@@ -49,6 +49,7 @@ route ──emit──▶ domain event ──▶ payForEvent (src/lib/subscriber
 | `CONNECTION_ACCEPTED` | a connection request is accepted (paid to **both** people) | 10 | connection | 5 a day, each | the one who accepted |
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the user sends the first message of a direct conversation with a connection (paid to the **sender**) | 5 | conversation | 5 a day | yes |
 | `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | 3 a day | no |
+| `PROPS_RECEIVED` | someone gives Props to the user's post (paid to the **author**) | 2 | post and giver | 20 a day (10 Props) | no |
 
 Who is **not** paid: the milestone update post that completing a milestone creates is not an
 update the user posted, so it pays nothing as one; declined connections and rejected applications
@@ -75,6 +76,7 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `MESSAGE_REPLIED` (pays no XP) | the person who replied | the person who was waiting for the reply |
 | `MATCH_CREATED` (pays no XP itself) | each of the two people | the other one |
 | `MATCH_TEAM_FORMED` (pays no XP itself) | each of the two people | the other one |
+| `PROPS_RECEIVED` | the author of the post | the giver (a Prop from an untrusted giver is recorded with weight 0 and pays nothing) |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
@@ -224,7 +226,7 @@ owner's `showActivity` switch.
 
 ## Achievements
 
-There are **43**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
+There are **47**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
 slug it had before there were tiers.
 
 **How they work.** A domain event is turned into *ticks* (`EVENT_TICKS` in `src/lib/metrics.ts`): "this user shipped
@@ -277,6 +279,10 @@ nobody starts at zero; an achievement whose target a counter already meets unloc
 | `first-match` | First Match | 25 | 1 match |
 | `matches-10` | Well Matched | 50 | 10 matches |
 | `match-teamed` | Better Together | 100 | formed a team with someone you matched with (once per match) |
+| `props-10` | Respected | 20 | 10 Props received |
+| `props-100` | Well Respected | 60 | 100 Props received |
+| `ship-day-1` | Friday Shipper | 15 | 1 Ship Day with a post |
+| `ship-day-10` | Ship Day Regular | 90 | 10 Ship Days with a post |
 
 **Sparks and matches pay no XP; the three match achievements pay a one-off amount** (25, 50 and 100). An achievement can be earned once per
 person, so the XP cannot be farmed the way a per-match payment could be: the tenth match pays nothing new, and the hundredth pays nothing.
@@ -285,6 +291,14 @@ match each other earn nothing from it. A match counts when it is made (`MATCH_CR
 somebody joins a team that has a member they have an open match with (`MATCH_TEAM_FORMED`, the metric `match_teams`, detected on
 `TEAM_APPLICATION_ACCEPTED` in `src/lib/matching/team-match.ts`), so the match must be older than the team and not ended. **A romance match
 counts for none of these** (docs/ROMANCE.md): achievements are public, and nothing about the romance mode is.
+
+**Props and Ship Day** (docs/FEED.md). `PROPS_RECEIVED` pays the author 2 XP, once per post and giver, up to 20 XP a day, only for a trusted giver; the same
+paid award is the tick for `props_received`, so the Props achievements cannot move faster than the cap and cannot be counted for a giver who was not trusted. Taking
+Props back does not take the XP or the count back, and giving again counts nothing new. A post on the author's own Friday is a Ship Day post (`POST_SHIP_DAY`), which
+counts once per Ship Day however many are made (the tick's key is the date), so *Friday Shipper* and *Ship Day Regular* cannot be farmed; it pays no XP of its own. The
+metric `ship_day_posts` is available to quests (none is in the pool yet: adding one changes the pinned pool tests, which is a product decision). A SHIP post goes through
+the same one ship gate as a project PATCH, so a project's ship XP (`PROJECT_SHIP`, once per project) is paid exactly once whichever way it was shipped; an UPDATE or
+DEVLOG post is a project update (`PROJECT_UPDATE_POSTED`, 15 XP, 3 a day).
 
 ### Secret achievements
 
