@@ -94,8 +94,8 @@ export async function unlockStreak(tx: Db, userId: string, current: number, free
 
 /** The people an event touches, whose progress must be locked before any of them is written. */
 export function usersInvolved(name: DomainEventName, payload: DomainEvents[DomainEventName]): string[] {
-  const { userId, endorserId, otherUserId } = payload as { userId: string; endorserId?: string; otherUserId?: string }
-  return [userId, endorserId, otherUserId].filter((id): id is string => typeof id === 'string')
+  const { userId, endorserId, otherUserId, giverId } = payload as { userId: string; endorserId?: string; otherUserId?: string; giverId?: string }
+  return [userId, endorserId, otherUserId, giverId].filter((id): id is string => typeof id === 'string')
 }
 
 /**

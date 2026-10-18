@@ -19,6 +19,7 @@ export type RewardAction =
   | 'MESSAGE_SENT_FIRST_IN_CONNECTION'
   | 'TEAM_APPLICATION_ACCEPTED'
   | 'QUEST_COMPLETED'
+  | 'PROPS_RECEIVED'
 
 /** What an award is attached to. Together with the action it decides what counts as "the same award". */
 export type RewardSourceType =
@@ -33,6 +34,7 @@ export type RewardSourceType =
   | 'CONVERSATION'
   | 'TEAM_APPLICATION'
   | 'QUEST'
+  | 'PROP'
 
 export interface RewardRule {
   /** XP per award. Null when the source carries it (an achievement defines its own xpReward). */
@@ -84,6 +86,9 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   // Once per quest and period (the source is the UserQuest). The amount is the quest's own xpReward, and
   // a person has at most three daily and three weekly quests at a time, which is the cap.
   QUEST_COMPLETED: { amount: null, sourceType: 'QUEST', oncePer: 'source', dailyCap: null, streak: false },
+  // Paid to the author of a post, once per (post, giver) pair, at most 20 a day. Small on purpose, and only when the giver is a trusted counterparty (src/lib/trust.ts): respect is
+  // not something two throwaway accounts can mint for each other. A Prop from an account the gate does not trust is recorded with weight 0 and pays nothing.
+  PROPS_RECEIVED: { amount: 2, sourceType: 'PROP', oncePer: 'source', dailyCap: 20, streak: false },
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]
@@ -208,6 +213,15 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   MESSAGE_REPLIED: {},
   ACHIEVEMENT_UNLOCKED: {},
   TIER_REACHED: {},
+  PROPS_RECEIVED: {
+    xp: {
+      action: 'PROPS_RECEIVED',
+      source: (p) => ({ sourceType: 'PROP', sourceId: `${p.postId}:${p.giverId}` }),
+      description: () => 'Received Props on a post',
+    },
+  },
+  // Pays nothing; counts once per Ship Day.
+  POST_SHIP_DAY: {},
   // Sparks and matches pay no XP, on purpose: nothing about starting conversations is worth farming.
   MATCH_CREATED: {},
   MATCH_TEAM_FORMED: {},

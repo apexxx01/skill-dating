@@ -453,6 +453,48 @@ export const ACHIEVEMENT_DEFINITIONS = {
     criteria: { metric: 'match_teams', target: 1 },
     order: 43,
   },
+
+  // --- Props ---------------------------------------------------------------------
+  // Counted only for Props from trusted accounts (src/lib/trust.ts), once per post and giver.
+  'props-10': {
+    name: 'Respected',
+    description: 'Received Props from 10 builders.',
+    icon: 'thumbs-up',
+    category: 'REPUTATION',
+    xpReward: 20,
+    criteria: { metric: 'props_received', target: 10 },
+    order: 44,
+  },
+  'props-100': {
+    name: 'Well Respected',
+    description: 'Received Props from 100 builders.',
+    icon: 'award',
+    category: 'REPUTATION',
+    xpReward: 60,
+    criteria: { metric: 'props_received', target: 100 },
+    order: 45,
+  },
+
+  // --- Ship Day ------------------------------------------------------------------
+  // A post on the author's own Friday counts once per Ship Day (src/lib/ship-day.ts), however many are made, so these cannot be farmed.
+  'ship-day-1': {
+    name: 'Friday Shipper',
+    description: 'Posted on a Ship Day.',
+    icon: 'calendar-check',
+    category: 'BUILDING',
+    xpReward: 15,
+    criteria: { metric: 'ship_day_posts', target: 1 },
+    order: 46,
+  },
+  'ship-day-10': {
+    name: 'Ship Day Regular',
+    description: 'Posted on 10 Ship Days.',
+    icon: 'calendar-heart',
+    category: 'BUILDING',
+    xpReward: 90,
+    criteria: { metric: 'ship_day_posts', target: 10 },
+    order: 47,
+  },
 } satisfies Record<string, AchievementDefinition>
 
 export type AchievementSlug = keyof typeof ACHIEVEMENT_DEFINITIONS

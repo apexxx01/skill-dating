@@ -93,6 +93,8 @@ export const PEER_PAIRS: { [N in DomainEventName]?: (payload: DomainEvents[N]) =
   MESSAGE_SENT_FIRST_IN_CONNECTION: (p) => [{ subjectId: p.userId, counterpartyId: p.recipientId }],
   // Pays no XP; it counts toward replies and quests, for the person who answered.
   MESSAGE_REPLIED: (p) => [{ subjectId: p.userId, counterpartyId: p.repliedToUserId }],
+  // The author is paid for a Prop because the giver gave it; an untrusted giver pays nothing.
+  PROPS_RECEIVED: (p) => [{ subjectId: p.userId, counterpartyId: p.giverId }],
   // Pay no XP; each person's match counts toward the match achievements only when the other is a trusted account.
   MATCH_CREATED: (p) => [
     { subjectId: p.userId, counterpartyId: p.otherUserId },

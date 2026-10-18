@@ -41,6 +41,8 @@ describe('event names', () => {
         'PROJECT_CREATED',
         'PROJECT_SHIPPED',
         'PROJECT_UPDATE_POSTED',
+        'PROPS_RECEIVED',
+        'POST_SHIP_DAY',
         'STREAK_EXTENDED',
         'TEAM_APPLICATION_ACCEPTED',
         'TEAM_FORMED',
@@ -304,7 +306,7 @@ describe('the transaction of an event', () => {
     expect(emitters.length).toBeGreaterThanOrEqual(10)
     // The rewards engine, the achievement grant and the match-to-team detector run on the transaction their caller opened (always with
     // transactWithEvents); they open none themselves.
-    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts'), path.join(SRC, 'lib', 'matching', 'team-match.ts')])
+    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts'), path.join(SRC, 'lib', 'matching', 'team-match.ts'), path.join(SRC, 'lib', 'ship.ts')])
     const without = emitters
       .filter((file) => !borrowsItsTransaction.has(file))
       .filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8')))

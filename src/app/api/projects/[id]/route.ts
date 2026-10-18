@@ -4,8 +4,8 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { canAwardShipXp } from '@/lib/rewards-config'
 import { currentRewards } from '@/lib/rewards'
-import { emit, transactWithEvents } from '@/lib/events'
-import { recordActivity } from '@/lib/activity'
+import { transactWithEvents } from '@/lib/events'
+import { recordShip } from '@/lib/ship'
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -103,11 +103,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     // partway through must not leave a project marked SHIPPED with no XP
     // awarded (or XP awarded with the project not actually updated).
     const shipped = await transactWithEvents(prisma, async (tx) => {
-      await tx.reputationEvent.create({
-        data: { userId: user.id, type: 'PROJECT_SHIPPED', amount: 100, sourceId: id, sourceType: 'PROJECT', description: `Shipped project` }
-      })
-      await recordActivity(tx, user.id, 'PROJECT_SHIPPED', `Shipped "${shippedName}"`, { projectId: id })
-      await emit(tx, 'PROJECT_SHIPPED', { userId: user.id, projectId: id, projectName: shippedName })
+      await recordShip(tx, { userId: user.id, projectId: id, projectName: shippedName })
       return tx.project.update({ where: { id }, data: updateData, include: projectInclude })
     })
     project = shipped.value

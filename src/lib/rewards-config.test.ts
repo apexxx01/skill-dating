@@ -105,6 +105,7 @@ describe('EVENT_REWARDS', () => {
         'PROJECT_CREATED',
         'PROJECT_SHIPPED',
         'PROJECT_UPDATE_POSTED',
+        'PROPS_RECEIVED',
         'TEAM_APPLICATION_ACCEPTED',
         'TEAM_FORMED',
       ].sort()

@@ -62,6 +62,10 @@ export interface DomainEvents {
   MATCH_CREATED: { userId: string; otherUserId: string; matchId: string; connectionType: string; conversationId: string | null }
   /** A person joined a team that has a member they matched with earlier. Pays no XP; counts toward the match-to-team achievement. */
   MATCH_TEAM_FORMED: { userId: string; otherUserId: string; matchId: string; teamId: string }
+  /** A post was made on the author's local Ship Day (Friday). Pays no XP; counts once per Ship Day toward the Ship Day quest. */
+  POST_SHIP_DAY: { userId: string; postId: string; dateKey: string }
+  /** `userId` is the author, who may be rewarded; `giverId` gave the Prop. Only a trusted giver pays (src/lib/trust.ts). */
+  PROPS_RECEIVED: { userId: string; giverId: string; postId: string; propId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -86,6 +90,8 @@ export const DOMAIN_EVENT_NAMES = [
   'TIER_REACHED',
   'MATCH_CREATED',
   'MATCH_TEAM_FORMED',
+  'POST_SHIP_DAY',
+  'PROPS_RECEIVED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient

@@ -27,6 +27,8 @@ export const QUEST_METRICS = [
   'replies',
   'hackathons_joined',
   'crews_formed',
+  // Ready for a Ship Day quest; none is in the rotating pool yet, because adding one reshuffles everybody's current week (see quests.test.ts, which pins the picks).
+  'ship_day_posts',
 ] as const satisfies readonly Metric[]
 export type QuestMetric = (typeof QUEST_METRICS)[number]
 

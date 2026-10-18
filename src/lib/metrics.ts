@@ -28,6 +28,8 @@ export const METRICS = [
   'replies',
   'matches',
   'match_teams',
+  'props_received',
+  'ship_day_posts',
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -75,6 +77,9 @@ export const EVENT_TICKS: { [N in DomainEventName]?: TickRule<N> } = {
   MESSAGE_SENT_FIRST_IN_CONNECTION: own('first_messages', (p) => p.conversationId),
   // Replying pays no XP of its own, so it counts without being paid.
   MESSAGE_REPLIED: (p) => [{ userId: p.userId, metric: 'replies', dedupeKey: p.messageId }],
+  PROPS_RECEIVED: own('props_received', (p) => `${p.postId}:${p.giverId}`),
+  // Once per Ship Day however many posts are made on it, so it can be counted without a payment and cannot be repeated for more.
+  POST_SHIP_DAY: (p) => [{ userId: p.userId, metric: 'ship_day_posts' as const, dedupeKey: p.dateKey }],
   // A match pays no XP, so `paid` here means "counted for": each person whose counterparty is a trusted account (src/lib/subscribers.ts).
   MATCH_CREATED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'matches' as const, dedupeKey: p.matchId })),
   // Once per match however many teams the two share.
