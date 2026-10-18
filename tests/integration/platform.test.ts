@@ -3,6 +3,7 @@ import { INTEGRATION_BASE_URL } from './config'
 import { registerAndLogin, uniqueSuffix, req, syntheticIp, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 import { loadEnvLocal } from './env'
+import { bornYearsAgo } from './matching-fixtures'
 import { INTEGRATION_DATABASE_URL } from './config'
 
 Object.assign(process.env, { ...loadEnvLocal(), DATABASE_URL: INTEGRATION_DATABASE_URL })
@@ -177,6 +178,10 @@ describe('platform layer', () => {
       expect(await count()).toBe(0) // no skill yet
 
       expect((await req(member.jar, 'POST', `/api/users/${member.userId}/skills`, { skillId: skill.id, level: 3 })).status).toBe(201)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(await count()).toBe(0) // onboarding also needs a date of birth (the age policy)
+
+      expect((await req(member.jar, 'PATCH', '/api/users', { birthDate: bornYearsAgo(25), headline: 'Builder' })).status).toBe(200)
       await new Promise((resolve) => setTimeout(resolve, 500))
       expect(await count()).toBe(1)
 
