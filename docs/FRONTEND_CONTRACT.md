@@ -586,6 +586,74 @@ A match opens a conversation that already holds a `SYSTEM` message (the icebreak
 with a timestamp and `POST` to it is `409 CONVERSATION_CLOSED` (show it read-only). A realtime `match.created` on `user:{id}` means a new match (refresh the list and show the
 banner); `match.ended` means the other person ended one. Blocking someone also ends the matches with them (`endedMatches` on the block response).
 
+## Feed pages: Feed, Post, Ship Day
+
+The rules (posts, Props weights, ranking, Ship Day) are in [FEED.md](FEED.md); the routes in [API.md](API.md#posts--feed). Types: `PostItem`, `FeedResponse`, `PostsPageResponse`,
+`PostCommentItem`, `PostCommentsResponse`, `PropsResponse`, `FollowPeopleResponse` and `ShipDayResponse` in `src/types/api.ts`. A post's `body` is **Markdown source**, sanitized on the server:
+render it with a Markdown renderer that does not allow raw HTML; never put it in `innerHTML` as it is.
+
+### Feed (`/feed`)
+
+| Need | Call |
+| --- | --- |
+| The page | `GET /api/feed?tab=for-you`, `following`, `city` or `campus`, and `limit=` → `FeedResponse` |
+| More | the same with `cursor=<nextCursor>`; stop when `nextCursor` is `null` |
+| Give / take back Props | `POST` / `DELETE /api/posts/{id}/props` (**write**, honours `Idempotency-Key`) → `PropsResponse`; update the card from it |
+| Follow / unfollow an author | `POST` / `DELETE /api/users/{id}/follow` (**write**) → `{ following }` |
+| Watch a project | `POST` / `DELETE /api/projects/{id}/watch` (**write**) → `{ watching }` |
+
+Switching tab starts again without a cursor. `400 INVALID_CURSOR` (a cursor is good for an hour) means "reload the feed", not an error to show. The order is the server's: do not re-sort.
+`city` and `campus` are empty until the user has set a place on their profile: say so and link to the profile. Show `yourProps` as the state of the Props button, `propsCount` as the number,
+and never `propsScore`. A new post by the user does not appear at the top of the feed by itself: put the `post` from `POST /api/posts` at the top locally.
+
+### Post (`/posts/{id}`, and the composer)
+
+| Need | Call |
+| --- | --- |
+| Read | `GET /api/posts/{id}` → `{ post }`. `404 POST_NOT_FOUND` for a post that is gone, hidden by a block or not for the user (followers-only, crew-only): all look the same, show "not found" |
+| Compose | upload each file first (`POST /api/media/uploads` with `purpose: "POST_MEDIA"`, PUT to the returned URL, `POST /api/media/{id}/complete`), then `POST /api/posts { kind, title, body, projectId?, teamId?, links?, mediaIds?, stackTags?, coAuthorIds?, visibility? }` (**write**, `Idempotency-Key`) → `CreatePostResponse` |
+| Edit | `PATCH /api/posts/{id}` with any of `title, body, links, stackTags, visibility` (**write**, author only); show "edited" from `editedAt` |
+| Delete | `DELETE /api/posts/{id}` (**write**, author or admin) |
+| Comments | `GET /api/posts/{id}/comments?cursor=` → `PostCommentsResponse` (oldest first, replies nested one level) |
+| Comment / reply | `POST /api/posts/{id}/comments { body, parentId? }` (**write**, `Idempotency-Key`); replying to a reply is `400 COMMENT_REPLY_DEPTH`, so show Reply only on top-level comments |
+| Edit / delete a comment | `PATCH` / `DELETE /api/comments/{id}`: editing is open for 15 minutes (`403 COMMENT_EDIT_WINDOW_CLOSED`, the message says how long); hide Edit after `createdAt + 15 min` |
+| A project's timeline | `GET /api/projects/{id}/timeline` → `PostsPageResponse` (a private project's is `404 PROJECT_NOT_FOUND` to non-members) |
+| A person's posts | `GET /api/users/{id}/posts` → `PostsPageResponse`; followers / following: `GET /api/users/{id}/followers`, `/following` → `FollowPeopleResponse` |
+
+Composer rules to enforce before sending (the server enforces them too): title 3 to 120 characters, body 1 to 10,000, at most 6 files, 5 links, 10 tags and 5 co-authors. A `SHIP` post needs a
+project the user belongs to; `CREW` visibility needs a project or crew. Co-authors can only be members of the project or crew (`400 POST_COAUTHOR_NOT_MEMBER`). When `shipped` is `true` in the
+response the project has just shipped: show the ship celebration. A post made on the author's Friday has the `ship-day` tag in `stackTags`; render it as the Ship Day badge.
+
+### Ship Day (`/ship-day`)
+
+| Need | Call |
+| --- | --- |
+| The page | `GET /api/ship-day` → `ShipDayResponse` |
+
+If `isShipDay`, show the banner, the live `todayCount`, a countdown to `endsAt` (the end of the user's own Friday), the user's `yourShips` and the day's `topPosts`; the composer is the Post composer
+with kind `SHIP` or `DEMO` and nothing extra to set: the tag is applied by the server. If it is not Ship Day, show when the next one is (the coming Friday in the user's zone) and `lastRecap` if there
+is one; `todayCount` and `topPosts` are empty before the day starts. `dateKey` is the user's Friday of this week, which on a Saturday or Sunday is behind them. Nothing about Ship Day pays XP by
+itself; the *Friday Shipper* achievements arrive through the usual `rewards` envelope.
+
+### Matching preferences (`/matching/preferences`)
+
+The private side of the romance mode, shown under its product name `modeLabel` (never hard-code it: every romance response carries it). Rules in [ROMANCE.md](ROMANCE.md), routes in [API.md](API.md#romance).
+
+| Need | Call |
+| --- | --- |
+| Load: the form, the labelled choices, whether the user may join | `GET /api/romance/profile` → `{ modeLabel, exists, profile, photos, eligibility, options }` |
+| Join / save | `PUT /api/romance/profile` (**write**, saves the whole profile; the first call is `201`) |
+| Leave | `DELETE /api/romance/profile` (**write**; final for their open matches, say so before) |
+| Photos | upload with `purpose: "ROMANCE_PHOTO"`, then `POST /api/romance/photos { assetId, blurHash? }`; `DELETE /api/romance/photos/{id}` |
+| Pause | `PUT` the profile with `paused: true` |
+
+Only draw the form when `eligibility.eligible` is `true`; otherwise list `eligibility.blockers` as steps (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`) and show
+nothing else. The **work comes first**: the three prompts, ambition, direction, rhythm and obsessions are the top of the form; gender, who they are interested in, the age range, the scope (`CITY`,
+`COUNTRY`, `ANYWHERE`) and `minEndorsements` sit under a section headed "Private filters", with the line that they are **never shown to anyone**: they only decide whom the user is shown and who is
+shown to them, and both sides' filters must accept. `profile.private` comes back to its owner only. A person of 16 or 17 never gets the form; do not offer the mode to them at all. The `options`
+object holds the choices and the limits; do not hard-code the lists. The weekly drop, sparks, matches, the photo reveal and Duo are `GET /api/romance/drop`, `/sparks/received`, `/matches`,
+`/matches/{id}/reveal` and `/duo`; none of them is ever shown on a profile, a passport, a feed or a leaderboard.
+
 ## Backend gaps closed for these pages
 
 | Gap | Fix |
@@ -602,6 +670,7 @@ banner); `match.ended` means the other person ended one. Blocking someone also e
 | Reward feedback after an action | `rewards` envelope on the awarding routes (streak, achievements, quests included); level-up, tier, achievement, quest and cosmetic notifications |
 | Streaks, quests, achievements, cosmetics, seasons, location leaderboards | Stage 1B: see Progress pages above |
 | Infinite scroll and retries | `cursor` / `nextCursor` on every list; `Idempotency-Key` on creating POSTs |
+| Showing work: posts, Props, comments, follows, the feed, Ship Day | Stage 1D: see Feed pages above |
 
 ## Still missing (no backend, needs a product decision)
 
@@ -609,5 +678,5 @@ banner); `match.ended` means the other person ended one. Blocking someone also e
 | --- | --- |
 | Presence / typing indicators | Needs a realtime channel. |
 | Project stars and forks | No data model. |
-| Followers and following | Only symmetric connections exist. |
+| Mutual-follow (friends) view | Follows are one-way (`/api/users/{id}/follow`); connections remain the mutual relationship. |
 | Team and project logos | Only `Project.thumbnail` exists; upload storage is not built. |

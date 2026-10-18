@@ -1067,3 +1067,115 @@ export interface TeamGapsResponse {
   /** The five best fits, best first. Invite one with POST /api/teams/{id}/invitations. */
   candidates: TeamGapCandidate[]
 }
+
+// --- Posts, Props, the feed and Ship Day (docs/FEED.md) -------------------------------------------------
+
+export type PostKindName = 'SHIP' | 'UPDATE' | 'DEVLOG' | 'DEMO'
+export type PostVisibilityName = 'PUBLIC' | 'FOLLOWERS' | 'CREW'
+
+export interface PostPerson {
+  id: string
+  name: string | null
+  username: string
+  image: string | null
+  level: number
+  tier: string
+}
+
+/** One post as the caller may see it. `body` is sanitized Markdown source: render it, never inject it as HTML. */
+export interface PostItem {
+  id: string
+  kind: PostKindName
+  title: string
+  body: string
+  links: string[]
+  media: { id: string; type: 'IMAGE' | 'GIF' | 'VIDEO'; url: string; width: number; height: number; durationMs: number | null }[]
+  /** Includes `ship-day` for a post made on the author's Friday. */
+  stackTags: string[]
+  visibility: PostVisibilityName
+  shipDay: boolean
+  author: PostPerson
+  coAuthors: PostPerson[]
+  project: { id: string; name: string; slug: string } | null
+  teamId: string | null
+  /** The sum of the weighted Props. Show `propsCount` as the number of people; use this only to order or to size a badge. */
+  propsScore: number
+  propsCount: number
+  commentCount: number
+  /** Whether the caller has given Props. */
+  yourProps: boolean
+  /** Edits so far; 0 for a post never edited. */
+  revision: number
+  createdAt: string
+  editedAt: string | null
+}
+
+/** POST /api/posts */
+export interface CreatePostResponse {
+  post: PostItem | null
+  /** True when this post shipped its project (the first SHIP post of a project). */
+  shipped: boolean
+}
+
+/** GET /api/feed */
+export interface FeedResponse {
+  tab: 'for-you' | 'following' | 'city' | 'campus'
+  posts: PostItem[]
+  nextCursor: string | null
+}
+
+/** GET /api/projects/{id}/timeline, GET /api/users/{id}/posts, GET /api/posts */
+export interface PostsPageResponse {
+  posts: PostItem[]
+  nextCursor: string | null
+}
+
+export interface PostCommentItem {
+  id: string
+  postId: string
+  parentId: string | null
+  author: { id: string; name: string | null; username: string; level: number; tier: string } | null
+  /** Null once deleted: show "deleted" and keep the replies under it. */
+  body: string | null
+  deleted: boolean
+  createdAt: string
+  editedAt: string | null
+  replies?: PostCommentItem[]
+  replyCount?: number
+}
+
+/** GET /api/posts/{id}/comments */
+export interface PostCommentsResponse {
+  comments: PostCommentItem[]
+  nextCursor: string | null
+}
+
+/** POST/DELETE /api/posts/{id}/props */
+export interface PropsResponse {
+  propsScore: number
+  propsCount: number
+  yourProps: boolean
+  /** Only on a POST: false when the caller had already given Props. */
+  created?: boolean
+}
+
+/** GET /api/users/{id}/followers, GET /api/users/{id}/following */
+export interface FollowPeopleResponse {
+  people: { id: string; username: string; name: string | null; image: string | null; level: number; tier: string; followedAt: string }[]
+  nextCursor: string | null
+}
+
+/** GET /api/ship-day */
+export interface ShipDayResponse {
+  /** Whether the caller's Friday is today (their own time zone). */
+  isShipDay: boolean
+  startsAt: string
+  endsAt: string
+  /** The caller's Friday of this week, "YYYY-MM-DD". */
+  dateKey: string
+  weekKey: string
+  todayCount: number
+  yourShips: PostItem[]
+  topPosts: PostItem[]
+  lastRecap: { weekKey: string; dateKey: string; totalPosts: number } | null
+}
