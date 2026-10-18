@@ -35,6 +35,12 @@ export function toMatchItem(match: Match, viewerId: string, other: MatchItem['ot
 }
 
 
+/** The people the caller has an open PROFESSIONAL match with (a romance match is never one of them): for surfaces that give a match a small boost, such as the feed. */
+export async function professionalMatchIds(db: Pick<PrismaClient, 'match'>, userId: string): Promise<string[]> {
+  const rows = await db.match.findMany({ where: { endedAt: null, connectionType: { not: 'DATING' }, OR: [{ userAId: userId }, { userBId: userId }] }, select: { userAId: true, userBId: true }, take: 500 })
+  return rows.map((row) => (row.userAId === userId ? row.userBId : row.userAId))
+}
+
 /** The caller's open matches, newest first. Someone blocked either way, or whose account is gone, is not listed. */
 export async function listMatches(db: Db, userId: string, options: { cursor?: string; limit: number }): Promise<MatchesResponse | 'INVALID_CURSOR'> {
   const hidden = await blockedPeerIds(db, userId)
