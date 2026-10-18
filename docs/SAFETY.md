@@ -61,3 +61,20 @@ reads it. Nothing about age is sent to analytics.
 - A person refused at 15 can open another account with another email. The refusal is tied to the account, not the person, as it must be without collecting more
   than we need.
 - Parental consent flows for 16 and 17 (where a country requires them) are not built.
+
+## The romance mode: gating and separation
+
+The mode ([ROMANCE.md](ROMANCE.md)) is the most sensitive surface, so it is closed by default and kept apart from everything else.
+
+- **Gating, in layers.** 18 or older on a date of birth on file (a minor is refused whatever else is true), a verified email, a verified phone or a connected GitHub account (one rule, `src/lib/matching/dating.ts`, as
+  code and as SQL, tested against each other for every day of four years); a **trusted account** to spark (a verified email, a week old); the **inbox gate** (only people endorsed by at least N trusted builders
+  can spark someone who set N, 0 to 5); both people's private filters; blocks either way; and a person can only be sparked after being **shown** to the sender in an open weekly drop, so ids cannot be guessed.
+- **Privacy of the filters.** Gender, who someone is interested in, the age range, the scope and the inbox gate are returned to their owner and no one else. Every way a person can be unavailable is the same
+  `404 SPARK_TARGET_UNAVAILABLE`, so no setting can be probed. Reasons shown to a match are built from public answers only.
+- **Photos.** Stored, returned to their owner only; to anyone else a blurred placeholder and no avatar until **both** people of a match agree, revocable by either at any time, at once; ending the match revokes it.
+  Reads are short-lived signed URLs after the check.
+- **Report and unmatch** reuse the existing flows (`POST /api/matches/{id}/report`, `DELETE /api/matches/{id}`): final, silent, closing the conversation. Blocking ends the match. A report lands in the ordinary queue.
+- **Separation.** Nothing about the mode ever appears on the public passport and player card, a profile, the feed, the leaderboards, achievements or quests, search or any professional list. A romance match announces no
+  event, so it counts toward no achievement and pays no XP. Its data lives in its own tables; the professional pool and drops never read them. `src/lib/romance/separation.test.ts` enforces this over the whole source.
+- **Leaving is complete**: the profile, photos and their objects, drops and pending sparks go, open matches end silently. An admin correction to 16 or 17, and deleting the account, do the same.
+- **Not built, to settle before launch**: ID verification beyond a verified phone or GitHub, moderation tooling specific to the mode (the report queue is shared), and per-country rules for a romance feature (needs legal review like the age policy above).
