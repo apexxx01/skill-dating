@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { z } from 'zod'
-import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
+import { addMember, checkJoin } from '@/lib/squads/membership'
 
 const reviewSchema = z.object({
   status: z.enum(['ACCEPTED', 'REJECTED', 'WITHDRAWN']),
@@ -91,44 +91,17 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     }
 
     if (bodyResult.data.status === 'ACCEPTED') {
-      // Lock the team row before counting members: two concurrent accepts
-      // for the same team (different applications, so they don't share a
-      // row lock on teamApplication) would otherwise both read the same
-      // "N of maxSize" count and both think there's a free slot, then both
-      // write — a check-then-write race exactly like the original
-      // accept-route bug, just one hop over. FOR UPDATE forces the second
-      // transaction to wait for the first to commit its new TeamMember
-      // before it re-counts, so the count it sees is always current.
-      const [lockedTeam] = await tx.$queryRaw<{ maxSize: number }[]>`
-        SELECT "maxSize" FROM "Team" WHERE id = ${teamId} FOR UPDATE
-      `
-      const memberCount = await tx.teamMember.count({ where: { teamId } })
-      if (lockedTeam && memberCount >= lockedTeam.maxSize) {
-        return { outcome: 'team_full' as const }
+      // An invitation nobody answered within its 48 hours cannot be accepted any more; it is marked so (and that much commits).
+      if (application.status === 'PENDING' && application.invitedById && application.expiresAt && application.expiresAt.getTime() <= Date.now()) {
+        await tx.teamApplication.updateMany({ where: { id: applicationId, status: 'PENDING' }, data: { status: 'EXPIRED' } })
+        return { outcome: 'expired' as const }
       }
 
-      // A team's own maxSize (checked above) is independent of the
-      // maxTeamSize its linked project separately declares - a team within
-      // its own cap can still overfill a smaller project. Same lock-then-
-      // count pattern, on the Project row this time, for the same race-
-      // safety reason.
-      if (application.team.projectId) {
-        const alreadyProjectMember = await tx.projectMember.findUnique({
-          where: { userId_projectId: { userId: application.userId, projectId: application.team.projectId } }
-        })
-        // Only a genuinely new project slot needs the capacity check - an
-        // existing member being accepted onto a second team pointing at the
-        // same project is a no-op upsert below, not a new row.
-        if (!alreadyProjectMember) {
-          const [lockedProject] = await tx.$queryRaw<{ maxTeamSize: number }[]>`
-            SELECT "maxTeamSize" FROM "Project" WHERE id = ${application.team.projectId} FOR UPDATE
-          `
-          const projectMemberCount = await tx.projectMember.count({ where: { projectId: application.team.projectId } })
-          if (lockedProject && projectMemberCount >= lockedProject.maxTeamSize) {
-            return { outcome: 'project_full' as const }
-          }
-        }
-      }
+      // The race-safe join check every path into a team shares (src/lib/squads/membership.ts): it locks the team row (and the project's, and the
+      // slot's) before counting, so two concurrent accepts for the last place cannot both see a free one; it applies the hackathon's maxTeamSize and
+      // the submission-deadline lock, and keeps a person to one squad per hackathon.
+      const refusal = await checkJoin(tx, application.team, application.userId, { slotId: application.slotId })
+      if (refusal) return { outcome: refusal }
     }
 
     // Atomic compare-and-swap: the WHERE clause only matches a row still
@@ -146,42 +119,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     }
 
     if (bodyResult.data.status === 'ACCEPTED') {
-      // Team membership and project access form together, atomically, in
-      // the same transaction as the status flip — not two steps someone
-      // has to remember to wire up separately (that's how this gap
-      // happened the first time: TeamMember existed, ProjectMember never did).
-      await tx.teamMember.upsert({
-        where: { userId_teamId: { userId: application.userId, teamId } },
-        create: { userId: application.userId, teamId, role: 'MEMBER' },
-        update: {}
-      })
-
-      if (application.team.projectId) {
-        await tx.projectMember.upsert({
-          where: { userId_projectId: { userId: application.userId, projectId: application.team.projectId } },
-          create: { userId: application.userId, projectId: application.team.projectId, role: 'MEMBER' },
-          update: {}
-        })
-      }
-
-      // Same reasoning again, one hop further: a team's Conversation is
-      // created atomically with the team (see team creation), but a new
-      // member accepted afterward needs to join it too, in this same
-      // transaction — not a third thing to forget to wire up. A team
-      // created before that fix shipped may have no Conversation yet;
-      // skip rather than crash.
-      const conversation = await tx.conversation.findUnique({ where: { teamId } })
-      if (conversation) {
-        await tx.conversationMember.upsert({
-          where: { userId_conversationId: { userId: application.userId, conversationId: conversation.id } },
-          create: { userId: application.userId, conversationId: conversation.id, role: 'MEMBER' },
-          update: {}
-        })
-      }
-
-      await recordActivity(tx, application.userId, 'TEAM_JOINED', `Joined team "${application.team.name}"`, {
-        link: `/teams/${application.team.slug}`
-      })
+      // Team, project and conversation membership, the slot it fills and the hackathon registration form together, in this transaction
+      // (src/lib/squads/membership.ts addMember).
+      await addMember(tx, application.team, application.userId, { slotId: application.slotId })
       // The other side of the acceptance: who sent the invitation the applicant just accepted, or the reviewer who accepted the application.
       const counterpartyId = application.invitedById && application.userId === user.id ? application.invitedById : user.id
       await emit(tx, 'TEAM_APPLICATION_ACCEPTED', { userId: application.userId, teamId, applicationId, counterpartyId })
@@ -201,6 +141,21 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
   if (result.outcome === 'project_full') {
     return createApiError('TEAM_PROJECT_FULL')
+  }
+  if (result.outcome === 'expired') {
+    return createApiError('INVITATION_EXPIRED')
+  }
+  if (result.outcome === 'team_locked') {
+    return createApiError('TEAM_LOCKED')
+  }
+  if (result.outcome === 'already_in_squad') {
+    return createApiError('ALREADY_IN_HACKATHON_TEAM')
+  }
+  if (result.outcome === 'slot_not_open') {
+    return createApiError('SLOT_NOT_OPEN')
+  }
+  if (result.outcome !== 'reviewed') {
+    return createApiError('TEAM_FULL')
   }
 
   const { application } = result

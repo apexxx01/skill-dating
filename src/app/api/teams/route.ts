@@ -4,6 +4,9 @@ import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { blockedUserIds } from '@/lib/blocks'
 import { cursorParam, paginate } from '@/lib/api/pagination'
+import { createSlots } from '@/lib/squads/membership'
+import { slotsFromLookingFor } from '@/lib/squads/roles'
+import { slotInputSchema, squadRoleSchema } from '@/lib/squads/schemas'
 
 const createTeamSchema = z.object({
   name: z.string().min(1).max(100),
@@ -11,7 +14,12 @@ const createTeamSchema = z.object({
   projectId: z.string().optional(),
   hackathonId: z.string().optional(),
   maxSize: z.number().min(2).max(10).default(5),
+  // The old free-text needs: turned into OTHER (or inferred) slots. `slots` is the structured form; both may be sent.
   lookingFor: z.array(z.string().max(50)).max(20).default([]),
+  slots: z.array(slotInputSchema).max(9).default([]),
+  // The role the creator plays on the team.
+  squadRole: squadRoleSchema.optional(),
+  roleLabel: z.string().trim().min(1).max(40).optional(),
   isRecruiting: z.boolean().default(true),
 })
 
@@ -22,6 +30,8 @@ const querySchema = z.object({
   isRecruiting: z.coerce.boolean().optional(),
   hackathonId: z.string().optional(),
   skills: z.string().optional(),
+  // Teams with an open slot for this role.
+  role: squadRoleSchema.optional(),
   cursor: cursorParam,
 })
 
@@ -35,6 +45,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const isRecruiting = queryResult.data.isRecruiting
   const hackathonId = queryResult.data.hackathonId
   const skills = queryResult.data.skills
+  const role = queryResult.data.role
 
   // Teams owned by a user blocked in either direction are not shown.
   const hidden = await blockedUserIds(prisma, user.id)
@@ -50,6 +61,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     const skillTerms = skills.split(',').map(s => s.trim()).filter(Boolean)
     if (skillTerms.length > 0) where.lookingFor = { hasSome: skillTerms }
   }
+  if (role) where.slots = { some: { role, status: 'OPEN' } }
   if (search) {
     where.OR = [
       { name: { contains: search, mode: 'insensitive' } },
@@ -76,6 +88,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
           },
           project: { select: { id: true, name: true, slug: true, status: true } },
           hackathon: { select: { id: true, name: true, slug: true } },
+          slots: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
           _count: { select: { members: true, applications: true } }
         }
       }),
@@ -91,7 +104,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(createTeamSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
 
-  const { projectId, hackathonId, ...data } = bodyResult.data
+  const { projectId, hackathonId, slots, lookingFor, squadRole, roleLabel, ...data } = bodyResult.data
 
   if (projectId) {
     const project = await prisma.project.findUnique({ where: { id: projectId } })
@@ -106,12 +119,22 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   if (hackathonId) {
     const participant = await prisma.hackathonParticipant.findUnique({
-      where: { userId_hackathonId: { userId: user.id, hackathonId } }
+      where: { userId_hackathonId: { userId: user.id, hackathonId } },
+      include: { hackathon: { select: { maxTeamSize: true } } }
     })
     if (!participant) {
       return createApiError('HACKATHON_REGISTRATION_REQUIRED')
     }
+    // A squad never plans for more people than its hackathon allows.
+    data.maxSize = Math.min(data.maxSize, participant.hackathon.maxTeamSize)
   }
+
+  // Structured slots are places on the team, so there can be no more of them than the places beside the creator's. A legacy lookingFor list is a list
+  // of skills and is taken as it is (one slot each), so an old client's request never starts failing.
+  if (slots.length > data.maxSize - 1) {
+    return createApiError('SLOT_LIMIT_REACHED', { params: { free: data.maxSize - 1 } })
+  }
+  const needs = [...slots.map((slot) => ({ ...slot, customLabel: slot.customLabel ?? null })), ...slotsFromLookingFor(lookingFor)]
 
   const slug = data.name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '')
   const existingSlug = await prisma.team.findUnique({ where: { slug } })
@@ -137,8 +160,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     })
 
     await tx.teamMember.create({
-      data: { userId: user.id, teamId: created.id, role: 'OWNER' }
+      data: { userId: user.id, teamId: created.id, role: 'OWNER', squadRole: squadRole ?? null, roleLabel: squadRole === 'OTHER' ? (roleLabel ?? null) : null }
     })
+    await createSlots(tx, created.id, needs)
 
     await tx.conversation.create({
       data: {
@@ -148,7 +172,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       }
     })
 
-    return created
+    return { ...created, lookingFor: (await tx.team.findUniqueOrThrow({ where: { id: created.id }, select: { lookingFor: true } })).lookingFor, slots: await tx.teamSlot.findMany({ where: { teamId: created.id }, orderBy: { position: 'asc' } }) }
   })
 
   await prisma.auditEvent.create({

@@ -3,6 +3,7 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { z } from 'zod'
 import { blockGuardAny } from '@/lib/blocks'
 import { cursorParam, paginate, withNextCursor } from '@/lib/api/pagination'
+import { capacityOf, hackathonLimits, isLocked } from '@/lib/squads/membership'
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(100),
@@ -11,6 +12,8 @@ const listQuerySchema = z.object({
 
 const applySchema = z.object({
   message: z.string().max(1000).optional(),
+  // The open slot applied for; accepting fills it.
+  slotId: z.string().min(1).max(64).optional(),
 })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -43,8 +46,12 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // pretending it has a chance — the real, race-safe capacity guard lives
   // at accept time (see the [applicationId] route), since that's the only
   // point where two writes can actually race for the same open slot.
+  const hackathon = await hackathonLimits(prisma, team.hackathonId)
+  if (isLocked(hackathon, new Date())) {
+    return createApiError('TEAM_LOCKED')
+  }
   const memberCount = await prisma.teamMember.count({ where: { teamId: id } })
-  if (memberCount >= team.maxSize) {
+  if (memberCount >= capacityOf(team, hackathon)) {
     return createApiError('TEAM_FULL')
   }
 
@@ -63,11 +70,18 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(applySchema)(request)
   if (bodyResult instanceof Response) return bodyResult
 
+  if (bodyResult.data.slotId) {
+    const slot = await prisma.teamSlot.findUnique({ where: { id: bodyResult.data.slotId }, select: { teamId: true, status: true } })
+    if (!slot || slot.teamId !== id) return createApiError('SLOT_NOT_FOUND')
+    if (slot.status !== 'OPEN') return createApiError('SLOT_NOT_OPEN')
+  }
+
   const application = await prisma.teamApplication.create({
     data: {
       userId: user.id,
       teamId: id,
       message: bodyResult.data.message,
+      slotId: bodyResult.data.slotId,
     },
     include: {
       user: { select: { id: true, name: true, username: true, image: true, headline: true } }
@@ -121,7 +135,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
               id: true, name: true, username: true, image: true, headline: true,
               builderRole: true, skills: { include: { skill: true } }
             }
-          }
+          },
+          slot: true
         },
       }),
     count: async () => 0,

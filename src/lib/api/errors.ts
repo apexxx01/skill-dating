@@ -188,6 +188,13 @@ export const ERROR_CATALOG = {
   TEAM_NO_PROJECT: { status: 400, message: 'This team has no linked project to submit' },
   HACKATHON_TEAM_TOO_LARGE: { status: 400, message: "Team exceeds this hackathon's max team size of {max}" },
   HACKATHON_TEAM_TOO_SMALL: { status: 400, message: "Team is below this hackathon's min team size of {min}" },
+
+  // --- Squads ------------------------------------------------------------------
+  SLOT_NOT_FOUND: { status: 404, message: 'Slot not found' },
+  SLOT_NOT_OPEN: { status: 409, message: 'This slot is not open' },
+  SLOT_LIMIT_REACHED: { status: 400, message: 'A team cannot have more open slots than free places ({free})' },
+  TEAM_LOCKED: { status: 409, message: "The team is locked: the hackathon's submission deadline has passed" },
+  INVITATION_EXPIRED: { status: 410, message: 'This invitation has expired' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

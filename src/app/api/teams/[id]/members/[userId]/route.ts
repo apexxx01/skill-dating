@@ -1,10 +1,16 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
+import { hackathonLimits, isLocked, removeMember } from '@/lib/squads/membership'
+import { squadRoleSchema } from '@/lib/squads/schemas'
 
+// `role` is the member's permissions (owner only); `squadRole` (+ `roleLabel` for OTHER) is what they do on the squad, which a member may declare
+// for themselves and the owner for anyone.
 const updateMemberSchema = z.object({
-  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']),
-})
+  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
+  squadRole: squadRoleSchema.nullable().optional(),
+  roleLabel: z.string().trim().min(1).max(40).nullable().optional(),
+}).refine((value) => value.role !== undefined || value.squadRole !== undefined, 'Send role or squadRole')
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
@@ -16,12 +22,16 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
 
   const isOwner = await checkOwnership(prisma, user.id, 'team', id)
-  if (!isOwner && user.role !== 'ADMIN') {
-    return createApiError('FORBIDDEN')
-  }
+  const isSelf = memberId === user.id
 
   const bodyResult = await validateBody(updateMemberSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+
+  // Changing permissions is the owner's; declaring a squad role is also the member's own.
+  const allowed = isOwner || user.role === 'ADMIN' || (isSelf && bodyResult.data.role === undefined)
+  if (!allowed) {
+    return createApiError('FORBIDDEN')
+  }
 
   const member = await prisma.teamMember.findUnique({
     where: { userId_teamId: { userId: memberId, teamId: id } }
@@ -31,6 +41,19 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     return createApiError('MEMBER_NOT_FOUND')
   }
 
+  if (bodyResult.data.squadRole !== undefined && bodyResult.data.role === undefined) {
+    const squadRole = bodyResult.data.squadRole
+    const roleLabel = squadRole === 'OTHER' ? (bodyResult.data.roleLabel ?? member.roleLabel) : null
+    if (squadRole === 'OTHER' && !roleLabel) {
+      return createApiError('VALIDATION_FAILED', { details: { roleLabel: ['An OTHER role needs a roleLabel'] } })
+    }
+    const updated = await prisma.teamMember.update({
+      where: { userId_teamId: { userId: memberId, teamId: id } },
+      data: { squadRole, roleLabel }
+    })
+    return createApiResponse(updated)
+  }
+
   if (bodyResult.data.role === 'OWNER' && member.userId !== user.id) {
     await prisma.teamMember.update({
       where: { userId_teamId: { userId: user.id, teamId: id } },
@@ -38,9 +61,13 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
     })
   }
 
+  const squadRole = bodyResult.data.squadRole
   const updated = await prisma.teamMember.update({
     where: { userId_teamId: { userId: memberId, teamId: id } },
-    data: { role: bodyResult.data.role }
+    data: {
+      role: bodyResult.data.role,
+      ...(squadRole !== undefined ? { squadRole, roleLabel: squadRole === 'OTHER' ? (bodyResult.data.roleLabel ?? member.roleLabel) : null } : {})
+    }
   })
 
   await prisma.auditEvent.create({
@@ -88,9 +115,17 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
     }
   }
 
-  await prisma.teamMember.delete({
-    where: { userId_teamId: { userId: memberId, teamId: id } }
-  })
+  // No member changes once the hackathon's submission deadline has passed.
+  const team = await prisma.team.findUnique({ where: { id }, select: { id: true, hackathonId: true } })
+  if (!team) {
+    return createApiError('TEAM_NOT_FOUND')
+  }
+  if (isLocked(await hackathonLimits(prisma, team.hackathonId), new Date())) {
+    return createApiError('TEAM_LOCKED')
+  }
+
+  // Leaving reopens the slot the member filled and unlinks their hackathon registration (src/lib/squads/membership.ts).
+  const reopened = await prisma.$transaction((tx) => removeMember(tx, team, memberId))
 
   if (isOwner && memberId !== user.id) {
     await prisma.notification.create({
@@ -108,5 +143,5 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
     data: { userId: user.id, action: 'TEAM_MEMBER_REMOVED', targetType: 'TEAM', targetId: id, newValue: { memberId } }
   })
 
-  return createApiResponse({ success: true })
+  return createApiResponse({ success: true, reopenedSlotId: reopened?.id ?? null })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'teams:member-remove' } })

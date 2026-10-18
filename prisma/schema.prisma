@@ -63,6 +63,30 @@ enum TeamApplicationStatus {
   ACCEPTED
   REJECTED
   WITHDRAWN
+  // An invitation nobody answered within its 48 hours (src/lib/squads/lifecycle.ts).
+  EXPIRED
+}
+
+// The fixed role catalogue of a squad (docs/SQUADS.md): what an open slot asks for and what a member says they do on the team. OTHER carries a
+// customLabel ("Smart contract developer").
+enum SquadRole {
+  FRONTEND
+  BACKEND
+  FULLSTACK
+  MOBILE
+  ML_AI
+  DATA
+  DEVOPS
+  DESIGN_UI_UX
+  PRODUCT
+  PITCH_BUSINESS
+  HARDWARE
+  OTHER
+}
+
+enum SlotStatus {
+  OPEN
+  FILLED
 }
 
 enum HackathonStatus {
@@ -210,6 +234,7 @@ model User {
   blocksReceived      Block[]                  @relation("BlocksReceived")
   hackathons          HackathonParticipant[]
   hackathonTeams      HackathonTeamMember[]
+  teamSlotsFilled     TeamSlot[]               @relation("TeamSlotsFilled")
   challenges          ChallengeAttempt[]
   achievements        UserAchievement[]
   xpEvents            XPEvent[]
@@ -475,12 +500,15 @@ model Team {
   ownerId      String
   maxSize      Int      @default(5)
   isRecruiting Boolean  @default(true)
+  // DERIVED from the open slots (src/lib/squads/roles.ts derivedLookingFor), rewritten with every slot change, so clients and code that read it keep
+  // working. A write to it from an old client is turned into OTHER slots.
   lookingFor   String[] @default([])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   owner          User              @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   members        TeamMember[]
+  slots          TeamSlot[]
   applications   TeamApplication[]
   project        Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
   hackathon      Hackathon?        @relation(fields: [hackathonId], references: [id], onDelete: SetNull)
@@ -490,11 +518,15 @@ model Team {
 }
 
 model TeamMember {
-  id       String   @id @default(cuid())
-  userId   String
-  teamId   String
-  role     TeamRole @default(MEMBER)
-  joinedAt DateTime @default(now())
+  id        String     @id @default(cuid())
+  userId    String
+  teamId    String
+  // Permissions on the team (owner, admin, member). What the person DOES on the squad is squadRole.
+  role      TeamRole   @default(MEMBER)
+  squadRole SquadRole?
+  // Only for squadRole OTHER.
+  roleLabel String?
+  joinedAt  DateTime   @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -516,15 +548,48 @@ model TeamApplication {
   // else about the row (the unique[userId,teamId] constraint, the accept
   // transaction, the maxSize guard) is shared and unchanged either way.
   invitedById String?
+  // The open slot this application or invitation is for; accepting fills it.
+  slotId      String?
+  // Invitations expire (48h); applications do not (null).
+  expiresAt   DateTime?
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
-  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team      Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  invitedBy User? @relation("TeamInvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation("TeamInvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+  slot      TeamSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
 
   @@unique([userId, teamId])
   @@index([teamId])
+  // The expiry sweep.
+  @@index([status, expiresAt])
+}
+
+// One open (or filled) position on a team: a role from the catalogue and the skills it needs. Accepting an application or invitation for it fills
+// it; the member leaving reopens it.
+model TeamSlot {
+  id             String     @id @default(cuid())
+  teamId         String
+  role           SquadRole
+  // Only for OTHER: what the role is called.
+  customLabel    String?
+  // Skill names, as Team.lookingFor always held them.
+  requiredSkills String[]   @default([])
+  status         SlotStatus @default(OPEN)
+  filledById     String?
+  filledAt       DateTime?
+  // Display order on the team.
+  position       Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  filledBy     User?             @relation("TeamSlotsFilled", fields: [filledById], references: [id], onDelete: SetNull)
+  applications TeamApplication[]
+
+  @@index([teamId, status])
+  @@index([filledById])
 }
 
 model Hackathon {
@@ -536,6 +601,8 @@ model Hackathon {
   startDate            DateTime
   endDate              DateTime
   registrationDeadline DateTime?
+  // When member changes stop (the team locks). Null: the end date.
+  submissionDeadline   DateTime?
   status               HackathonStatus @default(UPCOMING)
   organizer            String?
   websiteUrl           String?
@@ -567,6 +634,8 @@ model HackathonParticipant {
   status       HackathonParticipantStatus @default(REGISTERED)
   teamId       String?
   registeredAt DateTime                   @default(now())
+  // When they joined the squad they are in for this hackathon (time-to-team, the admin metric).
+  teamJoinedAt DateTime?
   skills       String[]                   @default([])
   lookingFor   String[]                   @default([])
 

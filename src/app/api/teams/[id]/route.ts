@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, authorize, checkOwnership, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
+import { replaceOpenSlotsFromLookingFor } from '@/lib/squads/membership'
 
 const updateTeamSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -26,7 +27,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         include: { user: { select: { id: true, name: true, username: true, image: true, headline: true, builderRole: true } } }
       },
       project: { select: { id: true, name: true, slug: true, status: true } },
-      hackathon: { select: { id: true, name: true, slug: true, startDate: true, endDate: true } },
+      hackathon: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, minTeamSize: true, maxTeamSize: true, submissionDeadline: true } },
+      slots: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
       applications: {
         include: { user: { select: { id: true, name: true, username: true, image: true, headline: true, builderRole: true, skills: { include: { skill: true } } } } },
         orderBy: { createdAt: 'desc' }
@@ -65,14 +67,37 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const bodyResult = await validateBody(updateTeamSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+  const { lookingFor, ...changes } = bodyResult.data
 
-  const team = await prisma.team.update({
+  const current = await prisma.team.findUnique({
     where: { id },
-    data: bodyResult.data,
-    include: {
-      owner: { select: { id: true, name: true, username: true, image: true } },
-      members: { include: { user: { select: { id: true, name: true, username: true, image: true } } } }
+    select: { hackathon: { select: { maxTeamSize: true } }, _count: { select: { members: true } } }
+  })
+  if (!current) {
+    return createApiError('TEAM_NOT_FOUND')
+  }
+  if (changes.maxSize !== undefined) {
+    // Never below the members it has, never above what its hackathon allows.
+    if (current.hackathon && changes.maxSize > current.hackathon.maxTeamSize) {
+      return createApiError('HACKATHON_TEAM_TOO_LARGE', { params: { max: current.hackathon.maxTeamSize } })
     }
+    if (changes.maxSize < current._count.members) {
+      return createApiError('VALIDATION_FAILED', { details: { maxSize: [`The team already has ${current._count.members} members`] } })
+    }
+  }
+
+  // lookingFor is derived from the open slots now: an old client that writes it replaces the open slots with one per entry.
+  const team = await prisma.$transaction(async (tx) => {
+    if (lookingFor) await replaceOpenSlotsFromLookingFor(tx, id, lookingFor)
+    return tx.team.update({
+      where: { id },
+      data: changes,
+      include: {
+        owner: { select: { id: true, name: true, username: true, image: true } },
+        members: { include: { user: { select: { id: true, name: true, username: true, image: true } } } },
+        slots: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] }
+      }
+    })
   })
 
   await prisma.auditEvent.create({

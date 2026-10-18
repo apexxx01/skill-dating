@@ -2,10 +2,14 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { blockGuard } from '@/lib/blocks'
+import { hackathonLimits, isLocked } from '@/lib/squads/membership'
+import { INVITATION_TTL_MS } from '@/lib/squads/lifecycle'
 
 const inviteSchema = z.object({
   userId: z.string().min(1),
   message: z.string().max(1000).optional(),
+  // The open slot the invitee is asked to fill.
+  slotId: z.string().min(1).max(64).optional(),
 })
 
 // Team invitations reuse the TeamApplication table (invitedById set marks a
@@ -37,7 +41,16 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const bodyResult = await validateBody(inviteSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
-  const { userId: inviteeId, message } = bodyResult.data
+  const { userId: inviteeId, message, slotId } = bodyResult.data
+
+  if (isLocked(await hackathonLimits(prisma, team.hackathonId), new Date())) {
+    return createApiError('TEAM_LOCKED')
+  }
+  if (slotId) {
+    const slot = await prisma.teamSlot.findUnique({ where: { id: slotId }, select: { teamId: true, status: true } })
+    if (!slot || slot.teamId !== id) return createApiError('SLOT_NOT_FOUND')
+    if (slot.status !== 'OPEN') return createApiError('SLOT_NOT_OPEN')
+  }
 
   const invitee = await prisma.user.findUnique({ where: { id: inviteeId }, select: { id: true } })
   if (!invitee) {
@@ -59,17 +72,19 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError(existing.invitedById ? 'INVITATION_PENDING' : 'APPLICATION_PENDING')
   }
 
-  // A prior resolved row (REJECTED/DECLINED/WITHDRAWN) for this pairing is
-  // reused rather than fighting the [userId,teamId] unique constraint.
+  // A prior resolved row (REJECTED/DECLINED/WITHDRAWN/EXPIRED) for this pairing is
+  // reused rather than fighting the [userId,teamId] unique constraint. An invitation
+  // is good for 48 hours (src/lib/squads/lifecycle.ts).
+  const expiresAt = new Date(Date.now() + INVITATION_TTL_MS)
   const invitation = existing
     ? await prisma.teamApplication.update({
         where: { id: existing.id },
-        data: { status: 'PENDING', message, invitedById: user.id },
-        include: { team: { select: { id: true, name: true, slug: true } } }
+        data: { status: 'PENDING', message, invitedById: user.id, slotId: slotId ?? null, expiresAt },
+        include: { team: { select: { id: true, name: true, slug: true } }, slot: true }
       })
     : await prisma.teamApplication.create({
-        data: { userId: inviteeId, teamId: id, message, invitedById: user.id },
-        include: { team: { select: { id: true, name: true, slug: true } } }
+        data: { userId: inviteeId, teamId: id, message, invitedById: user.id, slotId, expiresAt },
+        include: { team: { select: { id: true, name: true, slug: true } }, slot: true }
       })
 
   await prisma.notification.create({
@@ -79,7 +94,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       title: 'Team invitation',
       message: `${user.name || user.username} invited you to join ${team.name}`,
       link: `/teams/${team.slug}`,
-      metadata: { teamId: id, invitationId: invitation.id }
+      metadata: { teamId: id, invitationId: invitation.id, slotId: slotId ?? null, expiresAt: expiresAt.toISOString() }
     }
   })
 
