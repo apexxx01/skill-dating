@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { hackathonPaysRewards } from '@/lib/squads/membership'
+import { tracksSchema } from '@/lib/squads/tracks'
 
 const registerSchema = z.object({
   skills: z.array(z.string().max(50)).max(20).default([]),
@@ -17,6 +18,11 @@ const updateHackathonSchema = z.object({
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   registrationDeadline: z.string().datetime().optional(),
+  submissionDeadline: z.string().datetime().nullable().optional(),
+  tracks: tracksSchema.optional(),
+  mode: z.enum(['ONLINE', 'IN_PERSON', 'HYBRID']).optional(),
+  city: z.string().trim().max(100).optional(),
+  country: z.string().trim().max(100).optional(),
   status: z.enum(['UPCOMING', 'ACTIVE', 'ENDED', 'CANCELLED']).optional(),
   prizePool: z.string().optional(),
   rules: z.string().max(10000).optional(),
@@ -176,6 +182,8 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   if (updateData.startDate) updateData.startDate = new Date(updateData.startDate as string)
   if (updateData.endDate) updateData.endDate = new Date(updateData.endDate as string)
   if (updateData.registrationDeadline) updateData.registrationDeadline = new Date(updateData.registrationDeadline as string)
+  if (updateData.submissionDeadline) updateData.submissionDeadline = new Date(updateData.submissionDeadline as string)
+  if (bodyResult.data.tracks) updateData.tracks = bodyResult.data.tracks.map((track) => ({ name: track.name, description: track.description ?? null }))
 
   const hackathon = await prisma.hackathon.update({
     where: { id },

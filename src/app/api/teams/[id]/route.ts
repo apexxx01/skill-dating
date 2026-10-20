@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, authorize, checkOwnership, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { replaceOpenSlotsFromLookingFor } from '@/lib/squads/membership'
+import { canonicalTracks, tracksOf, unknownTracks } from '@/lib/squads/tracks'
 
 const updateTeamSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -9,6 +10,8 @@ const updateTeamSchema = z.object({
   maxSize: z.number().min(2).max(10).optional(),
   lookingFor: z.array(z.string().max(50)).max(20).optional(),
   isRecruiting: z.boolean().optional(),
+  // The hackathon tracks the squad goes for (by name, as the hackathon has them); the squad builder's template follows them.
+  targetTracks: z.array(z.string().trim().min(1).max(80)).max(5).optional(),
 })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -71,10 +74,17 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
 
   const current = await prisma.team.findUnique({
     where: { id },
-    select: { hackathon: { select: { maxTeamSize: true } }, _count: { select: { members: true } } }
+    select: { hackathon: { select: { maxTeamSize: true, tracks: true } }, _count: { select: { members: true } } }
   })
   if (!current) {
     return createApiError('TEAM_NOT_FOUND')
+  }
+  if (changes.targetTracks !== undefined) {
+    if (!current.hackathon) return createApiError('NOT_A_HACKATHON_TEAM')
+    const tracks = tracksOf(current.hackathon.tracks)
+    const unknown = unknownTracks(tracks, changes.targetTracks)
+    if (unknown.length > 0) return createApiError('TRACK_NOT_FOUND', { params: { tracks: unknown.join(', ') } })
+    changes.targetTracks = canonicalTracks(tracks, changes.targetTracks)
   }
   if (changes.maxSize !== undefined) {
     // Never below the members it has, never above what its hackathon allows.

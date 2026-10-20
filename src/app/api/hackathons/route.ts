@@ -3,6 +3,7 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { cursorParam, paginate } from '@/lib/api/pagination'
+import { tracksSchema } from '@/lib/squads/tracks'
 
 const createHackathonSchema = z.object({
   name: z.string().min(1).max(200),
@@ -11,6 +12,11 @@ const createHackathonSchema = z.object({
   startDate: z.string().datetime(),
   endDate: z.string().datetime(),
   registrationDeadline: z.string().datetime().optional(),
+  submissionDeadline: z.string().datetime().optional(),
+  tracks: tracksSchema.default([]),
+  mode: z.enum(['ONLINE', 'IN_PERSON', 'HYBRID']).optional(),
+  city: z.string().trim().max(100).optional(),
+  country: z.string().trim().max(100).optional(),
   organizer: z.string().optional(),
   websiteUrl: z.string().url().optional().or(z.literal('')),
   prizePool: z.string().optional(),
@@ -121,6 +127,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
         startDate: new Date(bodyResult.data.startDate),
         endDate: new Date(bodyResult.data.endDate),
         registrationDeadline: bodyResult.data.registrationDeadline ? new Date(bodyResult.data.registrationDeadline) : null,
+        submissionDeadline: bodyResult.data.submissionDeadline ? new Date(bodyResult.data.submissionDeadline) : null,
+        tracks: bodyResult.data.tracks.map((track) => ({ name: track.name, description: track.description ?? null })),
       }
     })
 
