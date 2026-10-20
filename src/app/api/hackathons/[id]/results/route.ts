@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
+import { hackathonPaysRewards } from '@/lib/squads/membership'
 
 const resultsSchema = z.object({
   results: z.array(z.object({
@@ -55,6 +56,8 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   // activity, and achievement grant, commit together in one transaction so
   // a partial failure can't leave some winners rewarded and others not.
   const { value: updated, scope } = await transactWithEvents(prisma, async (tx) => {
+    // When the results first came in: the peer-review window opens then (docs/SQUADS.md, "Reliability").
+    if (!hackathon.resultsAt) await tx.hackathon.update({ where: { id }, data: { resultsAt: new Date() } })
     const rows = []
     for (const entry of bodyResult.data.results) {
       const hackathonTeam = teamById.get(entry.hackathonTeamId)!
@@ -78,7 +81,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
             link: `/hackathons/${hackathon.slug}`,
             metadata: { hackathonTeamId: hackathonTeam.id, teamName: hackathonTeam.team.name }
           })
-          await emit(tx, 'HACKATHON_WON', { userId: member.userId, hackathonId: id, hackathonName: hackathon.name, hackathonTeamId: hackathonTeam.id })
+          if (hackathonPaysRewards(hackathon)) await emit(tx, 'HACKATHON_WON', { userId: member.userId, hackathonId: id, hackathonName: hackathon.name, hackathonTeamId: hackathonTeam.id })
 
           await tx.notification.create({
             data: {

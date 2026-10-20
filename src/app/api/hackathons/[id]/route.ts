@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError, checkMembers
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
+import { hackathonPaysRewards } from '@/lib/squads/membership'
 
 const registerSchema = z.object({
   skills: z.array(z.string().max(50)).max(20).default([]),
@@ -125,7 +126,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     await recordActivity(tx, user.id, 'HACKATHON_JOINED', `Joined hackathon "${hackathon.name}"`, {
       link: `/hackathons/${hackathon.slug}`
     })
-    await emit(tx, 'HACKATHON_JOINED', { userId: user.id, hackathonId: id, hackathonName: hackathon.name })
+    // An unverified external hackathon is usable straight away but pays nothing until an admin verifies it.
+    if (hackathonPaysRewards(hackathon)) await emit(tx, 'HACKATHON_JOINED', { userId: user.id, hackathonId: id, hackathonName: hackathon.name })
 
     await tx.notification.create({
       data: {
