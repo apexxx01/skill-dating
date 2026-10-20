@@ -9,7 +9,7 @@ be tuned without touching a route:
 | `src/lib/levels.ts` | The level curve and the tiers (pure functions) |
 | `src/lib/streaks.ts` | The streak rules (pure functions) |
 | `src/lib/metrics.ts` | What is counted per user, and which event counts what |
-| `src/lib/achievement-definitions.ts` | The 47 achievements, their XP and what unlocks them |
+| `src/lib/achievement-definitions.ts` | The 51 achievements, their XP and what unlocks them |
 | `src/lib/quest-definitions.ts`, `src/lib/quests.ts` | The quest pool and the daily and weekly rotation |
 | `src/lib/cosmetic-definitions.ts` | The cosmetics and the rules that unlock them |
 | `src/lib/leaderboard-boards.ts` | The boards: periods, scopes, and what each is called in the cache |
@@ -50,6 +50,13 @@ route ──emit──▶ domain event ──▶ payForEvent (src/lib/subscriber
 | `MESSAGE_SENT_FIRST_IN_CONNECTION` | the user sends the first message of a direct conversation with a connection (paid to the **sender**) | 5 | conversation | 5 a day | yes |
 | `TEAM_APPLICATION_ACCEPTED` | a team application is accepted (paid to the **applicant**, not to whoever accepted it) | 50 | application | 3 a day | no |
 | `PROPS_RECEIVED` | someone gives Props to the user's post (paid to the **author**) | 2 | post and giver | 20 a day (10 Props) | no |
+| `SQUAD_SLOT_FILLED` | someone fills an open slot on the user's squad (paid to the **owner**) | 15 | slot | 5 a day | no |
+| `SQUAD_SUBMITTED` | the user's squad submits its project to the hackathon (paid to **every member**) | 75 | hackathon | none | yes |
+| `SQUAD_JOIN_CONFIRMED` | a squad the user joined (not their own) submits | 30 | hackathon | none | no |
+
+An **unverified external hackathon** (docs/SQUADS.md) pays nothing at all: not `HACKATHON_JOIN`, `TEAM_FORMED`, `HACKATHON_WIN`, the squad
+awards, nor the pool-squad and reunion counts. Anybody trusted can add one by its link, so it must not be a way to mint XP; once an admin
+verifies it, it pays like a native one from then on.
 
 Who is **not** paid: the milestone update post that completing a milestone creates is not an
 update the user posted, so it pays nothing as one; declined connections and rejected applications
@@ -77,6 +84,8 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `MATCH_CREATED` (pays no XP itself) | each of the two people | the other one |
 | `MATCH_TEAM_FORMED` (pays no XP itself) | each of the two people | the other one |
 | `PROPS_RECEIVED` | the author of the post | the giver (a Prop from an untrusted giver is recorded with weight 0 and pays nothing) |
+| `SQUAD_SLOT_FILLED` | the squad's owner | the person who filled the slot |
+| `SQUAD_JOIN_CONFIRMED` | the member who joined | the squad's owner |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the
@@ -226,7 +235,7 @@ owner's `showActivity` switch.
 
 ## Achievements
 
-There are **47**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
+There are **51**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
 slug it had before there were tiers.
 
 **How they work.** A domain event is turned into *ticks* (`EVENT_TICKS` in `src/lib/metrics.ts`): "this user shipped
@@ -283,6 +292,10 @@ nobody starts at zero; an achievement whose target a counter already meets unloc
 | `props-100` | Well Respected | 60 | 100 Props received |
 | `ship-day-1` | Friday Shipper | 15 | 1 Ship Day with a post |
 | `ship-day-10` | Ship Day Regular | 90 | 10 Ship Days with a post |
+| `first-squad` | First Squad | 25 | 1 hackathon submitted with a squad |
+| `squads-5` | Squad Veteran | 100 | 5 hackathons submitted with a squad |
+| `pool-squad` | Found in the Pool | 25 | joined a squad the solo pool formed |
+| `reunite` | The Band Is Back | 50 | submitted with a squad sharing 2+ people with an earlier hackathon squad |
 
 **Sparks and matches pay no XP; the three match achievements pay a one-off amount** (25, 50 and 100). An achievement can be earned once per
 person, so the XP cannot be farmed the way a per-match payment could be: the tenth match pays nothing new, and the hundredth pays nothing.
@@ -694,6 +707,23 @@ A fourth project in a day, or a repeated action that already paid:
                "achievements": [], "questsCompleted": [],
                "streak": { "current": 3, "longest": 3, "extended": false, "freezeUsed": false } } }
 ```
+
+### Squads
+
+What a squad earns (docs/SQUADS.md). All of it goes through events and `grant()` inside the route's `transactWithEvents`, like everything else.
+
+- **Filling a slot** (`SQUAD_SLOT_FILLED`, emitted by `addMember` when a join fills an open slot) pays the owner 15 XP: once per slot, at most 5 a
+  day, and only when the person who filled it is a trusted counterparty. A slot that reopens and is filled again pays nothing new, so
+  leaving and rejoining cannot be farmed.
+- **Submitting** (`POST /api/hackathons/{id}/submit`, which now refuses a squad below `minTeamSize`) emits `SQUAD_SUBMITTED` for every member
+  (75 XP, once per hackathon) and `SQUAD_JOIN_CONFIRMED` for every member but the owner (30 XP, once per hackathon, trusted owner only):
+  "joining a squad that later submits". A second submit pays nothing.
+- **Reunion** (`SQUAD_REUNITED`, no XP): at submission, every member who was on an earlier hackathon's squad with at least one other member of
+  this one. It counts once per hackathon (`reunions`) toward *The Band Is Back*.
+- **Pool squad** (`AUTO_SQUAD_FORMED`, no XP): each member of a squad the solo pool formed, once per hackathon (`pool_squads`), toward *Found in
+  the Pool*.
+- The metric `squads` counts hackathons in which the person's squad submitted, and drives *First Squad* and *Squad Veteran*.
+- Analytics events: `squad_builder_used`, `squad_proposal_accepted`, `solo_pool_joined`, `auto_squad_formed`, `squad_submitted`.
 
 ## Notifications and analytics
 

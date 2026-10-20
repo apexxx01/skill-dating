@@ -1,4 +1,7 @@
-# Stage 1E (Squads) — handoff
+# Stage 1E (Squads): handoff
+
+**Status: complete.** Every remaining step below has been done on `phase-1e`. The design is in [SQUADS.md](SQUADS.md). The list is kept as
+the record of the order the work was done in, and for the decisions at the end.
 
 Branch `phase-1e`, cut from `main` at `0520138`. Work stopped partway through. This file says what is done, what is half-done, and exactly what is left.
 

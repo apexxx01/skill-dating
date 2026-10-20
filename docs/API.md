@@ -200,39 +200,264 @@ The caller's own applications (sent or received-as-invitation), across all teams
 
 ### `GET /api/hackathons`
 Public list. Query: `page, cursor, limit, status, search`.
-Each item carries the caller's own participation: `registered` (boolean), `myTeamId` (`string | null`) and `myStatus` (`REGISTERED | TEAM_FORMED | SUBMITTED | WITHDRAWN | null`), and `_count: { participants, teams }`.
+Each item carries the caller's own participation: `registered` (boolean), `myTeamId` (`string | null`) and `myStatus` (`REGISTERED | TEAM_FORMED | SUBMITTED | WITHDRAWN | null`), and `_count: { participants, teams }`. Every hackathon response also carries `unverified` (an EXTERNAL hackathon no admin has verified: usable, pays no XP) and the squad fields `source`, `externalUrl`, `platform`, `mode`, `city`, `country`, `tracks`, `submissionDeadline`, `resultsAt`.
 
 ### `POST /api/hackathons`
 **Auth:** `ADMIN`/`MODERATOR`. Creates a hackathon and its `HACKATHON` conversation atomically.
-**Body:** `{ name, description, shortDesc?, startDate, endDate, registrationDeadline?, organizer?, websiteUrl?, prizePool?, rules?, technologies?(≤20, each ≤50 chars), maxTeamSize?(1-10, default 5), minTeamSize?(1-10, default 1), location?, isPublic?, thumbnail?, banner? }`
+**Body:** `{ name, description, shortDesc?, startDate, endDate, registrationDeadline?, submissionDeadline?, tracks?: [{ name, description? }] (≤20, unique names), mode?, city?, country?, organizer?, websiteUrl?, prizePool?, rules?, technologies?(≤20, each ≤50 chars), maxTeamSize?(1-10, default 5), minTeamSize?(1-10, default 1), location?, isPublic?, thumbnail?, banner? }`
 
 ### `GET /api/hackathons/[id]`
 Includes the caller's own `HackathonParticipant` row (`participation`).
 
 ### `POST /api/hackathons/[id]`
-Registers the caller as a participant (only while `UPCOMING` and before `registrationDeadline`). Records activity, notifies, and emits `HACKATHON_JOINED` (100 XP once per hackathon, `first-hackathon`). **Response:** the participant plus `rewards`.
+Registers the caller as a participant (only while `UPCOMING` and before `registrationDeadline`). Records activity, notifies, and emits `HACKATHON_JOINED` (100 XP once per hackathon, `first-hackathon`; nothing for an unverified external hackathon). **Response:** the participant plus `rewards`.
 **Body:** `{ skills?: string[], lookingFor?: string[] }`
 
 ### `PATCH /api/hackathons/[id]`
-**Auth:** `ADMIN`/`MODERATOR`. A `status` change is validated against a forward-only transition map: `UPCOMING → ACTIVE|CANCELLED`, `ACTIVE → ENDED|CANCELLED`; `ENDED`/`CANCELLED` are terminal.
+**Auth:** `ADMIN`/`MODERATOR`. Also takes `submissionDeadline` (or `null`), `tracks`, `mode`, `city` and `country`. A `status` change is validated against a forward-only transition map: `UPCOMING → ACTIVE|CANCELLED`, `ACTIVE → ENDED|CANCELLED`; `ENDED`/`CANCELLED` are terminal.
 
 ### `DELETE /api/hackathons/[id]`
 **Auth:** `ADMIN` only.
 
 ### `POST /api/hackathons/[id]/teams`
-Registers an already-formed team for the hackathon (caller must already be the team's owner or an accepted member, and registered as a hackathon participant). Idempotent across team members (a second member's call joins the existing registration). Atomically upserts `HackathonTeam`/`HackathonTeamMember`, links the team, adds the caller to the hackathon's own conversation, records activity and emits `TEAM_FORMED` (50 XP once per hackathon, `team-builder`). **Response:** `{ success, teamId, hackathonTeamId, rewards }`.
+Registers an already-formed team for the hackathon (caller must already be the team's owner or an accepted member, and registered as a hackathon participant). Idempotent across team members (a second member's call joins the existing registration), and for the caller: registering again with the team they are already registered with answers the same (an accepted invitee of a registered squad is entered automatically). Another team of the same hackathon is `409 ALREADY_IN_HACKATHON_TEAM`; after the lock, `409 TEAM_LOCKED`. Stamps `teamJoinedAt`. Atomically upserts `HackathonTeam`/`HackathonTeamMember`, links the team, adds the caller to the hackathon's own conversation, records activity and emits `TEAM_FORMED` (50 XP once per hackathon, `team-builder`). **Response:** `{ success, teamId, hackathonTeamId, rewards }`.
 **Body:** `{ teamId: string, projectId?: string }`
 **Errors:** `400` team already full (own `maxSize`), `400` exceeds/below the hackathon's own `maxTeamSize`/`minTeamSize`, `403` not a team member.
 
 ### `POST /api/hackathons/[id]/submit`
 **Auth:** any member of the team registered for this hackathon. Only while the hackathon is `ACTIVE`. Moves every teammate's `HackathonParticipant.status` to `SUBMITTED` together (one team action, not per-member).
 **Body:** `{ teamId: string }`
-**Errors:** `400` not `ACTIVE`, `404` team not registered for this hackathon, `403` caller not on the team, `400` team has no linked project.
+Emits `SQUAD_SUBMITTED` for every member (75 XP once per hackathon), `SQUAD_JOIN_CONFIRMED` for every member but the owner (30 XP once per hackathon) and `SQUAD_REUNITED` for members who were on an earlier squad together (no XP); none of these for an unverified external hackathon. **Response:** `{ success, hackathonTeamId, participantsUpdated, rewards }`.
+**Errors:** `400` not `ACTIVE`, `404` team not registered for this hackathon, `403` caller not on the team, `400` team has no linked project, `400 HACKATHON_TEAM_TOO_SMALL` below the hackathon's `minTeamSize`.
 
 ### `PATCH /api/hackathons/[id]/results`
 **Auth:** `ADMIN`/`MODERATOR`. Only once the hackathon has `ENDED`.
 **Body:** `{ results: [{ hackathonTeamId, rank, score? }] }`
-For every team newly reaching rank `1` (idempotent — re-submitting the same rank doesn't re-fire), every member gets a `HACKATHON_WON` activity entry and a notification, and `HACKATHON_WON` is emitted for each (500 XP once per hackathon, `hackathon-winner`). **Response:** `{ success, results, rewards }`, where `rewards` is the caller's own (the winners are told by notification).
+The first call stamps `Hackathon.resultsAt` (it opens the peer-review window). For every team newly reaching rank `1` (idempotent — re-submitting the same rank doesn't re-fire), every member gets a `HACKATHON_WON` activity entry and a notification, and `HACKATHON_WON` is emitted for each (500 XP once per hackathon, `hackathon-winner`). **Response:** `{ success, results, rewards }`, where `rewards` is the caller's own (the winners are told by notification).
+
+---
+
+## Squads
+
+Hackathon team building: role slots, squad strength, the squad builder, the solo pool, the looking-for-group board, the team space, external
+hackathons, pledges and peer reviews. The rules are in [SQUADS.md](SQUADS.md). The response types are in `src/types/api.ts` (the "Squads"
+section). Roles everywhere are `SquadRole`: `FRONTEND | BACKEND | FULLSTACK | MOBILE | ML_AI | DATA | DEVOPS | DESIGN_UI_UX | PRODUCT |
+PITCH_BUSINESS | HARDWARE | OTHER`. OTHER needs a `customLabel` or `roleLabel` (at most 40 characters).
+
+**Joining rules, for every way into a team** (accepting an application or invitation, a builder invite, a formed pool squad):
+
+- Capacity is `min(Team.maxSize, Hackathon.maxTeamSize)`, counted under a lock on the team row (`TEAM_FULL`).
+- One squad per person per hackathon (`409 ALREADY_IN_HACKATHON_TEAM`).
+- No member changes at or after the hackathon's `submissionDeadline` (else its `endDate`) (`409 TEAM_LOCKED`).
+- A slot that someone else took is `409 SLOT_NOT_OPEN`.
+- An invitation lasts 48 hours (`410 INVITATION_EXPIRED`).
+
+### Role slots
+
+#### `GET /api/teams/[id]/slots`
+Anyone signed in, unless blocked with the owner. **Response:** `{ slots: TeamSlotItem[], capacity, memberCount, openPlaces, locked }`.
+
+#### `POST /api/teams/[id]/slots`
+Owner or team admin. Honours `Idempotency-Key`. **Body:** `{ role, customLabel?, requiredSkills?: string[] (≤10) }`. **Response `201`:** the
+slot. `400 SLOT_LIMIT_REACHED` (never more open slots than free places), `409 TEAM_LOCKED`.
+
+#### `PATCH /api/teams/[id]/slots/[slotId]`, `DELETE /api/teams/[id]/slots/[slotId]`
+Owner or team admin, open slots only. **Body (PATCH, at least one):** `{ role?, customLabel?, requiredSkills?, position? }`.
+`404 SLOT_NOT_FOUND`, `409 SLOT_NOT_OPEN`, `409 TEAM_LOCKED`.
+
+The team routes also take slots:
+
+- `POST /api/teams` takes `slots?: SlotInput[]` and `squadRole?`/`roleLabel?` for the creator. The legacy `lookingFor` becomes slots, and
+  `maxSize` is clamped to the hackathon's.
+- `GET /api/teams?role=` filters by an open slot's role.
+- `PATCH /api/teams/[id]` takes `targetTracks?: string[]` (≤5, checked against the hackathon's tracks: `400 TRACK_NOT_FOUND`, with
+  `params.tracks`). A legacy `lookingFor` there replaces the open slots.
+- `POST /api/teams/[id]/applications` and `/invitations` take `slotId?`. An invitation's `expiresAt` is 48 hours out.
+- `PATCH /api/teams/[id]/members/[userId]` takes `{ squadRole, roleLabel? }`: the member themselves, or the owner.
+- `DELETE /api/teams/[id]/members/[userId]` answers `{ success, reopenedSlotId }`. A reopened slot sends its owner a refill suggestion
+  (`SQUAD_UPDATE`, with up to three people in `metadata.suggestions`).
+
+### Strength
+
+#### `GET /api/teams/[id]/strength`
+Members and platform admins only (`403 FORBIDDEN`). **Response (`TeamStrengthResponse`):**
+`{ teamId, hackathonId, score (0-100), components: { roleCoverage, skillCoverage, timezoneOverlap, commitmentFit, experienceMix, chemistry }: { value, weight, points, applicable, known }, gaps: [{ code, message }], overlapHours, roles: [{ key, label, userId }], memberCount, capacity, pledgesExpected }`.
+The gap codes are `TOO_SMALL`, `MISSING_ROLE`, `NO_DEPLOYER`, `MISSING_SKILLS`, `LOW_TIMEZONE_OVERLAP`, `UNCONFIRMED_PLEDGES` and
+`HOURS_MISMATCH`. Reliability is folded into `commitmentFit` and never returned on its own.
+
+### Squad builder
+
+#### `POST /api/hackathons/[id]/squad-builder`
+The caller must be registered for the hackathon. 20 an hour. **Body (unknown keys refused):**
+`{ size?: 1-10 (default 4, within min/maxTeamSize), seed?: 0..2147483647, tracks?: string[] (≤5) }`.
+**Response `201`:** `{ proposal: SquadProposal }`, holding `members: [{ person, role, roleLabel, reasons, onTeam }]` and
+`strength: { score, components, gaps, overlapHours }`. The same seed and pool always give the same squad.
+
+**Errors:**
+
+| Status | Code | When |
+| --- | --- | --- |
+| 404 | `HACKATHON_NOT_FOUND` | |
+| 400 | `HACKATHON_TEAM_REGISTRATION_CLOSED` | |
+| 400 | `HACKATHON_REGISTRATION_REQUIRED` | |
+| 409 | `TEAM_LOCKED` | |
+| 409 | `SQUAD_COMPLETE` | The caller's team, with the people it has invited, is already the size asked for. |
+| 400 | `TRACK_NOT_FOUND` | |
+| 422 | `SQUAD_POOL_EMPTY` | |
+
+#### `GET /api/hackathons/[id]/squad-builder/[proposalId]`
+The proposal, for its requester or anyone on it (`404 SQUAD_PROPOSAL_NOT_FOUND`).
+
+#### `POST /api/hackathons/[id]/squad-builder/[proposalId]/invite`
+The proposal's requester. Honours `Idempotency-Key`. 20 an hour. **Body:** `{ teamName? }`. It uses the caller's team, or creates one that is
+registered with the hackathon at once, and sends a 48-hour slot invitation to each proposed person (`SQUAD_INVITE` notification).
+**Response (`SquadInviteResponse`):** `201` (team created) or `200`, with `{ teamId, created, invitations: [{ userId, invitationId, slotId }], skipped: [{ userId, reason: IN_ANOTHER_SQUAD|BLOCKED|ALREADY_INVITED|NO_ROOM }] }`.
+**Errors:** `409 SQUAD_PROPOSAL_USED` (a proposal is used once), `410 SQUAD_PROPOSAL_EXPIRED` (24 hours), `404 SQUAD_PROPOSAL_NOT_FOUND`,
+`409 TEAM_LOCKED`, `403 FORBIDDEN` (the caller's team exists but they do not run it).
+
+### Solo pool
+
+#### `PATCH /api/hackathons/[id]/participation`
+**Body (at least one; unknown keys refused):** `{ lookingForTeam?, preferredRoles?: SquadRole[] (≤4), openToAutoTeam? }`.
+`openToAutoTeam: true` implies `lookingForTeam`, and `lookingForTeam: false` clears `openToAutoTeam`. **Response:**
+`{ hackathonId, teamId, status, lookingForTeam, preferredRoles, openToAutoTeam }`. `400 HACKATHON_REGISTRATION_REQUIRED`.
+
+#### `GET /api/squad-proposals`
+The caller's proposals, newest first. Query: `cursor`, `limit` (≤50). **Response:**
+`{ proposals: [{ id, hackathonId, hackathonName, kind, status, expiresAt, teamId, size, strength, myRole, myResponse, createdAt }], nextCursor }`.
+
+#### `GET /api/squad-proposals/[id]`
+One proposal, for its requester or anyone on it.
+
+#### `POST /api/squad-proposals/[id]/respond`
+A member of an AUTO proposal. **Body:** `{ accept: boolean }`. **Response:** `{ status: PROPOSED|FORMED|FAILED, teamId, proposal }`. The squad
+settles as soon as everyone has answered. **Errors:** `404 SQUAD_PROPOSAL_NOT_FOUND`, `409 SQUAD_PROPOSAL_USED` (already formed or failed),
+`410 SQUAD_PROPOSAL_EXPIRED`.
+
+**Jobs** (run on demand with `POST /api/admin/jobs/{name}`):
+
+- `squads/auto-form`: hourly at :10. Payload `{ hackathonId?, round?: 1|2 }`. Without a payload it runs every hackathon that is due; with one it
+  runs that hackathon's next round, or the round given. **Result:**
+  `{ rounds, outcomes: [{ hackathonId, round, poolSize, squads, leftovers, runId?, skipped?: ALREADY_RAN|CLOSED|POOL_TOO_SMALL }] }`.
+- `squads/sweep`: hourly at :40. **Result:** `{ settled, builderExpired, invitationsExpired, reminders, reviewPrompts }`.
+- `squads/refill-suggestion`: `{ teamId, slotId }`, enqueued when a slot reopens.
+
+### Looking-for-group board
+
+#### `GET /api/hackathons/[id]/lfg`
+Query: `role?`, `stack?`, `tz?` (an IANA zone, keeps posts within 3 hours of it), `kind?: PERSON|TEAM`, `cursor?`, `limit?` (≤50). Active posts
+only, ranked by the author's fit to the caller and then by recency. People blocked either way are left out. **Response:**
+`{ posts: LfgPostItem[], nextCursor }`. `400 INVALID_CURSOR`, `404 HACKATHON_NOT_FOUND`.
+
+#### `POST /api/hackathons/[id]/lfg`
+Honours `Idempotency-Key`. 20 an hour. **Body (unknown keys refused):**
+`{ kind, teamId? (TEAM only), roles: SquadRole[] (1-12), stack?: string[] (≤15), timezone?: IANA zone, note (1-500), expiresAt? (future, no later than the lock; default the lock) }`.
+**Response `201`:** the post.
+
+**Errors:**
+
+| Status | Code | When |
+| --- | --- | --- |
+| 409 | `LFG_ACTIVE_POST_EXISTS` | `details.postId` is the active post. |
+| 400 | `HACKATHON_REGISTRATION_REQUIRED` | A PERSON post by someone who is not registered. |
+| 409 | `ALREADY_IN_HACKATHON_TEAM` | A PERSON post by someone already in a squad. |
+| 403 | `FORBIDDEN` | A TEAM post for a team the caller does not run. |
+| 409 | `TEAM_LOCKED` | |
+| 400 | `VALIDATION_FAILED` | |
+
+#### `PATCH /api/hackathons/[id]/lfg/[postId]`, `DELETE /api/hackathons/[id]/lfg/[postId]`
+The author. An admin may also DELETE. **Body (PATCH, at least one):** `{ roles?, stack?, timezone?, note?, expiresAt? }`. DELETE closes the
+post and answers `{ closed: true }`. `404 LFG_POST_NOT_FOUND`.
+
+### Team space
+
+All of these are for members of the team (`403 FORBIDDEN` otherwise).
+
+#### `GET /api/teams/[id]/space`
+Admins too. **Response (`TeamSpaceResponse`):** `{ team, hackathon: { …, locksAt, secondsLeft, locked, tracks, unverified } | null, roles, openSlots, checklist, ideas, unconfirmedPledges }`.
+
+#### `POST /api/teams/[id]/checklist`
+Honours `Idempotency-Key`. **Body:** `{ title (1-200), assigneeId? (a member) }`. **Response `201`:** the item. `400 TEAM_SPACE_LIMIT` (100).
+
+#### `PATCH /api/teams/[id]/checklist/[itemId]`, `DELETE /api/teams/[id]/checklist/[itemId]`
+**Body (PATCH, at least one):** `{ title?, assigneeId?: string|null, done?, position? }`. `doneAt` follows `done`.
+`404 CHECKLIST_ITEM_NOT_FOUND`.
+
+#### `POST /api/teams/[id]/ideas`
+Honours `Idempotency-Key`. **Body:** `{ title (1-120), description? (≤2000) }`. **Response `201`:** the idea. `400 TEAM_SPACE_LIMIT` (50).
+
+#### `DELETE /api/teams/[id]/ideas/[ideaId]`
+The idea's author, or the owner or a team admin.
+
+#### `POST /api/teams/[id]/ideas/[ideaId]/vote`, `DELETE …/vote`
+One vote per member, and both are safe to repeat. **Response:** `{ ideaId, voteCount, votedByMe }`.
+
+#### `POST /api/teams/[id]/ideas/[ideaId]/choose`
+Owner or team admin. Marks the one chosen idea. **Response:** `{ ideaId, chosen: true }`.
+
+#### `POST /api/teams/[id]/demo-post`
+Honours `Idempotency-Key`. 10 an hour. **Body:** `{ title (3-120), body, links?, mediaIds?, stackTags? }`. Creates a `DEMO` post on the feed
+for the team (and its project), co-authored by up to five other members. **Response `201`:** `{ post }`. The errors are those of
+`POST /api/posts`.
+
+#### `POST /api/teams/[id]/keep-building`
+Owner or team admin. Honours `Idempotency-Key`. **Body:** `{ projectName? }`. Once the results are in or the hackathon is over, the squad becomes
+a permanent crew (no hackathon limits or lock any more) with a project: the linked one, or a new one named after the chosen idea.
+**Response:** `{ ok, teamId, projectId, projectCreated, rewards }`. **Errors:** `400 NOT_A_HACKATHON_TEAM`, `409 KEEP_BUILDING_TOO_EARLY`,
+`409 KEEP_BUILDING_DONE`.
+
+### Pledges and peer reviews
+
+#### `PUT /api/teams/[id]/pledge`
+A member, until the hackathon starts. **Body:** `{ attendance: IN_PERSON|REMOTE, hoursAvailable: 1-168, availableFrom: YYYY-MM-DD, availableUntil: YYYY-MM-DD }`.
+**Response:** the pledge. **Errors:** `409 PLEDGE_CLOSED`, `400 PLEDGE_DATES_OUTSIDE` (outside the hackathon's dates, with a day of slack),
+`400 NOT_A_HACKATHON_TEAM`.
+
+#### `GET /api/hackathons/[id]/peer-reviews`
+The caller's side only: `{ window: { opensAt, closesAt, open }, teammates: [{ userId, name, username, image, reviewed, mine }] }`.
+`403 NOT_TEAMMATES` for someone who was on no squad of it.
+
+#### `POST /api/hackathons/[id]/peer-reviews`
+Honours `Idempotency-Key`. **Body:** `{ revieweeId, showedUp: YES|PARTLY|NO, wouldBuildAgain: boolean, note? (≤140, admins only see it) }`.
+The window opens at `min(resultsAt, endDate)` and lasts 7 days. **Response `201`:** `{ id, revieweeId, showedUp, wouldBuildAgain }`.
+**Errors:** `409 PEER_REVIEW_WINDOW_CLOSED`, `403 NOT_TEAMMATES` (also for oneself, and for someone who blocked the caller),
+`409 PEER_REVIEW_EXISTS`, `403 USER_BLOCKED`.
+
+`GET /api/users/[id]` carries `reliableTeammate: boolean`, the only public trace of reliability.
+
+### External hackathons
+
+#### `POST /api/hackathons/external`
+Trusted accounts only (`403 ACCOUNT_NOT_TRUSTED`: a week old with a verified email). Honours `Idempotency-Key`. 10 an hour.
+**Body (unknown keys refused):**
+`{ url, name?, description?, startDate?, endDate?, mode?, city?, country?, tracks?, minTeamSize?, maxTeamSize? }`. What the caller sends
+overrides what the page says.
+**Response:** `201 { hackathon, created: true }`, or `200 { hackathon, created: false }` when the normalised link is already known. The
+hackathon is `source: EXTERNAL`, `unverified: true`.
+
+**Errors:**
+
+| Status | Code | When |
+| --- | --- | --- |
+| 400 | `EXTERNAL_URL_REFUSED` | Not public http(s) on port 80 or 443, credentials in the link, a private address, or a redirect to another host. `details.reason` says which. |
+| 422 | `EXTERNAL_PAGE_UNREADABLE` | `params.reason`: timeout, not-html, http-error, dns or network, when the body does not name the hackathon and its dates. |
+| 422 | `EXTERNAL_DATES_UNKNOWN` | Neither the page nor the body says when it runs. |
+
+#### `PATCH /api/admin/hackathons/[id]/verify`
+`ADMIN`. **Body:** `{ verified: boolean }`. **Response:** `{ id, verifiedAt, unverified }`. Only an EXTERNAL hackathon is verified.
+
+### Organizer data (admins)
+
+#### `GET /api/admin/hackathons/[id]/teams.csv`
+`text/csv`, one row per member:
+`team_id, team_name, rank, score, submitted, project_name, project_url, repo_url, member_id, member_username, member_name, team_role, squad_role, role_label, joined_at`.
+Cells that a spreadsheet would read as a formula are escaped.
+
+#### `GET /api/admin/hackathons/[id]/metrics`
+`{ hackathonId, registered, inTeam, percentInTeam, medianMinutesToTeam, squads, autoSquadsFormed, builderProposalsInvited, soloPool }`.
+
+#### `GET /api/admin/hackathons/[id]/peer-reviews`
+Every review with its private note and whether it was counted, newest first, with `cursor` and `limit` (≤100).
 
 ---
 

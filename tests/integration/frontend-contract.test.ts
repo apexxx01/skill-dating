@@ -43,9 +43,10 @@ describe('frontend contract', () => {
     expect(other.data).not.toHaveProperty('email')
     expect(JSON.stringify(other.data)).not.toContain(emailA)
     expect(typeof other.data.compatibility).toBe('number')
-    for (const key of ['skills', 'skillEvidences', 'ownedProjects', 'projects', 'ownedTeams', 'teams', 'achievements', 'currentBuild', 'rank', 'xp']) {
+    for (const key of ['skills', 'skillEvidences', 'ownedProjects', 'projects', 'ownedTeams', 'teams', 'achievements', 'currentBuild', 'rank', 'xp', 'reliableTeammate']) {
       expect(other.data, key).toHaveProperty(key)
     }
+    expect(other.data.reliableTeammate).toBe(false)
 
     // The stored rank column is never updated; the profile reports the live one.
     await testPrisma.xPEvent.create({ data: { userId: a.userId, type: 'PROJECT_CREATED', amount: 500, description: 'seed' } })
@@ -127,9 +128,10 @@ describe('frontend contract', () => {
     expect(await find(a)).toMatchObject({ registered: true, myTeamId: team.data.id })
 
     const row = await find(a)
-    for (const key of ['id', 'name', 'slug', 'description', 'startDate', 'endDate', 'status', '_count']) {
+    for (const key of ['id', 'name', 'slug', 'description', 'startDate', 'endDate', 'status', '_count', 'source', 'externalUrl', 'platform', 'mode', 'tracks', 'submissionDeadline', 'unverified']) {
       expect(row, key).toHaveProperty(key)
     }
+    expect(row).toMatchObject({ source: 'NATIVE', unverified: false, tracks: [] })
     expect(row._count).toEqual({ participants: 1, teams: expect.any(Number) })
   })
 

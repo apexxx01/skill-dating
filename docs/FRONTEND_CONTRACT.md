@@ -278,6 +278,7 @@ the owner a badge in the UI when an endorsement arrives.
 | Submit | `POST /api/hackathons/{id}/submit` body `{ teamId }` |
 | Results | Read from the detail's `hackathonTeams[].rank` / `score` |
 | Create / edit / results (admin) | `POST /api/hackathons`, `PATCH /api/hackathons/{id}`, `PATCH /api/hackathons/{id}/results` |
+| Squads (builder, solo pool, LFG, team space) | see [Squads](#squads-hackathon-page-squad-builder-lfg-board-team-space) below |
 
 ### List item (`HackathonsResponse`)
 
@@ -653,6 +654,132 @@ nothing else. The **work comes first**: the three prompts, ambition, direction, 
 shown to them, and both sides' filters must accept. `profile.private` comes back to its owner only. A person of 16 or 17 never gets the form; do not offer the mode to them at all. The `options`
 object holds the choices and the limits; do not hard-code the lists. The weekly drop, sparks, matches, the photo reveal and Duo are `GET /api/romance/drop`, `/sparks/received`, `/matches`,
 `/matches/{id}/reveal` and `/duo`; none of them is ever shown on a profile, a passport, a feed or a leaderboard.
+
+## Squads: Hackathon page, Squad Builder, LFG board, Team space
+
+The rules are in [SQUADS.md](SQUADS.md) and the routes in [API.md](API.md#squads). The types are in `src/types/api.ts` under "Squads":
+`SquadRole`, `TeamSlotItem`, `TeamStrengthResponse`, `SquadProposal`, `SquadInviteResponse`, `ParticipationResponse`, `SquadProposalsResponse`,
+`LfgBoardResponse`, `TeamSpaceResponse`, `PledgeResponse`, `PeerReviewTodoResponse`, `ExternalHackathonResponse` and
+`HackathonSquadMetricsResponse`.
+
+Show a role with its label, never the raw enum. `roleLabel` comes back where it matters. Otherwise map the enum (the same labels as `ROLE_LABELS` in `src/lib/squads/roles.ts`):
+
+| Enum | Label |
+| --- | --- |
+| `FRONTEND` | Frontend developer |
+| `BACKEND` | Backend developer |
+| `FULLSTACK` | Full-stack developer |
+| `MOBILE` | Mobile developer |
+| `ML_AI` | ML / AI engineer |
+| `DATA` | Data engineer |
+| `DEVOPS` | DevOps engineer |
+| `DESIGN_UI_UX` | Designer (UI/UX) |
+| `PRODUCT` | Product lead |
+| `PITCH_BUSINESS` | Pitch & business |
+| `HARDWARE` | Hardware engineer |
+| `OTHER` | the `customLabel` |
+
+### Hackathon page (`/hackathons/{id}`)
+
+| Need | Call |
+| --- | --- |
+| The hackathon | `GET /api/hackathons/{id}`. Also `source`, `platform`, `externalUrl`, `mode`, `city`, `country`, `tracks`, `submissionDeadline`, `resultsAt` and `unverified`. |
+| Register | `POST /api/hackathons/{id}` (as before) |
+| Join the solo pool | `PATCH /api/hackathons/{id}/participation { lookingForTeam, preferredRoles, openToAutoTeam }` (**write**) → `ParticipationResponse` |
+| My proposed squads | `GET /api/squad-proposals` → `SquadProposalsResponse`, then `GET /api/squad-proposals/{id}` → `{ proposal }` |
+| Answer a pool squad | `POST /api/squad-proposals/{id}/respond { accept }` (**write**) → `{ status, teamId, proposal }` |
+| Peer reviews (after the end) | `GET /api/hackathons/{id}/peer-reviews` → `PeerReviewTodoResponse`, and `POST` one per teammate (**write**, `Idempotency-Key`) |
+| Add a hackathon from another platform | `POST /api/hackathons/external { url, … }` (**write**, `Idempotency-Key`) → `ExternalHackathonResponse` (`201` new, `200` known) |
+
+**Teamless and registered.** Offer three things: *Find my squad*, *Join the solo pool* (explain that two days before the deadline a squad is
+proposed to you, and you have a day to say yes), and *the LFG board*.
+
+**`unverified`.** Show the hackathon with an "Unverified" flag and a link to `externalUrl`. It works for squads, but do not promise XP for it.
+
+**External link errors.**
+
+| Code | Show |
+| --- | --- |
+| `400 EXTERNAL_URL_REFUSED` | "That link can't be used" |
+| `422 EXTERNAL_PAGE_UNREADABLE` | A form asking for the name and dates, then send again with them |
+| `422 EXTERNAL_DATES_UNKNOWN` | Ask for the dates |
+| `403 ACCOUNT_NOT_TRUSTED` | The account is under a week old or not verified: say when it can try |
+
+**Reviews.** Show the review panel when `window.open` is true. Each review is private: say so. The note is at most 140 characters and only
+moderators read it. Never show anyone what was said about them.
+
+### Squad Builder ("Find my squad")
+
+| Need | Call |
+| --- | --- |
+| Propose | `POST /api/hackathons/{id}/squad-builder { size?, tracks?, seed? }` → `201 { proposal }` |
+| Try again | the same with another `seed`: the same seed gives the same squad |
+| Send the invitations | `POST /api/hackathons/{id}/squad-builder/{proposalId}/invite { teamName? }` (**write**, send an `Idempotency-Key`) → `SquadInviteResponse` |
+
+**Rendering the proposal.**
+
+- Show `strength.score` as a meter. List `strength.gaps[].message` as what is missing ("No designer").
+- For each member, show their `person`, their `roleLabel` and `reasons` (the "why this person" lines). `onTeam` marks the caller and their team.
+- After inviting, show `skipped` with a human reason. Then go to the team space.
+
+**Errors.**
+
+| Code | Show |
+| --- | --- |
+| `422 SQUAD_POOL_EMPTY` | "Nobody to suggest yet": offer the LFG board |
+| `409 SQUAD_COMPLETE` | "Your squad is full" |
+| `400 TRACK_NOT_FOUND` | Refresh the track list |
+| `410 SQUAD_PROPOSAL_EXPIRED` | Propose again |
+| `409 SQUAD_PROPOSAL_USED` | The invitations already went out |
+
+### LFG board (`/hackathons/{id}/lfg`)
+
+| Need | Call |
+| --- | --- |
+| The board | `GET /api/hackathons/{id}/lfg?role=&stack=&tz=&kind=&limit=` → `LfgBoardResponse`; more with `cursor=<nextCursor>` |
+| Post | `POST /api/hackathons/{id}/lfg { kind: PERSON, roles, stack?, timezone?, note }`. A team posts `{ kind: TEAM, teamId, … }` (**write**, `Idempotency-Key`). |
+| Edit / take down | `PATCH` / `DELETE /api/hackathons/{id}/lfg/{postId}` (**write**, author) |
+
+- The order is the server's (best fit to the viewer first). Do not re-sort.
+- Show `fit.score` and `fit.reasons` on each card. `mine` marks the viewer's own post.
+- `409 LFG_ACTIVE_POST_EXISTS` carries `details.postId`: open that post for editing instead.
+- `tz` takes an IANA zone. Default it to the viewer's own.
+- A TEAM card has `team.openSlots`: link "Apply" to `POST /api/teams/{teamId}/applications { slotId }`. The slots are in
+  `GET /api/teams/{teamId}/slots`.
+
+### Team space (`/teams/{id}/space`, members only)
+
+| Need | Call |
+| --- | --- |
+| The page | `GET /api/teams/{id}/space` → `TeamSpaceResponse` |
+| Strength | `GET /api/teams/{id}/strength` → `TeamStrengthResponse` (score, components, gaps, who covers which role) |
+| Slots | `GET /api/teams/{id}/slots`. Owner: `POST /api/teams/{id}/slots`, `PATCH` / `DELETE /api/teams/{id}/slots/{slotId}`. |
+| My role | `PATCH /api/teams/{id}/members/{me} { squadRole, roleLabel? }` |
+| Target tracks (owner) | `PATCH /api/teams/{id} { targetTracks }` |
+| Pledge | `PUT /api/teams/{id}/pledge { attendance, hoursAvailable, availableFrom, availableUntil }` until the start (`409 PLEDGE_CLOSED` after) |
+| Checklist | `POST /api/teams/{id}/checklist { title, assigneeId? }`, `PATCH` / `DELETE /api/teams/{id}/checklist/{itemId}` |
+| Ideas | `POST /api/teams/{id}/ideas`. `POST` / `DELETE …/ideas/{ideaId}/vote`. Owner: `POST …/ideas/{ideaId}/choose`. `DELETE …/ideas/{ideaId}`. |
+| Post our demo | `POST /api/teams/{id}/demo-post { title, body, links?, mediaIds?, stackTags? }` (**write**, `Idempotency-Key`) → `201 { post }` |
+| Keep building (owner, after the end) | `POST /api/teams/{id}/keep-building { projectName? }` → `KeepBuildingResponse` (with `rewards`) |
+| Leave / remove | `DELETE /api/teams/{id}/members/{userId}` → `{ reopenedSlotId }` |
+
+**Countdown.** Count down from `hackathon.secondsLeft` to `locksAt`. When `locked` is true, hide every membership and slot control: the server
+refuses them with `409 TEAM_LOCKED`.
+
+**Pledges.** Show who has not pledged (`unconfirmedPledges`), and the pledge form, until the start.
+
+**Keep building.** Show it after the hackathon's `endDate` or once `resultsAt` is set. `keptBuildingAt` means it already happened.
+
+**Strength privacy.** Strength never contains the members' reliability. Do not try to derive one.
+
+**Profile badge.** `GET /api/users/{id}` has `reliableTeammate: boolean`. Show it as a "Reliable teammate" badge. There is no number to show.
+
+### Admin
+
+- `PATCH /api/admin/hackathons/{id}/verify { verified }` verifies an external hackathon.
+- `GET /api/admin/hackathons/{id}/teams.csv` downloads the teams.
+- `GET /api/admin/hackathons/{id}/metrics` returns the squad numbers.
+- `GET /api/admin/hackathons/{id}/peer-reviews` returns the reviews with their notes.
 
 ## Backend gaps closed for these pages
 
