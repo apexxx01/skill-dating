@@ -201,6 +201,8 @@ export const ERROR_CATALOG = {
   SQUAD_PROPOSAL_NOT_FOUND: { status: 404, message: 'Squad proposal not found' },
   SQUAD_PROPOSAL_USED: { status: 409, message: 'This squad proposal has already been used' },
   SQUAD_PROPOSAL_EXPIRED: { status: 410, message: 'This squad proposal has expired' },
+  LFG_POST_NOT_FOUND: { status: 404, message: 'Looking-for-group post not found' },
+  LFG_ACTIVE_POST_EXISTS: { status: 409, message: 'You already have an active post on this board' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

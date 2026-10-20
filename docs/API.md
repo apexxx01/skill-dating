@@ -870,6 +870,8 @@ and a unit test fails if a code is missing here.
 | `SQUAD_PROPOSAL_NOT_FOUND` | 404 | Squad proposal not found |
 | `SQUAD_PROPOSAL_USED` | 409 | This squad proposal has already been used |
 | `SQUAD_PROPOSAL_EXPIRED` | 410 | This squad proposal has expired |
+| `LFG_POST_NOT_FOUND` | 404 | Looking-for-group post not found |
+| `LFG_ACTIVE_POST_EXISTS` | 409 | You already have an active post on this board |
 
 ---
 
