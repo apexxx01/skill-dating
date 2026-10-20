@@ -212,6 +212,11 @@ export const ERROR_CATALOG = {
   ACCOUNT_NOT_TRUSTED: { status: 403, message: 'Your account needs to be a week old, with a verified email, to do this' },
   EXTERNAL_URL_REFUSED: { status: 400, message: 'This link cannot be used: it must be a public http or https page' },
   EXTERNAL_PAGE_UNREADABLE: { status: 422, message: 'The page at this link could not be read ({reason})' },
+  PLEDGE_CLOSED: { status: 409, message: 'Pledges can be made until the hackathon starts' },
+  PLEDGE_DATES_OUTSIDE: { status: 400, message: "The pledged dates must be within the hackathon's dates" },
+  PEER_REVIEW_WINDOW_CLOSED: { status: 409, message: 'Peer reviews are open for a week after the results or the end of the hackathon' },
+  PEER_REVIEW_EXISTS: { status: 409, message: 'You have already reviewed this teammate for this hackathon' },
+  NOT_TEAMMATES: { status: 403, message: 'You can only review your own teammates' },
   EXTERNAL_DATES_UNKNOWN: { status: 422, message: 'The page does not say when the hackathon runs: send startDate and endDate' },
 } as const satisfies Record<string, ErrorSpec>
 

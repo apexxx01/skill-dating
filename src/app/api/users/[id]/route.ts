@@ -126,6 +126,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   // that account only; nobody else's is ever exposed.
   const standing = await liveRank(prisma, id)
   const own = id === user.id ? await prisma.user.findUnique({ where: { id }, select: { email: true } }) : null
+  // The passport's "Reliable teammate" badge (docs/SQUADS.md): only the badge, never the reliability number behind it.
+  const reliability = await prisma.userReliability.findUnique({ where: { userId: id }, select: { badge: true } })
 
   return createApiResponse({
     ...targetUser,
@@ -134,5 +136,6 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     compatibility,
     compatibilityReasons,
     blockedByMe: relation === 'BLOCKED_BY_ME',
+    reliableTeammate: reliability?.badge ?? false,
   })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })

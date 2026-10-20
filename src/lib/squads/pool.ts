@@ -384,16 +384,18 @@ export async function runAutoFormJob(data: { hackathonId?: string; round?: numbe
 
 /**
  * `squads/sweep` (hourly): settles the automatic squads whose day is up, expires unused builder proposals and unanswered invitations, and sends the
- * reminders that are due. Each part is safe to repeat.
+ * reminders and peer-review prompts that are due. Each part is safe to repeat.
  */
 export async function runSquadSweepJob() {
   const { prisma } = await import('@/lib/prisma')
   const { expireBuilderProposals } = await import('./builder')
   const { sendSquadReminders } = await import('./reminders')
+  const { sendPeerReviewPrompts } = await import('./peer-review')
   const now = new Date()
   const settled = await settleExpiredProposals(prisma, now)
   const builderExpired = await expireBuilderProposals(prisma, now)
   const invitationsExpired = await expireInvitations(prisma, now)
   const reminders = await sendSquadReminders(prisma, now)
-  return { settled, builderExpired, invitationsExpired, reminders }
+  const reviewPrompts = await sendPeerReviewPrompts(prisma, now)
+  return { settled, builderExpired, invitationsExpired, reminders, reviewPrompts }
 }

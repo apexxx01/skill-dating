@@ -882,6 +882,11 @@ and a unit test fails if a code is missing here.
 | `EXTERNAL_URL_REFUSED` | 400 | This link cannot be used: it must be a public http or https page |
 | `EXTERNAL_PAGE_UNREADABLE` | 422 | The page at this link could not be read ({reason}) |
 | `EXTERNAL_DATES_UNKNOWN` | 422 | The page does not say when the hackathon runs: send startDate and endDate |
+| `PLEDGE_CLOSED` | 409 | Pledges can be made until the hackathon starts |
+| `PLEDGE_DATES_OUTSIDE` | 400 | The pledged dates must be within the hackathon's dates |
+| `PEER_REVIEW_WINDOW_CLOSED` | 409 | Peer reviews are open for a week after the results or the end of the hackathon |
+| `PEER_REVIEW_EXISTS` | 409 | You have already reviewed this teammate for this hackathon |
+| `NOT_TEAMMATES` | 403 | You can only review your own teammates |
 
 ---
 
