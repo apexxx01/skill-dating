@@ -159,10 +159,13 @@ export async function addMember(
   }
 
   let joinedHackathonTeam = false
-  if (team.hackathonId) {
-    const hackathon = await tx.hackathon.findUnique({ where: { id: team.hackathonId }, select: squadHackathonSelect })
-    if (hackathon) joinedHackathonTeam = await registerWithTeam(tx, team, userId, team.ownerId === userId ? 'OWNER' : 'MEMBER', hackathon, now)
+  const hackathon = team.hackathonId ? await tx.hackathon.findUnique({ where: { id: team.hackathonId }, select: squadHackathonSelect }) : null
+  if (hackathon) joinedHackathonTeam = await registerWithTeam(tx, team, userId, team.ownerId === userId ? 'OWNER' : 'MEMBER', hackathon, now)
+  // The owner earns a little for each slot that is filled (once per slot, capped, and only when the person who filled it is trusted).
+  if (filled && userId !== team.ownerId && (!hackathon || hackathonPaysRewards(hackathon))) {
+    await emit(tx, 'SQUAD_SLOT_FILLED', { userId: team.ownerId, teamId: team.id, slotId: filled.id, filledById: userId })
   }
+  if (hackathon) await closePersonPosts(tx, hackathon.id, userId, now)
   await recordActivity(tx, userId, 'TEAM_JOINED', options.activityTitle ?? `Joined team "${team.name}"`, { link: `/teams/${team.slug}` })
   return { slot: filled, joinedHackathonTeam }
 }
@@ -255,4 +258,10 @@ export async function replaceOpenSlotsFromLookingFor(tx: Pick<Tx, 'teamSlot' | '
   await tx.teamSlot.deleteMany({ where: { teamId, status: 'OPEN' } })
   await createSlots(tx, teamId, slotsFromLookingFor(entries))
   await syncLookingFor(tx, teamId)
+}
+
+/** Closes a person's open PERSON posts on a hackathon's looking-for-group board (src/lib/squads/lfg.ts): they found a squad. */
+export async function closePersonPosts(tx: Pick<Tx, 'lfgPost'>, hackathonId: string, userId: string, now: Date): Promise<number> {
+  const { count } = await tx.lfgPost.updateMany({ where: { hackathonId, authorId: userId, kind: 'PERSON', closedAt: null }, data: { closedAt: now } })
+  return count
 }

@@ -6,8 +6,8 @@ const MATCH_ACHIEVEMENTS: string[] = ['first-match', 'matches-10', 'match-teamed
 const defs = ACHIEVEMENT_SLUGS.map((slug) => ({ slug, def: ACHIEVEMENT_DEFINITIONS[slug] as AchievementDefinition }))
 
 describe('the achievement catalog', () => {
-  it('has 47 achievements, 6 of them secret', () => {
-    expect(defs).toHaveLength(47)
+  it('has 51 achievements, 6 of them secret', () => {
+    expect(defs).toHaveLength(51)
     expect(defs.filter(({ def }) => def.isSecret)).toHaveLength(6)
     expect(ACHIEVEMENT_SLUGS.filter(isSecretAchievement)).toHaveLength(6)
   })
@@ -28,8 +28,8 @@ describe('the achievement catalog', () => {
       expect(Number.isInteger(def.xpReward) && def.xpReward > 0, slug).toBe(true)
       orders.add(def.order)
     }
-    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 47 }, (_, index) => index + 1))
-    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(47)
+    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 51 }, (_, index) => index + 1))
+    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(51)
   })
 
   it('files every secret achievement under SECRET and nothing else there', () => {

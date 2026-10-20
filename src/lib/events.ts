@@ -66,6 +66,16 @@ export interface DomainEvents {
   POST_SHIP_DAY: { userId: string; postId: string; dateKey: string; kind: 'SHIP' | 'UPDATE' | 'DEVLOG' | 'DEMO' }
   /** `userId` is the author, who may be rewarded; `giverId` gave the Prop. Only a trusted giver pays (src/lib/trust.ts). */
   PROPS_RECEIVED: { userId: string; giverId: string; postId: string; propId: string }
+  /** A squad's open slot was filled. `userId` is the team's owner, who may be rewarded; `filledById` joined, the counterparty (src/lib/trust.ts). */
+  SQUAD_SLOT_FILLED: { userId: string; teamId: string; slotId: string; filledById: string }
+  /** The squad submitted its project to the hackathon: one event per member. */
+  SQUAD_SUBMITTED: { userId: string; teamId: string; hackathonId: string; hackathonName: string }
+  /** A member who joined someone else's squad stayed until it submitted. `ownerId` runs the squad, the counterparty. */
+  SQUAD_JOIN_CONFIRMED: { userId: string; ownerId: string; teamId: string; hackathonId: string; hackathonName: string }
+  /** The solo pool put this person on a squad that formed. Pays no XP; counts toward the pool-squad achievement. */
+  AUTO_SQUAD_FORMED: { userId: string; teamId: string; hackathonId: string; proposalId: string }
+  /** The person's squad shares two or more people with a squad of theirs from an earlier hackathon. Pays no XP; counts toward reunite. */
+  SQUAD_REUNITED: { userId: string; teamId: string; hackathonId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -92,6 +102,11 @@ export const DOMAIN_EVENT_NAMES = [
   'MATCH_TEAM_FORMED',
   'POST_SHIP_DAY',
   'PROPS_RECEIVED',
+  'SQUAD_SLOT_FILLED',
+  'SQUAD_SUBMITTED',
+  'SQUAD_JOIN_CONFIRMED',
+  'AUTO_SQUAD_FORMED',
+  'SQUAD_REUNITED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient

@@ -48,6 +48,11 @@ describe('event names', () => {
         'TEAM_FORMED',
         'TIER_REACHED',
         'USER_COMEBACK',
+        'SQUAD_SLOT_FILLED',
+        'SQUAD_SUBMITTED',
+        'SQUAD_JOIN_CONFIRMED',
+        'AUTO_SQUAD_FORMED',
+        'SQUAD_REUNITED',
       ].sort()
     )
   })

@@ -102,7 +102,7 @@ describe('PEER_PAIRS: which events another person can earn you', () => {
   })
 
   it('covers exactly the events other people trigger, and none of the ones a person does alone', () => {
-    const peer: DomainEventName[] = ['EVIDENCE_ENDORSED', 'TEAM_APPLICATION_ACCEPTED', 'CONNECTION_ACCEPTED', 'MESSAGE_SENT_FIRST_IN_CONNECTION', 'MESSAGE_REPLIED', 'MATCH_CREATED', 'MATCH_TEAM_FORMED', 'PROPS_RECEIVED']
+    const peer: DomainEventName[] = ['EVIDENCE_ENDORSED', 'TEAM_APPLICATION_ACCEPTED', 'CONNECTION_ACCEPTED', 'MESSAGE_SENT_FIRST_IN_CONNECTION', 'MESSAGE_REPLIED', 'MATCH_CREATED', 'MATCH_TEAM_FORMED', 'PROPS_RECEIVED', 'SQUAD_SLOT_FILLED', 'SQUAD_JOIN_CONFIRMED']
     expect(Object.keys(PEER_PAIRS).sort()).toEqual([...peer].sort())
     for (const name of DOMAIN_EVENT_NAMES.filter((candidate) => !peer.includes(candidate))) expect(PEER_PAIRS[name], name).toBeUndefined()
   })
@@ -117,6 +117,11 @@ describe('PEER_PAIRS: which events another person can earn you', () => {
     }
     const strict = Object.entries(samples).filter(([, pairs]) => pairs.some((candidate) => candidate.subjectMustBeTrusted))
     expect(strict.map(([name]) => name)).toEqual(['TEAM_APPLICATION_ACCEPTED'])
+  })
+
+  it('pays a squad owner for a filled slot only through the person who filled it, and a joiner only through the owner', () => {
+    expect(peerPairsOf('SQUAD_SLOT_FILLED', { userId: 'o', teamId: 't', slotId: 's', filledById: 'f' })).toEqual([{ subjectId: 'o', counterpartyId: 'f' }])
+    expect(peerPairsOf('SQUAD_JOIN_CONFIRMED', { userId: 'j', ownerId: 'o', teamId: 't', hackathonId: 'h', hackathonName: 'H' })).toEqual([{ subjectId: 'j', counterpartyId: 'o' }])
   })
 
   it('has no pairs for an event that is not peer-driven', () => {

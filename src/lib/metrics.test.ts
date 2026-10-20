@@ -133,3 +133,21 @@ describe('recordTick', () => {
     expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('squad ticks', () => {
+  it('counts a submitted squad once per hackathon, and only when it paid', () => {
+    const payload = { userId: 'u', teamId: 't', hackathonId: 'h', hackathonName: 'H' }
+    expect(ticksFor('SQUAD_SUBMITTED', payload, new Set(['u']))).toEqual([{ userId: 'u', metric: 'squads', dedupeKey: 'h' }])
+    expect(ticksFor('SQUAD_SUBMITTED', payload, new Set())).toEqual([])
+  })
+
+  it('counts a pool squad and a reunion without a payment, once per hackathon', () => {
+    expect(ticksFor('AUTO_SQUAD_FORMED', { userId: 'u', teamId: 't', hackathonId: 'h', proposalId: 'p' }, new Set())).toEqual([{ userId: 'u', metric: 'pool_squads', dedupeKey: 'h' }])
+    expect(ticksFor('SQUAD_REUNITED', { userId: 'u', teamId: 't', hackathonId: 'h' }, new Set())).toEqual([{ userId: 'u', metric: 'reunions', dedupeKey: 'h' }])
+  })
+
+  it('counts nothing for a filled slot or a confirmed join: they only pay XP', () => {
+    expect(ticksFor('SQUAD_SLOT_FILLED', { userId: 'o', teamId: 't', slotId: 's', filledById: 'f' }, new Set(['o']))).toEqual([])
+    expect(ticksFor('SQUAD_JOIN_CONFIRMED', { userId: 'u', ownerId: 'o', teamId: 't', hackathonId: 'h', hackathonName: 'H' }, new Set(['u']))).toEqual([])
+  })
+})

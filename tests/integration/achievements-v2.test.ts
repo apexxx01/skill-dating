@@ -38,12 +38,12 @@ describe('achievements v2', () => {
       expect((await req(null, 'GET', '/api/achievements')).status).toBe(401)
     })
 
-    it('lists the 47 achievements for a new user, six of them masked', async () => {
+    it('lists the 51 achievements for a new user, six of them masked', async () => {
       const u = await user()
       const res = await list(u)
       expect(res.status).toBe(200)
-      expect(res.data).toMatchObject({ earned: 0, total: 47 })
-      expect(res.data.achievements).toHaveLength(47)
+      expect(res.data).toMatchObject({ earned: 0, total: 51 })
+      expect(res.data.achievements).toHaveLength(51)
       expect(res.data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(6)
       const body = JSON.stringify(res.data)
       for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid']) expect(body).not.toContain(slug)
@@ -294,7 +294,7 @@ describe('achievements v2', () => {
 
       const run = await req(admin.jar, 'POST', '/api/admin/jobs/achievements/rarity')
       expect(run.status).toBe(200)
-      expect(run.data.result.achievements).toBe(47)
+      expect(run.data.result.achievements).toBe(51)
 
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const active = await testPrisma.user.count({ where: { lastActiveAt: { gte: since }, deletedAt: null } })
@@ -302,7 +302,7 @@ describe('achievements v2', () => {
       expect(run.data.result.activeUsers).toBeGreaterThanOrEqual(active - 3) // users created while it ran
 
       const rows = await testPrisma.achievement.findMany({ where: { slug: { in: Object.keys(ACHIEVEMENT_DEFINITIONS) } } })
-      expect(rows).toHaveLength(47)
+      expect(rows).toHaveLength(51)
       for (const row of rows) {
         expect(row.rarity, row.slug).not.toBeNull()
         expect(row.rarity!).toBeGreaterThanOrEqual(0)

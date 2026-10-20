@@ -495,6 +495,45 @@ export const ACHIEVEMENT_DEFINITIONS = {
     criteria: { metric: 'ship_day_posts', target: 10 },
     order: 47,
   },
+
+  // --- Squads ---------------------------------------------------------------------
+  // Counted for squads that submitted (src/lib/squads), once per hackathon.
+  'first-squad': {
+    name: 'First Squad',
+    description: 'Submitted a hackathon project with a squad.',
+    icon: 'users-round',
+    category: 'TEAM',
+    xpReward: 25,
+    criteria: { metric: 'squads', target: 1 },
+    order: 48,
+  },
+  'squads-5': {
+    name: 'Squad Veteran',
+    description: 'Submitted with a squad in 5 hackathons.',
+    icon: 'swords',
+    category: 'TEAM',
+    xpReward: 100,
+    criteria: { metric: 'squads', target: 5 },
+    order: 49,
+  },
+  'pool-squad': {
+    name: 'Found in the Pool',
+    description: 'Joined a squad the solo pool formed for you.',
+    icon: 'waves',
+    category: 'TEAM',
+    xpReward: 25,
+    criteria: { metric: 'pool_squads', target: 1 },
+    order: 50,
+  },
+  reunite: {
+    name: 'The Band Is Back',
+    description: 'Teamed up again with two or more people from an earlier hackathon squad.',
+    icon: 'repeat',
+    category: 'TEAM',
+    xpReward: 50,
+    criteria: { metric: 'reunions', target: 1 },
+    order: 51,
+  },
 } satisfies Record<string, AchievementDefinition>
 
 export type AchievementSlug = keyof typeof ACHIEVEMENT_DEFINITIONS

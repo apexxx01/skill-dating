@@ -31,6 +31,9 @@ export const METRICS = [
   'props_received',
   'ship_day_posts',
   'ship_day_ships',
+  'squads',
+  'pool_squads',
+  'reunions',
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -89,6 +92,11 @@ export const EVENT_TICKS: { [N in DomainEventName]?: TickRule<N> } = {
   MATCH_CREATED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'matches' as const, dedupeKey: p.matchId })),
   // Once per match however many teams the two share.
   MATCH_TEAM_FORMED: (p, paid) => [p.userId, p.otherUserId].filter((id) => paid.has(id)).map((userId) => ({ userId, metric: 'match_teams' as const, dedupeKey: p.matchId })),
+  // Hackathons in which the person's squad submitted, once each.
+  SQUAD_SUBMITTED: own('squads', (p) => p.hackathonId),
+  // These pay no XP, so they count without a payment; each is once per hackathon, and only a hackathon that pays rewards emits them.
+  AUTO_SQUAD_FORMED: (p) => [{ userId: p.userId, metric: 'pool_squads', dedupeKey: p.hackathonId }],
+  SQUAD_REUNITED: (p) => [{ userId: p.userId, metric: 'reunions', dedupeKey: p.hackathonId }],
 }
 
 export function ticksFor<N extends DomainEventName>(name: N, payload: DomainEvents[N], paid: ReadonlySet<string>): Tick[] {

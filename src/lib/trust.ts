@@ -104,6 +104,10 @@ export const PEER_PAIRS: { [N in DomainEventName]?: (payload: DomainEvents[N]) =
     { subjectId: p.userId, counterpartyId: p.otherUserId },
     { subjectId: p.otherUserId, counterpartyId: p.userId },
   ],
+  // The owner is paid for a filled slot because somebody joined; the joiner has to be a trusted account.
+  SQUAD_SLOT_FILLED: (p) => [{ subjectId: p.userId, counterpartyId: p.filledById }],
+  // A joiner is paid when the squad they joined submits; its owner has to be a trusted account.
+  SQUAD_JOIN_CONFIRMED: (p) => [{ subjectId: p.userId, counterpartyId: p.ownerId }],
 }
 
 /** The people an event could pay because of somebody else, by the pairs above. Empty for an event that is not peer-driven. */

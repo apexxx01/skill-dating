@@ -108,6 +108,9 @@ describe('EVENT_REWARDS', () => {
         'PROPS_RECEIVED',
         'TEAM_APPLICATION_ACCEPTED',
         'TEAM_FORMED',
+        'SQUAD_SLOT_FILLED',
+        'SQUAD_SUBMITTED',
+        'SQUAD_JOIN_CONFIRMED',
       ].sort()
     )
   })

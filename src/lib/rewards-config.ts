@@ -20,6 +20,9 @@ export type RewardAction =
   | 'TEAM_APPLICATION_ACCEPTED'
   | 'QUEST_COMPLETED'
   | 'PROPS_RECEIVED'
+  | 'SQUAD_SLOT_FILLED'
+  | 'SQUAD_SUBMITTED'
+  | 'SQUAD_JOIN_CONFIRMED'
 
 /** What an award is attached to. Together with the action it decides what counts as "the same award". */
 export type RewardSourceType =
@@ -35,6 +38,7 @@ export type RewardSourceType =
   | 'TEAM_APPLICATION'
   | 'QUEST'
   | 'PROP'
+  | 'TEAM_SLOT'
 
 export interface RewardRule {
   /** XP per award. Null when the source carries it (an achievement defines its own xpReward). */
@@ -89,6 +93,12 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   // Paid to the author of a post, once per (post, giver) pair, at most 20 a day. Small on purpose, and only when the giver is a trusted counterparty (src/lib/trust.ts): respect is
   // not something two throwaway accounts can mint for each other. A Prop from an account the gate does not trust is recorded with weight 0 and pays nothing.
   PROPS_RECEIVED: { amount: 2, sourceType: 'PROP', oncePer: 'source', dailyCap: 20, streak: false },
+  // Squads (docs/SQUADS.md). Paid to the owner once per slot, at most 5 a day, and only when the person who filled it is a trusted counterparty.
+  SQUAD_SLOT_FILLED: { amount: 15, sourceType: 'TEAM_SLOT', oncePer: 'source', dailyCap: 5, streak: false },
+  // Each member of a squad that submitted, once per hackathon.
+  SQUAD_SUBMITTED: { amount: 75, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: true },
+  // Joining someone else's squad that later submitted, once per hackathon, when the squad's owner is a trusted counterparty.
+  SQUAD_JOIN_CONFIRMED: { amount: 30, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: false },
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]
@@ -225,6 +235,30 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   // Sparks and matches pay no XP, on purpose: nothing about starting conversations is worth farming.
   MATCH_CREATED: {},
   MATCH_TEAM_FORMED: {},
+  SQUAD_SLOT_FILLED: {
+    xp: {
+      action: 'SQUAD_SLOT_FILLED',
+      source: (p) => ({ sourceType: 'TEAM_SLOT', sourceId: p.slotId }),
+      description: () => 'Filled a slot on your squad',
+    },
+  },
+  SQUAD_SUBMITTED: {
+    xp: {
+      action: 'SQUAD_SUBMITTED',
+      source: (p) => ({ sourceType: 'HACKATHON', sourceId: p.hackathonId }),
+      description: (p) => `Submitted with your squad to "${p.hackathonName}"`,
+    },
+  },
+  SQUAD_JOIN_CONFIRMED: {
+    xp: {
+      action: 'SQUAD_JOIN_CONFIRMED',
+      source: (p) => ({ sourceType: 'HACKATHON', sourceId: p.hackathonId }),
+      description: (p) => `Joined a squad that submitted to "${p.hackathonName}"`,
+    },
+  },
+  // Pay nothing; they count toward the squad achievements.
+  AUTO_SQUAD_FORMED: {},
+  SQUAD_REUNITED: {},
 }
 
 /**
