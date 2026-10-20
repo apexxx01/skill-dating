@@ -195,6 +195,12 @@ export const ERROR_CATALOG = {
   SLOT_LIMIT_REACHED: { status: 400, message: 'A team cannot have more open slots than free places ({free})' },
   TEAM_LOCKED: { status: 409, message: "The team is locked: the hackathon's submission deadline has passed" },
   INVITATION_EXPIRED: { status: 410, message: 'This invitation has expired' },
+  SQUAD_COMPLETE: { status: 409, message: 'Your squad is already full' },
+  SQUAD_POOL_EMPTY: { status: 422, message: 'Nobody in the pool for this hackathon can join a squad right now' },
+  TRACK_NOT_FOUND: { status: 400, message: 'This hackathon has no track called {tracks}' },
+  SQUAD_PROPOSAL_NOT_FOUND: { status: 404, message: 'Squad proposal not found' },
+  SQUAD_PROPOSAL_USED: { status: 409, message: 'This squad proposal has already been used' },
+  SQUAD_PROPOSAL_EXPIRED: { status: 410, message: 'This squad proposal has expired' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

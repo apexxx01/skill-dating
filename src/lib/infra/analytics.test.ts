@@ -100,7 +100,7 @@ describe('Analytics', () => {
   })
 
   it('names every event the platform tracks', () => {
-    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned', 'quest_completed', 'streak_extended', 'drop_viewed', 'spark_sent', 'match_created', 'unmatch', 'post_created', 'props_given', 'comment_created', 'follow_created', 'romance_joined', 'romance_left', 'romance_drop_viewed', 'romance_spark_sent', 'romance_match_created', 'romance_reveal_agreed', 'romance_duo_formed'])
+    expect([...ANALYTICS_EVENTS]).toEqual(['signup', 'onboarding_completed', 'project_created', 'project_shipped', 'level_up', 'tier_up', 'achievement_earned', 'quest_completed', 'streak_extended', 'drop_viewed', 'spark_sent', 'match_created', 'unmatch', 'post_created', 'props_given', 'comment_created', 'follow_created', 'romance_joined', 'romance_left', 'romance_drop_viewed', 'romance_spark_sent', 'romance_match_created', 'romance_reveal_agreed', 'romance_duo_formed', 'squad_builder_used', 'squad_proposal_accepted', 'solo_pool_joined', 'auto_squad_formed', 'squad_submitted'])
   })
 })
 

@@ -859,6 +859,17 @@ and a unit test fails if a code is missing here.
 | `COMMENT_REPLY_DEPTH` | 400 | You can reply to a comment, not to a reply |
 | `COMMENT_EDIT_WINDOW_CLOSED` | 403 | A comment can only be edited for {minutes} minutes after it is posted |
 | `CANNOT_FOLLOW_SELF` | 400 | You cannot follow yourself |
+| `SLOT_NOT_FOUND` | 404 | Slot not found |
+| `SLOT_NOT_OPEN` | 409 | This slot is not open |
+| `SLOT_LIMIT_REACHED` | 400 | A team cannot have more open slots than free places ({free}) |
+| `TEAM_LOCKED` | 409 | The team is locked: the hackathon's submission deadline has passed |
+| `INVITATION_EXPIRED` | 410 | This invitation has expired |
+| `SQUAD_COMPLETE` | 409 | Your squad is already full |
+| `SQUAD_POOL_EMPTY` | 422 | Nobody in the pool for this hackathon can join a squad right now |
+| `TRACK_NOT_FOUND` | 400 | This hackathon has no track called {tracks} |
+| `SQUAD_PROPOSAL_NOT_FOUND` | 404 | Squad proposal not found |
+| `SQUAD_PROPOSAL_USED` | 409 | This squad proposal has already been used |
+| `SQUAD_PROPOSAL_EXPIRED` | 410 | This squad proposal has expired |
 
 ---
 

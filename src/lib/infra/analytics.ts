@@ -37,6 +37,12 @@ export const ANALYTICS_EVENTS = [
   'romance_match_created',
   'romance_reveal_agreed',
   'romance_duo_formed',
+  // Squads (docs/SQUADS.md).
+  'squad_builder_used',
+  'squad_proposal_accepted',
+  'solo_pool_joined',
+  'auto_squad_formed',
+  'squad_submitted',
 ] as const
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]

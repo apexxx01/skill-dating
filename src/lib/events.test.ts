@@ -304,9 +304,9 @@ describe('the transaction of an event', () => {
       })
     const emitters = walk(SRC).filter((file) => /\bemit\(\s*tx\b/.test(fs.readFileSync(file, 'utf-8')))
     expect(emitters.length).toBeGreaterThanOrEqual(10)
-    // The rewards engine, the achievement grant and the match-to-team detector run on the transaction their caller opened (always with
-    // transactWithEvents); they open none themselves.
-    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts'), path.join(SRC, 'lib', 'matching', 'team-match.ts'), path.join(SRC, 'lib', 'ship.ts')])
+    // The rewards engine, the achievement grant, the match-to-team detector and the squad join run on the transaction their caller opened (always
+    // with transactWithEvents); they open none themselves.
+    const borrowsItsTransaction = new Set([path.join(SRC, 'lib', 'rewards.ts'), path.join(SRC, 'lib', 'achievements.ts'), path.join(SRC, 'lib', 'matching', 'team-match.ts'), path.join(SRC, 'lib', 'ship.ts'), path.join(SRC, 'lib', 'squads', 'membership.ts')])
     const without = emitters
       .filter((file) => !borrowsItsTransaction.has(file))
       .filter((file) => !/transactWithEvents\(/.test(fs.readFileSync(file, 'utf-8')))
