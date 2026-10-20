@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib
 import { z } from 'zod'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
+import { track } from '@/lib/infra/analytics'
 import { addMember, checkJoin } from '@/lib/squads/membership'
 
 const reviewSchema = z.object({
@@ -159,6 +160,9 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   }
 
   const { application } = result
+  if (bodyResult.data.status === 'ACCEPTED' && application.proposalId) {
+    await track(application.userId, 'squad_proposal_accepted', { hackathonId: application.team.hackathonId, kind: 'BUILDER' })
+  }
 
   await prisma.notification.create({
     data: bodyResult.data.status === 'ACCEPTED'

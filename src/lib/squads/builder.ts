@@ -120,8 +120,10 @@ export async function proposeSquad(db: Db, input: ProposeInput): Promise<{ ok: t
 
   const anchorIds = team ? team.members.map((member) => member.userId) : [input.requesterId]
   if (team && !anchorIds.includes(input.requesterId)) anchorIds.unshift(input.requesterId)
+  // People the team has already invited (and not heard back from) hold a place each, and are not proposed again.
+  const invited = team ? (await db.teamApplication.findMany({ where: { teamId: team.id, status: 'PENDING', invitedById: { not: null }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, select: { userId: true } })).map((row) => row.userId) : []
   const size = Math.max(squadSizeFor(hackathon, input.size), Math.min(anchorIds.length, hackathon.maxTeamSize))
-  if (anchorIds.length >= size) return { ok: false, code: 'SQUAD_COMPLETE' }
+  if (anchorIds.length + invited.length >= size) return { ok: false, code: 'SQUAD_COMPLETE' }
 
   const allTracks = tracksOf(hackathon.tracks)
   const chosen = input.tracks ?? team?.targetTracks ?? []
@@ -133,7 +135,7 @@ export async function proposeSquad(db: Db, input: ProposeInput): Promise<{ ok: t
 
   // --- The pool ------------------------------------------------------------------------------------------------
   const poolRows = await db.hackathonParticipant.findMany({
-    where: { hackathonId: hackathon.id, teamId: null, lookingForTeam: true, userId: { notIn: anchorIds } },
+    where: { hackathonId: hackathon.id, teamId: null, lookingForTeam: true, userId: { notIn: [...anchorIds, ...invited] } },
     orderBy: [{ registeredAt: 'desc' }, { id: 'asc' }],
     take: BUILDER_CONFIG.poolLimit,
     select: { userId: true },
@@ -168,7 +170,7 @@ export async function proposeSquad(db: Db, input: ProposeInput): Promise<{ ok: t
   const built = buildSquad({
     anchor,
     pool: pool.filter((p) => fit.has(p.id) || !viewer),
-    size,
+    size: size - invited.length,
     evaluate: (members) => strengthOf(members).score,
     forbidden: (a, b) => pairs.forbidden.has(pairKey(a, b)),
     seed,
