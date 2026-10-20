@@ -169,6 +169,25 @@ export const jobs = {
     retries: 2,
     handler: async () => (await import('@/lib/matching/drops')).runDropExpiryJob(),
   }),
+  // The solo pool's automatic squads (src/lib/squads/pool.ts): round 1 two days before a hackathon's registration deadline, round 2 (the people
+  // whose squad did not form, and the leftovers) once round 1 is settled, if there is time. Hourly; with `hackathonId` it runs that hackathon's next
+  // round (or `round`) right away. Idempotent: a round runs once per hackathon.
+  'squads/auto-form': defineJob({
+    schema: z.object({ hackathonId: z.string().min(1).max(64).optional(), round: z.number().int().min(1).max(2).optional() }).default({}),
+    schedule: '10 * * * *',
+    retries: 2,
+    concurrency: 1,
+    handler: async ({ data }) => (await import('@/lib/squads/pool')).runAutoFormJob(data),
+  }),
+  // Hourly upkeep for squads: settles automatic squads whose day is up, expires builder proposals and invitations past their time, and sends the
+  // reminders to teamless registrants that are due. Safe to repeat.
+  'squads/sweep': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '40 * * * *',
+    retries: 2,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/squads/pool')).runSquadSweepJob(),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs
