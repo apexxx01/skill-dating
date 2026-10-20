@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
+import { loadPriorSignals } from '@/lib/squads/prior'
 import { loadScoringProfiles } from './loader'
 import { scoreCompatibility, type ScoringProfile } from './score'
 import { mergeSkills, teamPoolTypes } from './team-gaps'
@@ -7,7 +8,7 @@ import type { MatchType } from './types'
 // Compatibility for the surfaces that suggest people without a drop: the dashboard's recommendations, /api/discover, a profile read and a
 // team's candidate list. The same scorer as everywhere else (score.ts), for people who may not have a matching profile at all.
 
-type Db = Pick<PrismaClient, 'user' | 'skillEvidence' | 'userCounter' | 'matchingProfile'>
+type Db = Pick<PrismaClient, 'user' | 'skillEvidence' | 'userCounter' | 'matchingProfile' | 'userReliability' | 'peerReview'>
 
 export interface Recommendation {
   /** 0 to 100. */
@@ -45,9 +46,10 @@ export async function recommendationsFor(db: Db, viewerId: string, candidateIds:
   const [viewer, ...candidates] = await loadScoringProfiles(db, [viewerId, ...candidateIds], now, undefined, { includeWithoutMatchingProfile: true })
   if (!viewer || viewer.userId !== viewerId) return out
   const connectionType = recommendationType(viewer.connectionTypes)
+  const priors = await loadPriorSignals(db, viewerId, candidates.map((candidate) => candidate.userId))
   for (const candidate of candidates) {
     if (candidate.userId === viewerId) continue
-    const { score, reasons } = scoreCompatibility({ viewer, candidate, connectionType, now })
+    const { score, reasons } = scoreCompatibility({ viewer, candidate, connectionType, now, prior: priors.get(candidate.userId) })
     out.set(candidate.userId, { score, commonSkills: commonSkillNames(viewer, candidate), reasons })
   }
   return out
@@ -73,8 +75,9 @@ export async function teamRecommendationsFor(db: Db, team: TeamViewerInput, cand
   const members = await loadScoringProfiles(db, team.memberIds, now, undefined, { includeWithoutMatchingProfile: true })
   const teamViewer: ScoringProfile = { ...caller, lookingForSkills: team.wantedSlugs, skills: mergeSkills(members.map((member) => member.skills)), techStack: team.techStack, intentTags: [], cityOnly: false }
   const connectionType = teamPoolTypes(team.hackathonId)[0]
+  const priors = await loadPriorSignals(db, team.callerId, candidateIds)
   for (const candidate of await loadScoringProfiles(db, candidateIds, now, undefined, { includeWithoutMatchingProfile: true })) {
-    const { score, reasons } = scoreCompatibility({ viewer: teamViewer, candidate, connectionType, now })
+    const { score, reasons } = scoreCompatibility({ viewer: teamViewer, candidate, connectionType, now, prior: priors.get(candidate.userId) })
     out.set(candidate.userId, { score, commonSkills: commonSkillNames(teamViewer, candidate), reasons })
   }
   return out

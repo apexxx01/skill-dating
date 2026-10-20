@@ -3,6 +3,7 @@ import type { TeamGapCandidate, TeamGapsResponse } from '@/types/api'
 import { findCandidateIds, type Viewer } from './candidates'
 import { DROP_CONFIG } from './config'
 import { analyzeGaps } from './gaps'
+import { loadPriorSignals } from '@/lib/squads/prior'
 import { loadScoringProfiles } from './loader'
 import { scoreCompatibility, type ScoringProfile, type ScoringSkill } from './score'
 import { loadPersonSummaries } from './summary'
@@ -92,8 +93,10 @@ export async function loadTeamGaps(db: Db, teamId: string, callerId: string, now
   for (const type of teamPoolTypes(team.hackathonId)) {
     const ids = await findCandidateIds(db, viewer, type, now, DROP_CONFIG, { teamSuggestion: true, excludeIds })
     for (let from = 0; from < ids.length; from += DROP_CONFIG.scoreBatch) {
-      for (const candidate of await loadScoringProfiles(db, ids.slice(from, from + DROP_CONFIG.scoreBatch), now)) {
-        const result = scoreCompatibility({ viewer: teamViewer, candidate, connectionType: type, now })
+      const batch = await loadScoringProfiles(db, ids.slice(from, from + DROP_CONFIG.scoreBatch), now)
+      const priors = await loadPriorSignals(db, callerId, batch.map((candidate) => candidate.userId))
+      for (const candidate of batch) {
+        const result = scoreCompatibility({ viewer: teamViewer, candidate, connectionType: type, now, prior: priors.get(candidate.userId) })
         if (result.excluded || result.score < DROP_CONFIG.minScore) continue
         const have = best.get(candidate.userId)
         if (have && have.score >= result.score) continue

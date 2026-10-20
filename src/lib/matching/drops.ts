@@ -7,6 +7,7 @@ import { isValidTimeZone, localDateKey, localDayEnd, localTimeKey } from '@/lib/
 import type { JobQueue } from '@/lib/infra/jobs'
 import { findCandidateIds, viewerFor } from './candidates'
 import { DROP_CONFIG } from './config'
+import { loadPriorSignals } from '@/lib/squads/prior'
 import { loadScoringProfiles, type ProfileCache } from './loader'
 import { scoreCompatibility } from './score'
 import { selectDrops, type ScoredCandidate } from './select'
@@ -158,9 +159,11 @@ export async function generateDropsForUser(
       for (const type of types) {
         const ids = await findCandidateIds(db, viewer, type, now)
         for (let from = 0; from < ids.length; from += DROP_CONFIG.scoreBatch) {
-          for (const candidate of await loadScoringProfiles(db, ids.slice(from, from + DROP_CONFIG.scoreBatch), now, options.cache)) {
+          const batch = await loadScoringProfiles(db, ids.slice(from, from + DROP_CONFIG.scoreBatch), now, options.cache)
+          const priors = await loadPriorSignals(db, userId, batch.map((candidate) => candidate.userId))
+          for (const candidate of batch) {
             considered += 1
-            const result = scoreCompatibility({ viewer: self, candidate, connectionType: type, now })
+            const result = scoreCompatibility({ viewer: self, candidate, connectionType: type, now, prior: priors.get(candidate.userId) })
             if (!result.excluded) scored.push({ candidateId: candidate.userId, connectionType: type, score: result.score, reasons: result.reasons })
           }
         }

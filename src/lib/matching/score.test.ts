@@ -490,6 +490,26 @@ describe('priorSignal', () => {
   it('moves the score the right way', () => {
     expect(score({}, {}, { prior: { buildDateRating: 5 } }).score).toBeGreaterThan(score({}, {}, { prior: { buildDateRating: 1 } }).score)
   })
+
+  it('folds reliability and would-build-again in as the mean of the known parts', () => {
+    expect(component(score({}, {}, { prior: { reliability: 0.8 } }), 'priorSignal').value).toBeCloseTo(0.8)
+    expect(component(score({}, {}, { prior: { wouldBuildAgain: true } }), 'priorSignal').value).toBe(1)
+    expect(component(score({}, {}, { prior: { wouldBuildAgain: false } }), 'priorSignal').value).toBe(0)
+    expect(component(score({}, {}, { prior: { buildDateRating: 5, reliability: 0.5, wouldBuildAgain: false } }), 'priorSignal').value).toBeCloseTo(0.5)
+    expect(component(score({}, {}, { prior: { reliability: null, wouldBuildAgain: null } }), 'priorSignal').known).toBe(false)
+  })
+
+  it('says would build again and reliable teammate, never the number', () => {
+    expect(score({}, {}, { prior: { wouldBuildAgain: true } }).reasons).toContain('You said you would build with them again')
+    expect(score({}, {}, { prior: { reliability: 0.9 } }).reasons).toContain('Reliable teammate on past squads')
+    expect(score({}, {}, { prior: { reliability: 0.6 } }).reasons).toEqual([])
+    expect(score({}, {}, { prior: { wouldBuildAgain: false } }).reasons).toEqual([])
+    for (const reason of score({}, {}, { prior: { reliability: 0.93 } }).reasons) expect(reason).not.toMatch(/\d/)
+  })
+
+  it('a "no" from the viewer pulls the score down', () => {
+    expect(score({}, {}, { prior: { wouldBuildAgain: false } }).score).toBeLessThan(score({}, {}).score)
+  })
 })
 
 describe('the type of relationship', () => {

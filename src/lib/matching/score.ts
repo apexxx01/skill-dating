@@ -72,6 +72,8 @@ export const SCORE_CONFIG = {
   fullSharedStack: 3,
   /** Someone passed within this many days is not shown again. */
   passedCooldownDays: 30,
+  /** A reliability (0 to 1) at or above this is worth mentioning as "Reliable teammate on past squads". */
+  reliableTeammate: 0.85,
   /** Activity: how many days since last seen / last earning make a person fully stale. */
   staleAfterDays: 30,
   /** Streak (days) that counts as fully committed. */
@@ -116,12 +118,17 @@ export interface ScoringProfile {
   activity: { streak: number; lastActiveAt: Date | null; lastXpAt: Date | null }
 }
 
-/** What happened between these two before. Blocked and recently passed people are never scored; a Build Date rating moves the score. */
+/** What happened between these two before. Blocked and recently passed people are never scored; a Build Date rating, the candidate's reliability
+ *  as a squad teammate and whether the viewer would build with them again move the score. */
 export interface PriorSignal {
   blocked?: boolean
   passedAt?: Date | null
   /** The average rating (1 to 5) the viewer gave this person for past Build Dates, if there are any. */
   buildDateRating?: number | null
+  /** The candidate's reliability as a hackathon teammate (0 to 1, src/lib/squads/reliability.ts), only once someone has reviewed them. Never shown. */
+  reliability?: number | null
+  /** What the viewer said in their latest peer review of this person. */
+  wouldBuildAgain?: boolean | null
 }
 
 export interface ScoreInput {
@@ -350,11 +357,22 @@ function activityRecency({ candidate, now }: ScoreInput): Evaluated {
   return { value, reason }
 }
 
+// The mean of whichever parts are known. The reason names the strongest positive part; the reliability number itself is never shown.
 function priorSignal({ prior }: ScoreInput): Evaluated {
   const rating = prior?.buildDateRating
-  if (rating === undefined || rating === null) return { value: null }
-  const value = clamp01((rating - 1) / 4)
-  return { value, reason: rating >= 4 ? { text: 'You rated a past Build Date with them highly', strength: value } : undefined }
+  const reliability = prior?.reliability
+  const again = prior?.wouldBuildAgain
+  const parts: number[] = []
+  if (rating !== undefined && rating !== null) parts.push(clamp01((rating - 1) / 4))
+  if (reliability !== undefined && reliability !== null) parts.push(clamp01(reliability))
+  if (again !== undefined && again !== null) parts.push(again ? 1 : 0)
+  if (parts.length === 0) return { value: null }
+  const value = parts.reduce((sum, part) => sum + part, 0) / parts.length
+  let reason: Reason | undefined
+  if (again === true) reason = { text: 'You said you would build with them again', strength: Math.max(value, 0.9) }
+  else if (rating !== undefined && rating !== null && rating >= 4) reason = { text: 'You rated a past Build Date with them highly', strength: value }
+  else if (reliability !== undefined && reliability !== null && reliability >= SCORE_CONFIG.reliableTeammate) reason = { text: 'Reliable teammate on past squads', strength: value }
+  return { value, reason }
 }
 
 const EVALUATORS: Record<ComponentKey, (input: ScoreInput) => Evaluated> = {
