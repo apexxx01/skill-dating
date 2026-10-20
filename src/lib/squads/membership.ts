@@ -68,7 +68,7 @@ export async function hackathonLimits(tx: Pick<Tx, 'hackathon'>, hackathonId: st
 }
 
 /** Whether `userId` is already in a squad for this hackathon other than `teamId`: registered with another team, or a member of another of its teams. */
-export async function otherSquadFor(tx: Tx, userId: string, hackathonId: string, teamId: string | null): Promise<string | null> {
+export async function otherSquadFor(tx: Pick<Tx, 'hackathonParticipant' | 'teamMember'>, userId: string, hackathonId: string, teamId: string | null): Promise<string | null> {
   const participant = await tx.hackathonParticipant.findUnique({ where: { userId_hackathonId: { userId, hackathonId } }, select: { teamId: true } })
   if (participant?.teamId && participant.teamId !== teamId) return participant.teamId
   const member = await tx.teamMember.findFirst({ where: { userId, team: { hackathonId }, ...(teamId ? { teamId: { not: teamId } } : {}) }, select: { teamId: true } })

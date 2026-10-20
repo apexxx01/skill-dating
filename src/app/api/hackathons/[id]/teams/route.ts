@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError, checkMembers
 import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
+import { hackathonPaysRewards, isLocked, otherSquadFor } from '@/lib/squads/membership'
 
 const registerTeamSchema = z.object({
   teamId: z.string(),
@@ -33,12 +34,17 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('HACKATHON_REGISTRATION_REQUIRED')
   }
 
-  if (participant.teamId) {
-    return createApiError('ALREADY_IN_HACKATHON_TEAM')
-  }
-
   const bodyResult = await validateBody(registerTeamSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
+
+  // Registering with the team one is already registered with is a no-op that answers the same (an accepted invitee of a registered squad is
+  // entered with it automatically, so their own later call must not fail); another team is one squad too many.
+  if (participant.teamId && participant.teamId !== bodyResult.data.teamId) {
+    return createApiError('ALREADY_IN_HACKATHON_TEAM')
+  }
+  if (isLocked(hackathon, new Date())) {
+    return createApiError('TEAM_LOCKED')
+  }
 
   const team = await prisma.team.findUnique({
     where: { id: bodyResult.data.teamId },
@@ -80,6 +86,11 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     }
   }
 
+  // One squad per person per hackathon: a member of another of this hackathon's teams cannot register with this one.
+  if (await otherSquadFor(prisma, user.id, id, team.id)) {
+    return createApiError('ALREADY_IN_HACKATHON_TEAM')
+  }
+
   if (bodyResult.data.projectId) {
     const project = await prisma.project.findUnique({ where: { id: bodyResult.data.projectId } })
     if (!project || project.ownerId !== user.id) {
@@ -95,7 +106,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { value: hackathonTeam, scope } = await transactWithEvents(prisma, async (tx) => {
     await tx.hackathonParticipant.update({
       where: { userId_hackathonId: { userId: user.id, hackathonId: id } },
-      data: { teamId: team.id, status: 'TEAM_FORMED' }
+      data: { teamId: team.id, status: 'TEAM_FORMED', ...(participant.teamJoinedAt ? {} : { teamJoinedAt: new Date() }) }
     })
 
     const existingHackathonTeam = await tx.hackathonTeam.findUnique({
@@ -143,7 +154,10 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     await recordActivity(tx, user.id, 'TEAM_JOINED', `Formed team for "${hackathon.name}"`, {
       link: `/hackathons/${hackathon.slug}`
     })
-    await emit(tx, 'TEAM_FORMED', { userId: user.id, teamId: team.id, hackathonId: id, hackathonName: hackathon.name })
+    // An unverified external hackathon pays nothing (TEAM_FORMED is once per hackathon anyway, so a repeat call pays nothing either).
+    if (hackathonPaysRewards(hackathon)) {
+      await emit(tx, 'TEAM_FORMED', { userId: user.id, teamId: team.id, hackathonId: id, hackathonName: hackathon.name })
+    }
 
     return record
   })
