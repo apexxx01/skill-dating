@@ -3,6 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError, checkOwnersh
 import { z } from 'zod'
 import { hackathonLimits, isLocked, removeMember } from '@/lib/squads/membership'
 import { squadRoleSchema } from '@/lib/squads/schemas'
+import { getJobQueue } from '@/lib/infra/jobs'
 
 // `role` is the member's permissions (owner only); `squadRole` (+ `roleLabel` for OTHER) is what they do on the squad, which a member may declare
 // for themselves and the owner for anyone.
@@ -142,6 +143,9 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   await prisma.auditEvent.create({
     data: { userId: user.id, action: 'TEAM_MEMBER_REMOVED', targetType: 'TEAM', targetId: id, newValue: { memberId } }
   })
+
+  // The owner hears that the slot is open again, with who could fill it (a job: it scores the pool).
+  if (reopened) await getJobQueue().enqueue('squads/refill-suggestion', { teamId: id, slotId: reopened.id })
 
   return createApiResponse({ success: true, reopenedSlotId: reopened?.id ?? null })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'teams:member-remove' } })

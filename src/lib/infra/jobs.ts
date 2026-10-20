@@ -179,6 +179,12 @@ export const jobs = {
     concurrency: 1,
     handler: async ({ data }) => (await import('@/lib/squads/pool')).runAutoFormJob(data),
   }),
+  // A squad's slot reopened (someone left or was removed): tells its owner, with up to three people from the pool who want that role.
+  'squads/refill-suggestion': defineJob({
+    schema: z.object({ teamId: z.string().min(1).max(64), slotId: z.string().min(1).max(64) }),
+    retries: 2,
+    handler: async ({ data }) => (await import('@/lib/squads/refill')).runRefillSuggestionJob(data),
+  }),
   // Hourly upkeep for squads: settles automatic squads whose day is up, expires builder proposals and invitations past their time, and sends the
   // reminders to teamless registrants that are due. Safe to repeat.
   'squads/sweep': defineJob({
