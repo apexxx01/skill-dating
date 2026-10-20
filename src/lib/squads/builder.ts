@@ -10,7 +10,7 @@ import { createNotification } from '@/lib/notifications'
 import type { MatchPerson } from '@/types/api'
 import { INVITATION_TTL_MS, PROPOSAL_TTL_MS } from './lifecycle'
 import { capacityOf, createSlots, hackathonLimits, isLocked, otherSquadFor, squadHackathonSelect, type TeamForJoin } from './membership'
-import { buildSquad, seedFrom } from './optimizer'
+import { buildSquad, storedSeedFrom } from './optimizer'
 import { loadPairFacts, loadSquadPeople, pairKey, trustedIds, type SquadPerson } from './people'
 import { loadPriorSignals } from './prior'
 import { roleKey, roleLabel, squadSizeFor, templateFor, type RoleNeed, type RoleRef } from './roles'
@@ -166,7 +166,7 @@ export async function proposeSquad(db: Db, input: ProposeInput): Promise<{ ok: t
   }
 
   const strengthOf = (members: readonly SquadPerson[]) => squadStrength({ members, needs: { roles: needs, requiredSkills: slotSkills, pledgesExpected, minSize: hackathon.minTeamSize }, history: pairs.history })
-  const seed = input.seed ?? seedFrom(`${hackathon.id}:${input.requesterId}:${now.toISOString().slice(0, 10)}`)
+  const seed = input.seed ?? storedSeedFrom(`${hackathon.id}:${input.requesterId}:${now.toISOString().slice(0, 10)}`)
   const built = buildSquad({
     anchor,
     pool: pool.filter((p) => fit.has(p.id) || !viewer),

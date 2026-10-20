@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { proposeSquad } from '@/lib/squads/builder'
+import { MAX_SEED } from '@/lib/squads/optimizer'
 
 // POST /api/hackathons/{id}/squad-builder ("Find my squad"): a complete squad of a sensible size proposed around the caller, from the hackathon's solo
 // pool, with each person's role and reasons and the squad's strength (docs/SQUADS.md, "The squad builder"). The proposal is kept for 24 hours for
@@ -9,7 +10,7 @@ import { proposeSquad } from '@/lib/squads/builder'
 const bodySchema = z
   .object({
     size: z.number().int().min(1).max(10).optional(),
-    seed: z.number().int().min(0).max(0xffffffff).optional(),
+    seed: z.number().int().min(0).max(MAX_SEED).optional(),
     tracks: z.array(z.string().trim().min(1).max(80)).max(5).optional(),
   })
   .strict()

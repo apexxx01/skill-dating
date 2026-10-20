@@ -26,6 +26,12 @@ export function seedFrom(text: string): number {
   return hash >>> 0
 }
 
+/** The largest seed a proposal stores (SquadProposal.seed is a 32-bit signed integer). */
+export const MAX_SEED = 0x7fffffff
+
+/** A seed from text, within what a proposal stores. */
+export const storedSeedFrom = (text: string) => seedFrom(text) & MAX_SEED
+
 /** The people in id order, then shuffled by the seed: the order every tie is broken in. */
 export function seededOrder<P extends Person>(people: readonly P[], seed: number): P[] {
   const random = seededRandom(seed)

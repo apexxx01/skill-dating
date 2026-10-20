@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSquad, partitionPool, seededOrder, seededRandom, seedFrom, squadSizes } from './optimizer'
+import { buildSquad, MAX_SEED, partitionPool, seededOrder, seededRandom, seedFrom, squadSizes, storedSeedFrom } from './optimizer'
 
 interface P {
   id: string
@@ -153,5 +153,16 @@ describe('partitionPool', () => {
     expect(run().squads.map((s) => s.map((m) => m.id))).toEqual(first.squads.map((s) => s.map((m) => m.id)))
     expect(first.evaluations).toBeLessThanOrEqual(5000)
     for (const squad of first.squads) expect(squad.length >= 2 && squad.length <= 5).toBe(true)
+  })
+})
+
+describe('storedSeedFrom', () => {
+  it('always fits a 32-bit signed integer and is stable', () => {
+    for (const text of ['a', 'hackathon:auto:1', 'x'.repeat(100), 'cmvg6x5zt0001jjwk474x9120:2026-10-20']) {
+      const seed = storedSeedFrom(text)
+      expect(seed).toBeGreaterThanOrEqual(0)
+      expect(seed).toBeLessThanOrEqual(MAX_SEED)
+      expect(storedSeedFrom(text)).toBe(seed)
+    }
   })
 })
