@@ -872,6 +872,12 @@ and a unit test fails if a code is missing here.
 | `SQUAD_PROPOSAL_EXPIRED` | 410 | This squad proposal has expired |
 | `LFG_POST_NOT_FOUND` | 404 | Looking-for-group post not found |
 | `LFG_ACTIVE_POST_EXISTS` | 409 | You already have an active post on this board |
+| `CHECKLIST_ITEM_NOT_FOUND` | 404 | Checklist item not found |
+| `IDEA_NOT_FOUND` | 404 | Idea not found |
+| `TEAM_SPACE_LIMIT` | 400 | A team can have at most {max} {what} |
+| `NOT_A_HACKATHON_TEAM` | 400 | This team was not registered for a hackathon |
+| `KEEP_BUILDING_TOO_EARLY` | 409 | A squad can keep building once the results are in or the hackathon is over |
+| `KEEP_BUILDING_DONE` | 409 | This squad is already a crew |
 
 ---
 

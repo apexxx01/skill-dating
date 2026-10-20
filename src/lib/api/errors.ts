@@ -203,6 +203,12 @@ export const ERROR_CATALOG = {
   SQUAD_PROPOSAL_EXPIRED: { status: 410, message: 'This squad proposal has expired' },
   LFG_POST_NOT_FOUND: { status: 404, message: 'Looking-for-group post not found' },
   LFG_ACTIVE_POST_EXISTS: { status: 409, message: 'You already have an active post on this board' },
+  CHECKLIST_ITEM_NOT_FOUND: { status: 404, message: 'Checklist item not found' },
+  IDEA_NOT_FOUND: { status: 404, message: 'Idea not found' },
+  TEAM_SPACE_LIMIT: { status: 400, message: 'A team can have at most {max} {what}' },
+  NOT_A_HACKATHON_TEAM: { status: 400, message: 'This team was not registered for a hackathon' },
+  KEEP_BUILDING_TOO_EARLY: { status: 409, message: 'A squad can keep building once the results are in or the hackathon is over' },
+  KEEP_BUILDING_DONE: { status: 409, message: 'This squad is already a crew' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG
