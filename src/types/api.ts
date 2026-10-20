@@ -233,6 +233,8 @@ export interface ProfileResponse extends UserWithHeadline {
   compatibility: number | null
   /** true when the viewer has blocked this user (offer "unblock"). */
   blockedByMe: boolean
+  /** The passport's "Reliable teammate" badge (docs/SQUADS.md). The reliability number behind it is never sent. */
+  reliableTeammate: boolean
 }
 
 export interface CurrentBuild {
@@ -331,7 +333,21 @@ export interface HackathonListItem {
   startDate: IsoDate
   endDate: IsoDate
   registrationDeadline: IsoDate | null
+  /** When the teams lock; the end date when null. */
+  submissionDeadline: IsoDate | null
   status: HackathonStatus
+  /** NATIVE: run here. EXTERNAL: lives on another platform (`externalUrl`, `platform`), this is its team layer. */
+  source: 'NATIVE' | 'EXTERNAL'
+  externalUrl: string | null
+  platform: 'DEVFOLIO' | 'DEVPOST' | 'MLH' | 'UNSTOP' | 'LUMA' | 'OTHER' | null
+  mode: 'ONLINE' | 'IN_PERSON' | 'HYBRID' | null
+  city: string | null
+  country: string | null
+  tracks: { name: string; description: string | null }[]
+  /** An external hackathon no admin has verified yet: usable for squads, pays no XP. Show it flagged. */
+  unverified: boolean
+  verifiedAt: IsoDate | null
+  resultsAt: IsoDate | null
   organizer: string | null
   websiteUrl: string | null
   prizePool: string | null
@@ -1178,4 +1194,235 @@ export interface ShipDayResponse {
   yourShips: PostItem[]
   topPosts: PostItem[]
   lastRecap: { weekKey: string; dateKey: string; totalPosts: number } | null
+}
+
+// --- Squads: hackathon team building (docs/SQUADS.md) --------------------------------------------------------
+
+/** The fixed role catalogue of a slot, a member's squad role and the builder's templates. */
+export type SquadRole = 'FRONTEND' | 'BACKEND' | 'FULLSTACK' | 'MOBILE' | 'ML_AI' | 'DATA' | 'DEVOPS' | 'DESIGN_UI_UX' | 'PRODUCT' | 'PITCH_BUSINESS' | 'HARDWARE' | 'OTHER'
+
+/** A role slot on a team (GET /api/teams/{id}/slots, and `slots` on a team). `customLabel` only for OTHER. */
+export interface TeamSlotItem {
+  id: string
+  teamId: string
+  role: SquadRole
+  customLabel: string | null
+  requiredSkills: string[]
+  status: 'OPEN' | 'FILLED'
+  filledById: string | null
+  filledAt: string | null
+  position: number
+  filledBy?: { id: string; name: string | null; username: string | null; image: string | null } | null
+}
+
+/** GET /api/teams/{id}/slots */
+export interface TeamSlotsResponse {
+  slots: TeamSlotItem[]
+  capacity: number
+  memberCount: number
+  openPlaces: number
+  locked: boolean
+}
+
+export type StrengthComponentKey = 'roleCoverage' | 'skillCoverage' | 'timezoneOverlap' | 'commitmentFit' | 'experienceMix' | 'chemistry'
+export type StrengthGapCode = 'TOO_SMALL' | 'MISSING_ROLE' | 'NO_DEPLOYER' | 'MISSING_SKILLS' | 'LOW_TIMEZONE_OVERLAP' | 'UNCONFIRMED_PLEDGES' | 'HOURS_MISMATCH'
+
+export interface SquadStrengthSummary {
+  /** 0 to 100. */
+  score: number
+  components: Record<StrengthComponentKey, { value: number; weight: number; points: number; applicable: boolean; known: boolean }>
+  /** Most important first; show `message`, branch on `code`. */
+  gaps: { code: StrengthGapCode; message: string }[]
+  /** Hours of the working day the whole squad shares; null with fewer than two known time zones. */
+  overlapHours: number | null
+}
+
+/** GET /api/teams/{id}/strength (members and admins only) */
+export interface TeamStrengthResponse extends SquadStrengthSummary {
+  teamId: string
+  hackathonId: string | null
+  roles: { key: string; label: string; userId: string | null }[]
+  memberCount: number
+  capacity: number
+  pledgesExpected: boolean
+}
+
+/** A proposed squad: from the builder (BUILDER) or the solo pool (AUTO). */
+export interface SquadProposal {
+  id: string
+  hackathonId: string
+  kind: 'BUILDER' | 'AUTO'
+  status: 'OPEN' | 'INVITED' | 'PROPOSED' | 'FORMED' | 'FAILED' | 'EXPIRED'
+  size: number
+  seed: number
+  expiresAt: string
+  teamId: string | null
+  strength: SquadStrengthSummary
+  members: { person: MatchPerson; role: SquadRole; roleLabel: string; reasons: string[]; onTeam: boolean }[]
+}
+
+/** POST /api/hackathons/{id}/squad-builder (201), GET .../squad-builder/{proposalId}, GET /api/squad-proposals/{id} */
+export interface SquadProposalResponse {
+  proposal: SquadProposal
+}
+
+/** POST /api/hackathons/{id}/squad-builder/{proposalId}/invite (201 when the team was created, else 200) */
+export interface SquadInviteResponse {
+  teamId: string
+  created: boolean
+  invitations: { userId: string; invitationId: string; slotId: string }[]
+  skipped: { userId: string; reason: 'IN_ANOTHER_SQUAD' | 'BLOCKED' | 'ALREADY_INVITED' | 'NO_ROOM' }[]
+}
+
+/** PATCH /api/hackathons/{id}/participation */
+export interface ParticipationResponse {
+  hackathonId: string
+  teamId: string | null
+  status: 'REGISTERED' | 'TEAM_FORMED' | 'SUBMITTED' | 'WITHDRAWN'
+  lookingForTeam: boolean
+  preferredRoles: SquadRole[]
+  openToAutoTeam: boolean
+}
+
+/** GET /api/squad-proposals */
+export interface SquadProposalsResponse {
+  proposals: {
+    id: string
+    hackathonId: string
+    hackathonName: string
+    kind: 'BUILDER' | 'AUTO'
+    status: SquadProposal['status']
+    expiresAt: string
+    teamId: string | null
+    size: number
+    strength: number
+    myRole: SquadRole
+    myResponse: 'PENDING' | 'ACCEPTED' | 'DECLINED'
+    createdAt: string
+  }[]
+  nextCursor: string | null
+}
+
+/** POST /api/squad-proposals/{id}/respond */
+export interface SquadProposalRespondResponse {
+  status: SquadProposal['status']
+  teamId: string | null
+  proposal: SquadProposal | null
+}
+
+/** One post on the looking-for-group board. */
+export interface LfgPostItem {
+  id: string
+  hackathonId: string
+  kind: 'PERSON' | 'TEAM'
+  author: MatchPerson
+  team: { id: string; name: string; slug: string; openSlots: number } | null
+  roles: SquadRole[]
+  stack: string[]
+  timezone: string | null
+  note: string
+  expiresAt: string
+  createdAt: string
+  /** The author's fit to the viewer; null on the viewer's own post. */
+  fit: { score: number; reasons: string[] } | null
+  mine: boolean
+}
+
+/** GET /api/hackathons/{id}/lfg */
+export interface LfgBoardResponse {
+  posts: LfgPostItem[]
+  nextCursor: string | null
+}
+
+/** GET /api/teams/{id}/space (members and admins only) */
+export interface TeamSpaceResponse {
+  team: { id: string; name: string; slug: string; ownerId: string; projectId: string | null; targetTracks: string[]; keptBuildingAt: string | null }
+  hackathon: {
+    id: string
+    name: string
+    slug: string
+    startDate: string
+    endDate: string
+    submissionDeadline: string | null
+    locksAt: string
+    secondsLeft: number
+    locked: boolean
+    tracks: { name: string; description: string | null }[]
+    unverified: boolean
+  } | null
+  roles: {
+    userId: string
+    name: string | null
+    username: string | null
+    image: string | null
+    teamRole: 'OWNER' | 'ADMIN' | 'MEMBER'
+    squadRole: SquadRole | null
+    roleLabel: string | null
+    pledge: { attendance: 'IN_PERSON' | 'REMOTE'; hoursAvailable: number; availableFrom: string; availableUntil: string } | null
+  }[]
+  openSlots: { id: string; role: SquadRole; label: string; requiredSkills: string[] }[]
+  checklist: { id: string; title: string; done: boolean; doneAt: string | null; position: number; assignee: { id: string; name: string | null; username: string | null; image: string | null } | null }[]
+  ideas: { id: string; title: string; description: string | null; voteCount: number; votedByMe: boolean; chosen: boolean; author: { id: string; name: string | null; username: string | null; image: string | null } }[]
+  unconfirmedPledges: string[]
+}
+
+/** POST /api/teams/{id}/keep-building */
+export interface KeepBuildingResponse {
+  ok: true
+  teamId: string
+  projectId: string
+  projectCreated: boolean
+  rewards: RewardsEnvelope
+}
+
+/** PUT /api/teams/{id}/pledge */
+export interface PledgeResponse {
+  hackathonId: string
+  teamId: string
+  attendance: 'IN_PERSON' | 'REMOTE'
+  hoursAvailable: number
+  availableFrom: string
+  availableUntil: string
+  confirmedAt: string
+}
+
+/** GET /api/hackathons/{id}/peer-reviews: the caller's side only. */
+export interface PeerReviewTodoResponse {
+  window: { opensAt: string; closesAt: string; open: boolean }
+  teammates: { userId: string; name: string | null; username: string | null; image: string | null; reviewed: boolean; mine: { showedUp: 'YES' | 'PARTLY' | 'NO'; wouldBuildAgain: boolean } | null }[]
+}
+
+/** POST /api/hackathons/external (201 created, 200 already known). `hackathon` is the stored hackathon with `unverified`. */
+export interface ExternalHackathonResponse {
+  hackathon: {
+    id: string
+    name: string
+    slug: string
+    source: 'NATIVE' | 'EXTERNAL'
+    externalUrl: string | null
+    platform: 'DEVFOLIO' | 'DEVPOST' | 'MLH' | 'UNSTOP' | 'LUMA' | 'OTHER' | null
+    mode: 'ONLINE' | 'IN_PERSON' | 'HYBRID' | null
+    city: string | null
+    country: string | null
+    startDate: string
+    endDate: string
+    status: 'UPCOMING' | 'ACTIVE' | 'ENDED' | 'CANCELLED'
+    tracks: { name: string; description: string | null }[]
+    verifiedAt: string | null
+    unverified: boolean
+  }
+  created: boolean
+}
+
+/** GET /api/admin/hackathons/{id}/metrics */
+export interface HackathonSquadMetricsResponse {
+  hackathonId: string
+  registered: number
+  inTeam: number
+  percentInTeam: number
+  medianMinutesToTeam: number | null
+  squads: number
+  autoSquadsFormed: number
+  builderProposalsInvited: number
+  soloPool: number
 }
