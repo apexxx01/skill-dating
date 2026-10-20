@@ -4,7 +4,7 @@ import os from 'os'
 import fs from 'fs'
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
-import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_DB_NAME, INTEGRATION_DB_ADMIN_URL, INTEGRATION_PORT } from './config'
+import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_DB_NAME, INTEGRATION_DB_ADMIN_URL, INTEGRATION_FIXTURE_PORT, INTEGRATION_PORT } from './config'
 import { loadEnvLocal } from './env'
 import { clerkSecretKey, deleteRegisteredUsers, sweepStaleTestUsers } from './clerk-api'
 
@@ -116,7 +116,7 @@ export default async function setup() {
   // Override NODE_ENV rather than inheriting vitest's 'test' - 'next dev'
   // otherwise runs against a test-mode Next.js build that behaves
   // differently in ways unrelated to the actual env-loading fix above.
-  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret }
+  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
 
   // TEST_SERVER_LOG=<file> keeps the dev server's output, for diagnosing a failing run.
   const logPath = process.env.TEST_SERVER_LOG

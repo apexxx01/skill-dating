@@ -3,6 +3,7 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { cursorParam, paginate } from '@/lib/api/pagination'
+import { isUnverified } from '@/lib/squads/external-create'
 import { tracksSchema } from '@/lib/squads/tracks'
 
 const createHackathonSchema = z.object({
@@ -89,7 +90,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   return createApiResponse({
     hackathons: hackathons.map((h) => {
       const mine = participationByHackathon.get(h.id)
-      return { ...h, registered: Boolean(mine), myTeamId: mine?.teamId ?? null, myStatus: mine?.status ?? null }
+      return { ...h, unverified: isUnverified(h), registered: Boolean(mine), myTeamId: mine?.teamId ?? null, myStatus: mine?.status ?? null }
     }),
     nextCursor: result.nextCursor,
     pagination: result.pagination,

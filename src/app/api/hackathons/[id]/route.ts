@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { hackathonPaysRewards } from '@/lib/squads/membership'
+import { isUnverified } from '@/lib/squads/external-create'
 import { tracksSchema } from '@/lib/squads/tracks'
 
 const registerSchema = z.object({
@@ -82,7 +83,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     where: { userId_hackathonId: { userId: user.id, hackathonId: id } }
   })
 
-  return createApiResponse({ ...hackathon, participation })
+  return createApiResponse({ ...hackathon, unverified: isUnverified(hackathon), participation })
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'hackathons:get' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

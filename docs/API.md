@@ -878,6 +878,10 @@ and a unit test fails if a code is missing here.
 | `NOT_A_HACKATHON_TEAM` | 400 | This team was not registered for a hackathon |
 | `KEEP_BUILDING_TOO_EARLY` | 409 | A squad can keep building once the results are in or the hackathon is over |
 | `KEEP_BUILDING_DONE` | 409 | This squad is already a crew |
+| `ACCOUNT_NOT_TRUSTED` | 403 | Your account needs to be a week old, with a verified email, to do this |
+| `EXTERNAL_URL_REFUSED` | 400 | This link cannot be used: it must be a public http or https page |
+| `EXTERNAL_PAGE_UNREADABLE` | 422 | The page at this link could not be read ({reason}) |
+| `EXTERNAL_DATES_UNKNOWN` | 422 | The page does not say when the hackathon runs: send startDate and endDate |
 
 ---
 

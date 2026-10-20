@@ -209,6 +209,10 @@ export const ERROR_CATALOG = {
   NOT_A_HACKATHON_TEAM: { status: 400, message: 'This team was not registered for a hackathon' },
   KEEP_BUILDING_TOO_EARLY: { status: 409, message: 'A squad can keep building once the results are in or the hackathon is over' },
   KEEP_BUILDING_DONE: { status: 409, message: 'This squad is already a crew' },
+  ACCOUNT_NOT_TRUSTED: { status: 403, message: 'Your account needs to be a week old, with a verified email, to do this' },
+  EXTERNAL_URL_REFUSED: { status: 400, message: 'This link cannot be used: it must be a public http or https page' },
+  EXTERNAL_PAGE_UNREADABLE: { status: 422, message: 'The page at this link could not be read ({reason})' },
+  EXTERNAL_DATES_UNKNOWN: { status: 422, message: 'The page does not say when the hackathon runs: send startDate and endDate' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

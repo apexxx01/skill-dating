@@ -36,6 +36,8 @@ function readDbName(): string {
 
 export const INTEGRATION_PORT = readPort()
 export const INTEGRATION_BASE_URL = `http://localhost:${INTEGRATION_PORT}`
+// A port the tests serve their own pages on (an external hackathon's page): the server under test may fetch from it, and from nothing else private.
+export const INTEGRATION_FIXTURE_PORT = INTEGRATION_PORT + 1
 export const INTEGRATION_DB_NAME = readDbName()
 const dbBase = (process.env.TEST_DB_BASE_URL || 'postgresql://postgres:postgres@localhost:5432').replace(/\/+$/, '')
 export const INTEGRATION_DATABASE_URL = `${dbBase}/${INTEGRATION_DB_NAME}?schema=public`
