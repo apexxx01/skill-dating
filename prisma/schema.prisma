@@ -786,6 +786,8 @@ model HackathonTeamMember {
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([hackathonTeamId, userId])
+  // A person's squads across hackathons: teammates for peer reviews, pair history, reunions.
+  @@index([userId])
 }
 
 model Challenge {
