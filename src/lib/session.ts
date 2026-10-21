@@ -6,6 +6,7 @@ import { consumeSafely, type RateLimitDecision } from '@/lib/rate-limiter'
 import { AccountConflictError, SELECTED_USER_FIELDS, SignupRefusedError, syncClerkUser, type LocalUser } from '@/lib/user-sync'
 import { SIGNUP_LIMIT } from '@/lib/identity/signup'
 import { log } from '@/lib/log'
+import { factorAgeFromClaim } from '@/lib/api/recent-auth'
 
 // Request authentication. The session token is verified here, directly, against
 // Clerk's signing keys. Nothing that middleware may have added to the request is
@@ -93,8 +94,8 @@ export async function verifyIdentity(headers: Headers): Promise<Identity | null>
       clerkId: claims.sub,
       sessionId: typeof claims.sid === 'string' ? claims.sid : null,
       expiresAt: typeof claims.exp === 'number' ? new Date(claims.exp * 1000) : null,
-      // [first factor age, second factor age] in minutes; -1 means never verified in this session.
-      factorAgeMinutes: Array.isArray(claims.fva) && typeof claims.fva[0] === 'number' && claims.fva[0] >= 0 ? claims.fva[0] : null,
+      // [first factor age, second factor age] in minutes; -1 (never) and 99999 (unknown) give no age (recent-auth.ts).
+      factorAgeMinutes: factorAgeFromClaim(claims.fva),
     }
   } catch {
     return null

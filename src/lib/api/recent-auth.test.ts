@@ -2,9 +2,23 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('@clerk/nextjs/server', () => ({ clerkClient: vi.fn() }))
 
-import { isRecentAuth } from './recent-auth'
+import { factorAgeFromClaim, isRecentAuth } from './recent-auth'
 
 const now = new Date('2026-10-20T12:00:00Z')
+
+describe('factorAgeFromClaim', () => {
+  it('reads the first factor age in minutes', () => {
+    expect(factorAgeFromClaim([0, -1])).toBe(0)
+    expect(factorAgeFromClaim([7, 3])).toBe(7)
+  })
+
+  it('gives no age for never (-1), unknown (99999, as on a session made through the backend API) or a missing claim', () => {
+    expect(factorAgeFromClaim([-1, -1])).toBeNull()
+    expect(factorAgeFromClaim([99999, -1])).toBeNull()
+    expect(factorAgeFromClaim(undefined)).toBeNull()
+    expect(factorAgeFromClaim(['3'])).toBeNull()
+  })
+})
 
 describe('isRecentAuth', () => {
   it('uses the factor age from the token when there is one', () => {

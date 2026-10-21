@@ -15,6 +15,16 @@ export interface SessionInfo {
   factorAgeMinutes: number | null
 }
 
+// Clerk writes 99999 (not a real age) into `fva` when it does not know when a factor was verified, as for a session created through its backend API;
+// -1 means never verified. Neither is an age, so both leave the decision to the session's own age.
+export const FVA_UNKNOWN = 99999
+
+/** Pure: the first factor's age in minutes from a token's `fva` claim, or null when the claim gives none. */
+export function factorAgeFromClaim(fva: unknown): number | null {
+  if (!Array.isArray(fva) || typeof fva[0] !== 'number' || !Number.isFinite(fva[0])) return null
+  return fva[0] >= 0 && fva[0] < FVA_UNKNOWN ? fva[0] : null
+}
+
 /** Pure: the decision from what is known. */
 export function isRecentAuth(input: { factorAgeMinutes: number | null; sessionCreatedAt: Date | null; now: Date; maxMinutes?: number }): boolean {
   const max = input.maxMinutes ?? RECENT_AUTH_MAX_MINUTES
