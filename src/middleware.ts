@@ -2,6 +2,7 @@ import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { readOnboardingState, type OnboardingState } from '@/lib/onboarding-state'
+import { clerkFrontendApi, newNonce, originOf, pageCsp, STATIC_PAGES } from '@/lib/security/csp'
 
 // UX redirects only. This is NOT a security boundary: Next 14.1.0 lets a client
 // skip middleware altogether (CVE-2025-29927), so every API route verifies the
@@ -44,7 +45,32 @@ async function onboardingState(request: NextRequest): Promise<OnboardingState> {
   }
 }
 
+// The Content-Security-Policy for this page request (src/lib/security/csp.ts), with a fresh nonce. The policy is also put on the REQUEST, which is how Next
+// learns the nonce and puts it on the scripts it renders. Read from process.env directly: the middleware runs on the Edge runtime and needs only these.
+function cspFor(request: NextRequest): { nonce: string; policy: string } {
+  const nonce = newNonce()
+  const policy = pageCsp({
+    nonce,
+    staticPage: STATIC_PAGES.has(request.nextUrl.pathname),
+    clerkFrontendApi: clerkFrontendApi(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY),
+    storageOrigins: [originOf(process.env.STORAGE_PUBLIC_BASE_URL), originOf(process.env.STORAGE_ENDPOINT)].filter((o): o is string => o !== null),
+    development: process.env.NODE_ENV === 'development',
+  })
+  return { nonce, policy }
+}
+
+function withCsp(response: NextResponse, policy: string): NextResponse {
+  response.headers.set('Content-Security-Policy', policy)
+  return response
+}
+
 export default clerkMiddleware(async (auth, request: NextRequest) => {
+  const { nonce, policy } = cspFor(request)
+  const forwarded = new Headers(request.headers)
+  forwarded.set('x-nonce', nonce)
+  forwarded.set('Content-Security-Policy', policy)
+  const next = () => withCsp(NextResponse.next({ request: { headers: forwarded } }), policy)
+
   const { userId } = await auth()
   const signedIn = Boolean(userId)
   const { pathname } = request.nextUrl
@@ -55,7 +81,7 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
   if (isProtectedRoute && !signedIn) {
     const signInUrl = new URL('/signin', request.url)
     signInUrl.searchParams.set('callbackUrl', pathname)
-    return NextResponse.redirect(signInUrl)
+    return withCsp(NextResponse.redirect(signInUrl), policy)
   }
 
   if (isAuthRoute && signedIn) {
@@ -66,41 +92,29 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     // /dashboard, forever. Serving the page instead lets its Clerk component load
     // clerk-js, which refreshes the cookie and moves on.
     if ((await onboardingState(request)) !== 'unknown') {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      return withCsp(NextResponse.redirect(new URL('/dashboard', request.url)), policy)
     }
-    return NextResponse.next()
+    return next()
   }
 
   if (pathname === '/onboarding' && signedIn) {
     if ((await onboardingState(request)) === 'complete') {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      return withCsp(NextResponse.redirect(new URL('/dashboard', request.url)), policy)
     }
   }
 
   if (isProtectedRoute && pathname !== '/onboarding' && signedIn) {
     if ((await onboardingState(request)) === 'incomplete') {
-      return NextResponse.redirect(new URL('/onboarding', request.url))
+      return withCsp(NextResponse.redirect(new URL('/onboarding', request.url)), policy)
     }
   }
 
-  return NextResponse.next()
+  return next()
 })
 
-// Page routes only. API routes (including the Clerk webhook, whose only
-// credential is its signature) are not matched: they authenticate themselves.
+// Every page (each gets its Content-Security-Policy here); the redirects above apply only to the routes they name. API routes (including the Clerk
+// webhook, whose only credential is its signature) are not matched: they authenticate themselves, and get their headers from next.config.js. Next's
+// own static files and anything with a file extension are not matched either.
 export const config = {
-  matcher: [
-    '/dashboard/:path*',
-    '/profile/edit',
-    '/projects/new',
-    '/teams/new',
-    '/hackathons/new',
-    '/messages/:path*',
-    '/notifications',
-    '/settings/:path*',
-    '/signin/:path*',
-    '/signup/:path*',
-    '/error',
-    '/onboarding',
-  ],
+  matcher: ['/((?!api/|_next/static|_next/image|favicon.ico|.*\\..*).*)'],
 }
