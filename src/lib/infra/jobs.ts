@@ -195,6 +195,45 @@ export const jobs = {
     concurrency: 1,
     handler: async () => (await import('@/lib/squads/pool')).runSquadSweepJob(),
   }),
+  // Finds groups of accounts boosting each other in the last 30 days and lowers the weight of what they gave each other (src/lib/integrity/collusion-job.ts).
+  // Nightly; safe to repeat (a group is one signal, updated by later runs; a dismissed group is left alone).
+  'integrity/collusion': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '30 2 * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/integrity/collusion-job')).runCollusionJob(),
+  }),
+  // Recomputes everyone's risk score from their signals, after the collusion run (src/lib/integrity/risk-job.ts). Nightly; safe to repeat.
+  'integrity/risk': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 3 * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/integrity/risk-job')).runRiskJob(),
+  }),
+  // Builds one person's data export into the bucket and tells them it is ready (src/lib/privacy/export.ts). Queued by POST /api/users/me/export.
+  'privacy/export': defineJob({
+    schema: z.object({ exportId: z.string().min(1).max(64) }),
+    retries: 2,
+    concurrency: 4,
+    handler: async ({ data }) => (await import('@/lib/privacy/export')).runExportJob(data),
+  }),
+  // Deletes what the retention rules say is old enough (src/lib/privacy/retention.ts): product events, expired drops, resolved reports, export files.
+  // Nightly; safe to repeat.
+  'privacy/retention': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '15 5 * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/privacy/retention')).runRetentionJob(),
+  }),
+  // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
+  'media/scan': defineJob({
+    schema: z.object({ assetId: z.string().min(1).max(64) }),
+    retries: 5,
+    handler: async ({ data }) => (await import('@/lib/media-assets')).runMediaScanJob(data),
+  }),
 } satisfies JobRegistry
 
 export type Jobs = typeof jobs

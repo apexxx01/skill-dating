@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { env } from '@/lib/env'
 import { createKidGuard, tokenKid } from '@/lib/jwks-guard'
 import { consumeSafely, type RateLimitDecision } from '@/lib/rate-limiter'
-import { AccountConflictError, SELECTED_USER_FIELDS, syncClerkUser, type LocalUser } from '@/lib/user-sync'
+import { AccountConflictError, SELECTED_USER_FIELDS, SignupRefusedError, syncClerkUser, type LocalUser } from '@/lib/user-sync'
+import { SIGNUP_LIMIT } from '@/lib/identity/signup'
 import { log } from '@/lib/log'
 
 // Request authentication. The session token is verified here, directly, against
@@ -15,6 +16,8 @@ export interface Identity {
   clerkId: string
   sessionId: string | null
   expiresAt: Date | null
+  /** Minutes since the first factor was verified (the token's `fva` claim), or null when the token does not say. Read by recent-auth.ts. */
+  factorAgeMinutes?: number | null
 }
 
 export type AuthOutcome =
@@ -24,12 +27,14 @@ export type AuthOutcome =
   | { kind: 'conflict' }
   | { kind: 'limited'; decision: RateLimitDecision }
   | { kind: 'unavailable' }
+  | { kind: 'refused'; code: SignupRefusedError['code'] }
 
 interface SessionClaims {
   sub?: unknown
   sid?: unknown
   sts?: unknown
   exp?: unknown
+  fva?: unknown
 }
 
 const kidGuard = createKidGuard(async () => {
@@ -88,6 +93,8 @@ export async function verifyIdentity(headers: Headers): Promise<Identity | null>
       clerkId: claims.sub,
       sessionId: typeof claims.sid === 'string' ? claims.sid : null,
       expiresAt: typeof claims.exp === 'number' ? new Date(claims.exp * 1000) : null,
+      // [first factor age, second factor age] in minutes; -1 means never verified in this session.
+      factorAgeMinutes: Array.isArray(claims.fva) && typeof claims.fva[0] === 'number' && claims.fva[0] >= 0 ? claims.fva[0] : null,
     }
   } catch {
     return null
@@ -99,7 +106,7 @@ function isNotFound(error: unknown): boolean {
 }
 
 /** The local row for a verified Clerk account, created or linked on first sight. */
-export async function resolveLocalUser(clerkId: string): Promise<Exclude<AuthOutcome, { kind: 'anonymous' }>> {
+export async function resolveLocalUser(clerkId: string, options: { ip?: string | null } = {}): Promise<Exclude<AuthOutcome, { kind: 'anonymous' }>> {
   const existing = await prisma.user.findUnique({ where: { clerkId }, select: SELECTED_USER_FIELDS })
   if (existing) return { kind: 'ok', user: existing, identity: { clerkId, sessionId: null, expiresAt: null } }
 
@@ -108,10 +115,18 @@ export async function resolveLocalUser(clerkId: string): Promise<Exclude<AuthOut
 
   try {
     const clerkUser = await (await clerkClient()).users.getUser(clerkId)
-    const user = await syncClerkUser(clerkUser)
+    const user = await syncClerkUser(clerkUser, prisma, {
+      // New accounts from one client address are limited (src/lib/identity/signup.ts). Without a trusted proxy there is no address to count.
+      beforeCreate: async () => {
+        if (!options.ip) return
+        const decision = await consumeSafely(`signup:ip:${options.ip}`, SIGNUP_LIMIT)
+        if (!decision.allowed) throw new SignupRefusedError('SIGNUP_RATE_LIMITED')
+      },
+    })
     return { kind: 'ok', user, identity: { clerkId, sessionId: null, expiresAt: null } }
   } catch (error) {
     if (error instanceof AccountConflictError) return { kind: 'conflict' }
+    if (error instanceof SignupRefusedError) return { kind: 'refused', code: error.code }
     // The token verified but Clerk no longer knows the account.
     if (isNotFound(error)) return { kind: 'deleted' }
     log.error('user sync failed', { error })
@@ -119,10 +134,10 @@ export async function resolveLocalUser(clerkId: string): Promise<Exclude<AuthOut
   }
 }
 
-export async function authenticate(headers: Headers): Promise<AuthOutcome> {
+export async function authenticate(headers: Headers, options: { ip?: string | null } = {}): Promise<AuthOutcome> {
   const identity = await verifyIdentity(headers)
   if (!identity) return { kind: 'anonymous' }
-  const outcome = await resolveLocalUser(identity.clerkId)
+  const outcome = await resolveLocalUser(identity.clerkId, options)
   if (outcome.kind !== 'ok') return outcome
   if (outcome.user.deletedAt) return { kind: 'deleted' }
   return { kind: 'ok', user: outcome.user, identity }

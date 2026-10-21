@@ -1,0 +1,7 @@
+{
+  "_comment": "The current version of each document a person consents to (src/lib/privacy/consent.ts). Versions are dates (YYYY-MM-DD) and compare as text. Raising TERMS or PRIVACY asks everybody who accepted an older version to accept again (403 CONSENT_REQUIRED on writes) - change it together with the published document.",
+  "TERMS": "2026-10-01",
+  "PRIVACY": "2026-10-01",
+  "ROMANCE_MODE": "2026-10-01",
+  "MARKETING": "2026-10-01"
+}

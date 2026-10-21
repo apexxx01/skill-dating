@@ -1,0 +1,23 @@
+{
+  "_comment": "Server-side content checks (src/lib/safety/content.ts). Each entry is matched on the normalised text (lowercase, accents and look-alike characters folded, punctuation as spaces), as whole words. severity 'hard' rejects the text (400 CONTENT_REJECTED); 'soft' lets it through and files an automatic report for a moderator. This file is a starting set of scam and spam phrases: Trust & Safety owns the production list and changes it by deploy. Keep slurs and similar terms in the production list only.",
+  "terms": [
+    { "term": "send me your password", "severity": "hard" },
+    { "term": "share your otp", "severity": "hard" },
+    { "term": "send me the otp", "severity": "hard" },
+    { "term": "verification code you received", "severity": "hard" },
+    { "term": "guaranteed returns", "severity": "hard" },
+    { "term": "double your crypto", "severity": "hard" },
+    { "term": "double your bitcoin", "severity": "hard" },
+    { "term": "send gift cards", "severity": "hard" },
+    { "term": "wire me", "severity": "soft" },
+    { "term": "investment opportunity", "severity": "soft" },
+    { "term": "forex signals", "severity": "soft" },
+    { "term": "crypto signals", "severity": "soft" },
+    { "term": "work from home and earn", "severity": "soft" },
+    { "term": "click my link", "severity": "soft" },
+    { "term": "check my bio", "severity": "soft" },
+    { "term": "buy followers", "severity": "soft" },
+    { "term": "paid promotion", "severity": "soft" }
+  ],
+  "linkShorteners": ["bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "buff.ly", "cutt.ly", "rebrand.ly", "shorturl.at", "rb.gy", "t.ly"]
+}

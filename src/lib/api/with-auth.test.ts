@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 
 vi.mock('@/lib/session', () => ({ authenticate: vi.fn() }))
 vi.mock('@/lib/prisma', () => ({ prisma: {}, default: {} }))
+vi.mock('@/lib/api/gate', () => ({ gateRequest: vi.fn().mockResolvedValue(null) }))
+vi.mock('@/lib/integrity/risk-job', () => ({ recordThrottleHit: vi.fn() }))
 vi.mock('@/lib/rate-limiter', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/rate-limiter')>()),
   enforceRateLimit: vi.fn().mockResolvedValue(null),
@@ -12,6 +14,8 @@ vi.mock('@/lib/rate-limiter', async (importOriginal) => ({
 import { authenticate } from '@/lib/session'
 import { consumeSafely, enforceRateLimit } from '@/lib/rate-limiter'
 import { withAuth } from './handler'
+import { gateRequest } from './gate'
+import { errorResponse } from './errors'
 import { setCache } from '@/lib/infra/cache'
 import { MemoryCache } from '@/lib/infra/cache.memory'
 import { resetEnvCache } from '@/lib/env'
@@ -193,5 +197,24 @@ describe('idempotent option', () => {
     const other = await route(request('POST', headers, { a: 1 }))
     expect(other.headers.get('Idempotent-Replayed')).toBeNull()
     expect(handler).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('request gate', () => {
+  it('answers with what the gate refuses, after the role check and before the handler', async () => {
+    signedIn()
+    vi.mocked(gateRequest).mockResolvedValueOnce(errorResponse('ACCOUNT_SUSPENDED'))
+    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
+    const res = await withAuth(handler)(request('POST', {}, {}))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('ACCOUNT_SUSPENDED')
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('lets the request through when the gate has nothing to say', async () => {
+    signedIn()
+    const handler = vi.fn(async () => NextResponse.json({ ok: true }))
+    expect((await withAuth(handler)(request())).status).toBe(200)
+    expect(handler).toHaveBeenCalled()
   })
 })

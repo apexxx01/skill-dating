@@ -8,6 +8,10 @@ import { withIdempotency } from '@/lib/api/idempotency'
 import { getCache } from '@/lib/infra/cache'
 import { log, requestIdFrom, runWithRequestId } from '@/lib/log'
 import { MIN_PLATFORM_AGE } from '@/lib/age-policy'
+import { MAX_BODY_BYTES } from '@/lib/api/limits'
+import { gateRequest } from '@/lib/api/gate'
+import type { SessionInfo } from '@/lib/api/recent-auth'
+import { recordThrottleHit } from '@/lib/integrity/risk-job'
 
 /**
  * What a person refused for being under the platform's minimum age (User.birthDateRefusedAt) can still do: see who they are, ask for a correction of
@@ -30,6 +34,8 @@ export interface AuthenticatedUser {
 export interface ApiContext {
   user: AuthenticatedUser
   prisma: typeof prisma
+  /** The session the request came with, for routes that need a recent sign-in (src/lib/api/recent-auth.ts). */
+  session: SessionInfo
 }
 
 export type ApiHandler<T = unknown> = (
@@ -98,7 +104,7 @@ async function handleAuthenticated(
   onUser: (userId: string) => void
 ): Promise<NextResponse> {
   // The session token is verified here, per request; see session.ts.
-  const outcome = await authenticate(request.headers)
+  const outcome = await authenticate(request.headers, { ip: clientIp(request) })
 
   switch (outcome.kind) {
     case 'anonymous': {
@@ -119,6 +125,8 @@ async function handleAuthenticated(
       return tooManyRequests(outcome.decision)
     case 'unavailable':
       return errorResponse('AUTH_UNAVAILABLE')
+    case 'refused':
+      return errorResponse(outcome.code)
   }
 
   const { user } = outcome
@@ -131,12 +139,20 @@ async function handleAuthenticated(
   // Keyed on the LOCAL user id: it cannot be forged or shared, unlike an IP.
   if (options.rateLimit) {
     const rateLimitResponse = await rateLimit(options.rateLimit)(request, user.id)
-    if (rateLimitResponse) return rateLimitResponse
+    if (rateLimitResponse) {
+      // Running into limits is one of the signals of the risk score (src/lib/integrity/risk.ts).
+      if (rateLimitResponse.status === 429) await recordThrottleHit(prisma, user.id, options.rateLimit.keyPrefix)
+      return rateLimitResponse
+    }
   }
 
   if (options.requiredRole && !options.requiredRole.includes(user.role)) {
     return errorResponse('FORBIDDEN')
   }
+
+  // Suspensions, bans, kill switches, feature restrictions, re-consent and the tighter limits of a HIGH risk account (gate.ts).
+  const gated = await gateRequest(prisma, user, request.method, new URL(request.url).pathname)
+  if (gated) return gated
 
   const context: ApiContext = {
     user: {
@@ -147,7 +163,8 @@ async function handleAuthenticated(
       image: user.image,
       role: user.role
     },
-    prisma
+    prisma,
+    session: { id: outcome.identity?.sessionId ?? null, factorAgeMinutes: outcome.identity?.factorAgeMinutes ?? null },
   }
 
   if (options.idempotent && request.method === 'POST') {
@@ -156,21 +173,34 @@ async function handleAuthenticated(
   return handler(request, context)
 }
 
+/**
+ * The request body as text, refused with 413 PAYLOAD_TOO_LARGE above `maxBytes` (MAX_BODY_BYTES by default): by the declared length before anything
+ * is read, and by what actually arrived. Every route reads its body through here, directly or through validateBody.
+ */
+export async function readBodyText(request: Request, maxBytes: number = MAX_BODY_BYTES): Promise<string | NextResponse> {
+  const declared = Number(request.headers.get('content-length') ?? 0)
+  if (Number.isFinite(declared) && declared > maxBytes) return errorResponse('PAYLOAD_TOO_LARGE')
+  const text = await request.text()
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) return errorResponse('PAYLOAD_TOO_LARGE')
+  return text
+}
+
 // `I` is what the client sends and `T` what the route gets: they differ for a schema with defaults or transforms.
 export function validateBody<T, I = T>(schema: z.ZodType<T, z.ZodTypeDef, I>) {
   return async (request: NextRequest): Promise<{ data: T } | NextResponse> => {
+    const raw = await readBodyText(request)
+    if (raw instanceof NextResponse) return raw
+    let body: unknown
     try {
-      const body = await request.json()
-      const result = schema.safeParse(body)
-      
-      if (!result.success) {
-        return errorResponse('VALIDATION_FAILED', { details: result.error.flatten().fieldErrors })
-      }
-
-      return { data: result.data }
+      body = JSON.parse(raw)
     } catch {
       return errorResponse('INVALID_JSON')
     }
+    const result = schema.safeParse(body)
+    if (!result.success) {
+      return errorResponse('VALIDATION_FAILED', { details: result.error.flatten().fieldErrors })
+    }
+    return { data: result.data }
   }
 }
 

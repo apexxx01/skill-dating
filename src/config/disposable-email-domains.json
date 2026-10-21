@@ -1,0 +1,12 @@
+{
+  "_comment": "Throwaway e-mail domains refused at sign-up (src/lib/identity/signup.ts). Lowercase registrable domains; a subdomain of an entry is refused too. Update from a maintained list (for example github.com/disposable-email-domains) and deploy; keep entries sorted.",
+  "domains": [
+    "10minutemail.com", "20minutemail.com", "33mail.com", "anonaddy.me", "burnermail.io", "discard.email", "dispostable.com", "emailondeck.com",
+    "fakeinbox.com", "fakemail.net", "getairmail.com", "getnada.com", "guerrillamail.biz", "guerrillamail.com", "guerrillamail.de", "guerrillamail.net",
+    "guerrillamail.org", "guerrillamailblock.com", "harakirimail.com", "inboxbear.com", "incognitomail.org", "jetable.org", "mailcatch.com",
+    "maildrop.cc", "mailinator.com", "mailinator.net", "mailnesia.com", "mailpoof.com", "mailsac.com", "mintemail.com", "moakt.com", "mohmal.com",
+    "mytemp.email", "nada.email", "sharklasers.com", "spam4.me", "spamgourmet.com", "temp-mail.io", "temp-mail.org", "tempail.com",
+    "tempmail.com", "tempmail.dev", "tempmail.net", "tempmailo.com", "tempr.email", "throwawaymail.com", "trashmail.com", "trashmail.de",
+    "yopmail.com", "yopmail.fr", "yopmail.net"
+  ]
+}

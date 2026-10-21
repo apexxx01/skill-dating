@@ -1,0 +1,14 @@
+{
+  "_comment": "Usernames nobody can have, and that a name may not imitate (src/lib/identity/usernames.ts). Lowercase. Add the product's final name and any brand the team wants protected; the confusable check also refuses look-alikes of every entry.",
+  "names": [
+    "admin", "administrator", "root", "system", "sysadmin", "staff", "team", "support", "help", "helpdesk", "moderator", "mod", "mods",
+    "trust", "safety", "trustandsafety", "security", "abuse", "legal", "privacy", "compliance", "billing", "payments", "official", "verified",
+    "skilldating", "skill_dating", "skill-dating", "skilldate", "skill", "dating",
+    "github", "google", "microsoft", "apple", "meta", "facebook", "instagram", "linkedin", "twitter", "x", "openai", "vercel", "stripe",
+    "clerk", "ably", "devpost", "mlh", "ycombinator", "yc",
+    "api", "app", "www", "mail", "email", "auth", "signin", "signup", "login", "logout", "register", "onboarding", "settings", "account",
+    "dashboard", "discover", "hackathons", "hackathon", "messages", "notifications", "profile", "projects", "teams", "squads", "crews",
+    "feed", "ship", "drops", "sparks", "matches", "romance", "leaderboard", "leaderboards", "quests", "search", "explore", "about",
+    "terms", "status", "health", "null", "undefined", "anonymous", "deleted", "me", "you", "everyone", "here"
+  ]
+}

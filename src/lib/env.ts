@@ -64,9 +64,19 @@ const envSchema = z.object({
     // Where objects are served publicly, if the bucket is (a CDN or the bucket's public domain). Without it every read is a short-lived signed URL.
     STORAGE_PUBLIC_BASE_URL: z.string().url('must be a URL').optional(),
 
+    // Media moderation (src/lib/infra/media-moderation.ts): a provider that scans romance photos and avatars before they are shown, behind a small JSON
+    // contract. Without one, production refuses those uploads (fail closed); development and tests treat everything as safe.
+    MEDIA_MODERATION_URL: z.string().url('must be a URL').optional(),
+    MEDIA_MODERATION_TOKEN: z.string().min(1).optional(),
+
     // Whether finishing onboarding needs a date of birth (the platform age policy, docs/SAFETY.md). On by default; the switch exists so a deploy that
     // reaches users before the onboarding screen asks for the date can be rolled out in two steps.
     BIRTH_DATE_REQUIRED: flag('true'),
+
+    // Whether finishing onboarding needs the current terms and privacy notice accepted (src/lib/privacy/consent.ts). On by default; like
+    // BIRTH_DATE_REQUIRED it can be switched off for the window before the onboarding screen asks for it. Re-consent to a newer version is enforced
+    // whatever this says.
+    CONSENT_REQUIRED: flag('true'),
 
     // Plan limits (src/lib/entitlements.ts). Off: every feature is open to everyone
     // and only the hard safety ceilings apply. On: the limits of the user's plan apply.
@@ -108,6 +118,7 @@ const CREDENTIAL_PAIRS: [Setting, Setting][] = [
   ['STORAGE_ENDPOINT', 'STORAGE_BUCKET'],
   ['STORAGE_ENDPOINT', 'STORAGE_ACCESS_KEY_ID'],
   ['STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'],
+  ['MEDIA_MODERATION_URL', 'MEDIA_MODERATION_TOKEN'],
 ]
 
 // Services the in-memory stand-ins replace when they are not configured. Each
