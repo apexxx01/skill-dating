@@ -15,7 +15,7 @@ type Db = PrismaClient
 // BlurHash alphabet (base 83) and a sane length.
 export const BLUR_HASH = /^[0-9A-Za-z#$%*+,\-.:;=?@[\]^_{|}~]{6,100}$/
 
-export const addPhotoSchema = z.object({ assetId: z.string().min(1).max(64), blurHash: z.string().regex(BLUR_HASH, 'A BlurHash string').nullable().default(null) }).strict()
+export const addPhotoSchema = z.object({ assetId: z.string().min(1).max(64), blurHash: z.string().max(100).regex(BLUR_HASH, 'A BlurHash string').nullable().default(null) }).strict()
 
 export type PhotoResult = { ok: true; id: string; position: number } | { ok: false; code: ErrorCode; details?: unknown }
 

@@ -4,7 +4,7 @@ import { z } from 'zod'
 // BEFORE it is uploaded; the server checks the declaration here, hands out a presigned URL only for a declaration that passes (src/lib/infra/storage.ts),
 // and checks the real object against it once it is uploaded (src/lib/media-assets.ts). Nothing is trusted from the declaration alone.
 
-export const MEDIA_PURPOSES = ['POST_MEDIA', 'ROMANCE_PHOTO'] as const
+export const MEDIA_PURPOSES = ['POST_MEDIA', 'ROMANCE_PHOTO', 'AVATAR'] as const
 export type MediaPurpose = (typeof MEDIA_PURPOSES)[number]
 
 export const MEDIA_TYPES = ['IMAGE', 'GIF', 'VIDEO'] as const
@@ -41,6 +41,12 @@ export const MEDIA_LIMITS = {
 /** What a romance photo must meet, on top of the rules for any image. The romance mode's own config (src/lib/romance/config.ts) takes these as its photo limits. */
 export const ROMANCE_PHOTO_LIMITS = { max: 6, maxBytes: 8 * MB, minWidth: 400, minHeight: 400, maxDimension: 8000 } as const
 
+/** A profile picture: a still image, at most 5 MB, at least 64 pixels a side. Scanned before it is shown, like a romance photo. */
+export const AVATAR_LIMITS = { maxBytes: 5 * MB, minSide: 64 } as const
+
+/** Purposes whose files are scanned (src/lib/infra/media-moderation.ts) before anyone else can see them. */
+export const SCANNED_PURPOSES: readonly MediaPurpose[] = ['ROMANCE_PHOTO', 'AVATAR']
+
 export const SHA256_PATTERN = /^[a-f0-9]{64}$/
 
 export const mediaDeclarationSchema = z
@@ -51,7 +57,7 @@ export const mediaDeclarationSchema = z
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     durationMs: z.number().int().positive().optional(),
-    sha256: z.string().regex(SHA256_PATTERN, 'A lower-case hex SHA-256 of the file'),
+    sha256: z.string().max(64).regex(SHA256_PATTERN, 'A lower-case hex SHA-256 of the file'),
   })
   .strict()
 
@@ -72,9 +78,10 @@ export function checkDeclaration(declaration: MediaDeclaration): MediaCheck {
   const rule = ALLOWED_CONTENT_TYPES[declaration.contentType.toLowerCase()]
   if (!rule) return { ok: false, problems: [{ problem: 'TYPE_NOT_ALLOWED', message: 'Use JPEG, PNG, WebP, GIF, MP4 or WebM' }] }
 
-  if (declaration.purpose === 'ROMANCE_PHOTO' && rule.type !== 'IMAGE') problems.push({ problem: 'PURPOSE_TYPE_MISMATCH', message: 'A profile photo must be a JPEG, PNG or WebP image' })
+  if ((declaration.purpose === 'ROMANCE_PHOTO' || declaration.purpose === 'AVATAR') && rule.type !== 'IMAGE') problems.push({ problem: 'PURPOSE_TYPE_MISMATCH', message: 'A profile photo must be a JPEG, PNG or WebP image' })
 
-  const maxBytes = declaration.purpose === 'ROMANCE_PHOTO' ? Math.min(rule.maxBytes, ROMANCE_PHOTO_LIMITS.maxBytes) : rule.maxBytes
+  const purposeMax = declaration.purpose === 'ROMANCE_PHOTO' ? ROMANCE_PHOTO_LIMITS.maxBytes : declaration.purpose === 'AVATAR' ? AVATAR_LIMITS.maxBytes : Infinity
+  const maxBytes = Math.min(rule.maxBytes, purposeMax)
   if (declaration.bytes > maxBytes) problems.push({ problem: 'TOO_LARGE', message: `At most ${Math.floor(maxBytes / MB)} MB` })
 
   const { minSide, maxSide } = MEDIA_LIMITS
@@ -83,6 +90,9 @@ export function checkDeclaration(declaration: MediaDeclaration): MediaCheck {
   }
   if (declaration.purpose === 'ROMANCE_PHOTO' && (declaration.width < ROMANCE_PHOTO_LIMITS.minWidth || declaration.height < ROMANCE_PHOTO_LIMITS.minHeight)) {
     problems.push({ problem: 'TOO_SMALL', message: `At least ${ROMANCE_PHOTO_LIMITS.minWidth} by ${ROMANCE_PHOTO_LIMITS.minHeight} pixels` })
+  }
+  if (declaration.purpose === 'AVATAR' && (declaration.width < AVATAR_LIMITS.minSide || declaration.height < AVATAR_LIMITS.minSide)) {
+    problems.push({ problem: 'TOO_SMALL', message: `At least ${AVATAR_LIMITS.minSide} by ${AVATAR_LIMITS.minSide} pixels` })
   }
 
   if (rule.type === 'VIDEO') {
@@ -96,7 +106,7 @@ export function checkDeclaration(declaration: MediaDeclaration): MediaCheck {
 
 /** Where an object lives. Content-addressed per owner and purpose, so the same file uploaded twice is one object. */
 export function objectKey(purpose: MediaPurpose, ownerId: string, sha256: string, extension: string): string {
-  const folder = purpose === 'ROMANCE_PHOTO' ? 'romance' : 'posts'
+  const folder = purpose === 'ROMANCE_PHOTO' ? 'romance' : purpose === 'AVATAR' ? 'avatars' : 'posts'
   return `${folder}/${ownerId}/${sha256}.${extension}`
 }
 

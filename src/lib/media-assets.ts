@@ -2,7 +2,8 @@ import { Prisma, type MediaAsset, type PrismaClient } from '@prisma/client'
 import type { ErrorCode } from '@/lib/api/errors'
 import { log } from '@/lib/log'
 import { StorageUnavailableError, type PresignedUpload, type Storage } from '@/lib/infra/storage'
-import { checkDeclaration, MEDIA_LIMITS, objectKey, objectMatches, type MediaDeclaration, type MediaPurpose } from './media'
+import { checkDeclaration, MEDIA_LIMITS, objectKey, objectMatches, SCANNED_PURPOSES, type MediaDeclaration, type MediaPurpose } from './media'
+import { getMediaScanner, isMinorSafetyLabel, type MediaScanner, type ScanResult } from '@/lib/infra/media-moderation'
 
 // The life of an upload: declare, upload, confirm.
 //
@@ -27,8 +28,10 @@ export async function requestUpload(
   storage: Storage,
   ownerId: string,
   declaration: MediaDeclaration,
-  options: { origin?: string; now?: Date } = {}
+  options: { origin?: string; now?: Date; scanner?: MediaScanner } = {}
 ): Promise<RequestUploadResult> {
+  // Files that are scanned before they are shown are refused outright when no scanner is configured (fail closed, src/lib/infra/media-moderation.ts).
+  if (SCANNED_PURPOSES.includes(declaration.purpose) && !(options.scanner ?? getMediaScanner()).available) return fail('MEDIA_SCANNING_UNAVAILABLE')
   const check = checkDeclaration(declaration)
   if (!check.ok || !check.type || !check.extension) return fail('MEDIA_INVALID', { problems: check.problems })
 
@@ -93,7 +96,8 @@ export async function completeUpload(db: PrismaClient, storage: Storage, ownerId
   const asset = await db.mediaAsset.findUnique({ where: { id: assetId } })
   // Somebody else's upload does not exist as far as you are concerned.
   if (!asset || asset.ownerId !== ownerId) return fail('MEDIA_NOT_FOUND')
-  if (asset.status === 'READY') return { ok: true, asset }
+  if (asset.status === 'READY' || asset.status === 'SCANNING' || asset.status === 'IN_REVIEW') return { ok: true, asset }
+  if (asset.status === 'BLOCKED') return fail('MEDIA_INVALID', { problems: [{ problem: 'BLOCKED' }] })
 
   try {
     const object = await storage.head(asset.key)
@@ -103,12 +107,66 @@ export async function completeUpload(db: PrismaClient, storage: Storage, ownerId
       await storage.remove(asset.key).catch((error) => log.warn('could not remove a rejected upload', { error, key: asset.key }))
       return fail('MEDIA_MISMATCH', { declared: { bytes: asset.bytes, contentType: asset.contentType }, found: { bytes: object.size, contentType: object.contentType } })
     }
+    if (SCANNED_PURPOSES.includes(asset.purpose)) {
+      // Uploaded and as declared, but not served until the scanner has looked at it.
+      const held = await db.mediaAsset.update({ where: { id: asset.id }, data: { status: 'SCANNING', confirmedAt: now } })
+      return { ok: true, asset: await scanAsset(db, storage, held, now) }
+    }
     const ready = await db.mediaAsset.update({ where: { id: asset.id }, data: { status: 'READY', confirmedAt: now } })
     return { ok: true, asset: ready }
   } catch (error) {
     if (error instanceof StorageUnavailableError) return fail('STORAGE_UNAVAILABLE')
     throw error
   }
+}
+
+/**
+ * Asks the scanner about an uploaded file that must be scanned (status SCANNING) and acts on the answer: SAFE makes it READY; NEEDS_REVIEW holds it
+ * (IN_REVIEW) and files a report for a moderator; BLOCKED deletes the object at once and keeps only the hash, the verdict and the labels. A scanner that
+ * fails leaves the file SCANNING and queues `media/scan` to try again. Never serves the file before a verdict.
+ */
+export async function scanAsset(db: PrismaClient, storage: Storage, asset: MediaAsset, now: Date = new Date(), scanner: MediaScanner = getMediaScanner()): Promise<MediaAsset> {
+  if (asset.status !== 'SCANNING') return asset
+  let result: ScanResult
+  try {
+    result = await scanner.scan({ url: await storage.signedReadUrl(asset.key, 15 * 60), contentType: asset.contentType, sha256: asset.sha256 })
+  } catch (error) {
+    log.warn('media scan failed; will retry', { error: error instanceof Error ? error.message : 'unknown', assetId: asset.id })
+    const { getJobQueue } = await import('@/lib/infra/jobs')
+    await getJobQueue().enqueue('media/scan', { assetId: asset.id }).catch(() => undefined)
+    return asset
+  }
+  const scanned = { scanVerdict: result.verdict, scanLabels: result.labels, scannedAt: now }
+  if (result.verdict === 'SAFE') return db.mediaAsset.update({ where: { id: asset.id }, data: { ...scanned, status: 'READY' } })
+  if (result.verdict === 'NEEDS_REVIEW') {
+    const held = await db.mediaAsset.update({ where: { id: asset.id }, data: { ...scanned, status: 'IN_REVIEW' } })
+    await (await import('@/lib/moderation/reports')).fileAutomatedReport(db, {
+      targetType: 'MEDIA',
+      targetId: asset.id,
+      reason: result.labels.some(isMinorSafetyLabel) ? 'MINOR_SAFETY' : 'INAPPROPRIATE_CONTENT',
+      description: `The media scanner asked for a review (${result.labels.join(', ') || 'no labels'})`,
+      details: { labels: result.labels },
+    })
+    return held
+  }
+  // BLOCKED: nothing is kept beyond what the rules need: the object goes now.
+  await storage.remove(asset.key).catch((error) => log.warn('could not remove a blocked upload', { error, assetId: asset.id }))
+  const blocked = await db.mediaAsset.update({ where: { id: asset.id }, data: { ...scanned, status: 'BLOCKED' } })
+  if (result.labels.some(isMinorSafetyLabel)) {
+    await (await import('@/lib/moderation/reports')).fileAutomatedReport(db, { targetType: 'MEDIA', targetId: asset.id, reason: 'MINOR_SAFETY', description: 'The media scanner blocked an upload with child-safety labels: follow the legal reporting procedure (docs/SAFETY.md)', details: { labels: result.labels } })
+  }
+  return blocked
+}
+
+export async function runMediaScanJob(data: { assetId: string }): Promise<unknown> {
+  const { prisma } = await import('@/lib/prisma')
+  const { getStorage } = await import('@/lib/infra/storage')
+  const asset = await prisma.mediaAsset.findUnique({ where: { id: data.assetId } })
+  if (!asset) return { status: 'MISSING' }
+  const scanned = await scanAsset(prisma, getStorage(), asset)
+  // Still SCANNING means the scanner failed again: throw, so the queue retries with backoff.
+  if (scanned.status === 'SCANNING') throw new Error('media scan still pending')
+  return { status: scanned.status }
 }
 
 /** What a client is told about a ready asset. The URL is permanent when the bucket is public, otherwise a short-lived signed one. */

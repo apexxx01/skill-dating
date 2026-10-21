@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkDeclaration, mediaDeclarationSchema, objectKey, objectMatches, type MediaDeclaration } from './media'
+import { checkDeclaration, mediaDeclarationSchema, objectKey, objectMatches, SCANNED_PURPOSES, type MediaDeclaration } from './media'
 
 const sha = 'a'.repeat(64)
 const image = (over: Partial<MediaDeclaration> = {}): MediaDeclaration => ({ purpose: 'POST_MEDIA', contentType: 'image/png', bytes: 200_000, width: 1280, height: 720, sha256: sha, ...over })
@@ -56,7 +56,8 @@ describe('schema, keys and objects', () => {
     expect(mediaDeclarationSchema.safeParse(image()).success).toBe(true)
     expect(mediaDeclarationSchema.safeParse(image({ sha256: 'xyz' })).success).toBe(false)
     expect(mediaDeclarationSchema.safeParse(image({ sha256: 'A'.repeat(64) })).success).toBe(false)
-    expect(mediaDeclarationSchema.safeParse({ ...image(), purpose: 'AVATAR' }).success).toBe(false)
+    expect(mediaDeclarationSchema.safeParse({ ...image(), purpose: 'BANNER' }).success).toBe(false)
+    expect(mediaDeclarationSchema.safeParse({ ...image(), purpose: 'AVATAR' }).success).toBe(true)
     expect(mediaDeclarationSchema.safeParse({ ...image(), extra: 1 }).success).toBe(false)
     expect(mediaDeclarationSchema.safeParse(image({ bytes: -1 })).success).toBe(false)
     expect(mediaDeclarationSchema.safeParse(image({ bytes: 1.5 })).success).toBe(false)
@@ -73,5 +74,17 @@ describe('schema, keys and objects', () => {
     expect(objectMatches({ bytes: 10, contentType: 'image/png' }, { size: 10, contentType: null })).toBe(true)
     expect(objectMatches({ bytes: 10, contentType: 'image/png' }, { size: 11, contentType: 'image/png' })).toBe(false)
     expect(objectMatches({ bytes: 10, contentType: 'image/png' }, { size: 10, contentType: 'text/html' })).toBe(false)
+  })
+})
+
+describe('avatars', () => {
+  it('are still images of at most 5 MB and at least 64 pixels a side, kept under avatars/', () => {
+    const avatar = (over: Record<string, unknown> = {}) => ({ purpose: 'AVATAR' as const, contentType: 'image/png', bytes: 100_000, width: 256, height: 256, sha256: 'a'.repeat(64), ...over })
+    expect(checkDeclaration(avatar()).ok).toBe(true)
+    expect(checkDeclaration(avatar({ contentType: 'video/mp4', durationMs: 1000 })).problems.map((p) => p.problem)).toContain('PURPOSE_TYPE_MISMATCH')
+    expect(checkDeclaration(avatar({ bytes: 6 * 1024 * 1024 })).problems.map((p) => p.problem)).toContain('TOO_LARGE')
+    expect(checkDeclaration(avatar({ width: 32 })).problems.map((p) => p.problem)).toContain('TOO_SMALL')
+    expect(objectKey('AVATAR', 'u1', 'a'.repeat(64), 'png')).toBe(`avatars/u1/${'a'.repeat(64)}.png`)
+    expect(SCANNED_PURPOSES).toEqual(['ROMANCE_PHOTO', 'AVATAR'])
   })
 })

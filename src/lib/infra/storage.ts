@@ -30,8 +30,10 @@ export interface Storage {
   presignUpload(input: { key: string; contentType: string; ttlSeconds?: number; origin?: string }): Promise<PresignedUpload>
   /** The stored object's real size and type, or null when nothing is there. */
   head(key: string): Promise<ObjectInfo | null>
-  /** A short-lived URL to read a private object. */
-  signedReadUrl(key: string, ttlSeconds?: number): Promise<string>
+  /** A short-lived URL to read a private object. `origin` is used only by the in-memory stand-in (see presignUpload). */
+  signedReadUrl(key: string, ttlSeconds?: number, origin?: string): Promise<string>
+  /** Writes an object from this server (a data export). Uploads by people never come through here; they use presignUpload. */
+  put(key: string, body: string | Uint8Array, contentType: string): Promise<void>
   /** The permanent public URL of an object, when the bucket is served publicly (STORAGE_PUBLIC_BASE_URL); null otherwise. */
   publicUrl(key: string): string | null
   remove(key: string): Promise<void>
@@ -56,7 +58,7 @@ export interface S3Config {
   publicBaseUrl?: string
 }
 
-type FetchLike = (input: string, init?: { method?: string }) => Promise<Pick<Response, 'ok' | 'status' | 'headers'>>
+type FetchLike = (input: string, init?: { method?: string; body?: string | Uint8Array; headers?: Record<string, string> }) => Promise<Pick<Response, 'ok' | 'status' | 'headers'>>
 
 export class S3Storage implements Storage {
   readonly kind = 's3' as const
@@ -105,6 +107,11 @@ export class S3Storage implements Storage {
     return this.url('GET', key, ttlSeconds)
   }
 
+  async put(key: string, body: string | Uint8Array, contentType: string): Promise<void> {
+    const response = await this.fetcher(this.url('PUT', key, 60, { 'content-type': contentType }), { method: 'PUT', body, headers: { 'Content-Type': contentType } })
+    if (!response.ok) throw new Error(`storage PUT failed with ${response.status}`)
+  }
+
   publicUrl(key: string): string | null {
     return this.config.publicBaseUrl ? `${this.config.publicBaseUrl.replace(/\/+$/, '')}/${encodeKeyPath(key)}` : null
   }
@@ -124,6 +131,9 @@ export class UnavailableStorage implements Storage {
     throw new StorageUnavailableError()
   }
   async signedReadUrl(): Promise<string> {
+    throw new StorageUnavailableError()
+  }
+  async put(): Promise<void> {
     throw new StorageUnavailableError()
   }
   publicUrl(): string | null {

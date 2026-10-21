@@ -116,3 +116,30 @@ describe('createStorage', () => {
     expect(storageFor({ NODE_ENV: 'development' }).kind).toBe('memory')
   })
 })
+
+describe('put', () => {
+  it('writes an object with a signed PUT on S3', async () => {
+    const calls: { url: string; init?: { method?: string; headers?: Record<string, string> } }[] = []
+    const storage = new S3Storage(config, async (url, init) => {
+      calls.push({ url, init })
+      return { ok: true, status: 200, headers: new Headers() }
+    }, () => now)
+    await storage.put('exports/u1/x.json', '{}', 'application/json')
+    expect(calls[0].init).toMatchObject({ method: 'PUT', headers: { 'Content-Type': 'application/json' } })
+    expect(new URL(calls[0].url).pathname).toBe('/skill-dating/exports/u1/x.json')
+  })
+
+  it('keeps the bytes in memory, and forgets them on remove', async () => {
+    const storage = new MemoryStorage()
+    await storage.put('exports/u1/x.json', '{"a":1}', 'application/json')
+    expect(await storage.head('exports/u1/x.json')).toEqual({ size: 7, contentType: 'application/json' })
+    expect(new TextDecoder().decode(storage.contents.get('exports/u1/x.json'))).toBe('{"a":1}')
+    expect(await storage.signedReadUrl('exports/u1/x.json', 60, 'http://localhost:3000')).toMatch(/^http:\/\/localhost:3000\/api\/media\/dev-download\/exports\/u1\/x\.json\?expires=/)
+    await storage.remove('exports/u1/x.json')
+    expect(storage.contents.has('exports/u1/x.json')).toBe(false)
+  })
+
+  it('refuses when storage is not configured', async () => {
+    await expect(new UnavailableStorage().put()).rejects.toBeInstanceOf(StorageUnavailableError)
+  })
+})

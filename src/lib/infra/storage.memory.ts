@@ -10,6 +10,8 @@ const READ_URL_TTL_SECONDS = 15 * 60
 export class MemoryStorage implements Storage {
   readonly kind = 'memory' as const
   readonly objects = new Map<string, ObjectInfo>()
+  /** The bytes of objects written with put() (uploads by people keep only their size and type). */
+  readonly contents = new Map<string, Uint8Array>()
 
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
@@ -32,8 +34,16 @@ export class MemoryStorage implements Storage {
     return this.objects.get(key) ?? null
   }
 
-  async signedReadUrl(key: string, ttlSeconds = READ_URL_TTL_SECONDS): Promise<string> {
-    return `memory://read/${key}?expires=${Math.floor(this.clock().getTime() / 1000) + ttlSeconds}`
+  async signedReadUrl(key: string, ttlSeconds = READ_URL_TTL_SECONDS, origin?: string): Promise<string> {
+    const expires = Math.floor(this.clock().getTime() / 1000) + ttlSeconds
+    // With an origin the object is read through this server (GET /api/media/dev-download/<key>, only while this stand-in is in use).
+    return origin ? `${origin.replace(/\/+$/, '')}/api/media/dev-download/${key}?expires=${expires}` : `memory://read/${key}?expires=${expires}`
+  }
+
+  async put(key: string, body: string | Uint8Array, contentType: string): Promise<void> {
+    const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body
+    this.contents.set(key, bytes)
+    this.objects.set(key, { size: bytes.byteLength, contentType })
   }
 
   publicUrl(key: string): string | null {
@@ -42,5 +52,6 @@ export class MemoryStorage implements Storage {
 
   async remove(key: string): Promise<void> {
     this.objects.delete(key)
+    this.contents.delete(key)
   }
 }

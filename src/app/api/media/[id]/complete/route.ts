@@ -9,6 +9,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0] ?? ''
   const result = await completeUpload(prisma, getStorage(), user.id, id)
   if (!result.ok) return createApiError(result.code, { details: result.details })
-  const view = await toMediaView(getStorage(), result.asset)
-  return createApiResponse({ id: result.asset.id, purpose: result.asset.purpose, status: result.asset.status, type: view.type, width: view.width, height: view.height, durationMs: view.durationMs, url: view.url })
+  const asset = result.asset
+  // A file that is still being scanned or reviewed (profile photos of either kind) is never served: no URL until it is READY.
+  const url = asset.status === 'READY' ? (await toMediaView(getStorage(), asset)).url : null
+  return createApiResponse({ id: asset.id, purpose: asset.purpose, status: asset.status, type: asset.kind, width: asset.width, height: asset.height, durationMs: asset.durationMs, url })
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'media:complete' } })
