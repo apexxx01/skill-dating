@@ -40,6 +40,7 @@ export const romanceProfileSchema = z
     interestedIn: z
       .array(z.enum(GENDERS))
       .min(1, 'Choose at least one')
+      .max(GENDERS.length)
       .refine((items) => new Set(items).size === items.length, 'Each once'),
     ageMin: z.number().int().min(ROMANCE_CONFIG.minAge).max(ROMANCE_CONFIG.maxAge),
     ageMax: z.number().int().min(ROMANCE_CONFIG.minAge).max(ROMANCE_CONFIG.maxAge),

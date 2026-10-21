@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { INTEGRATION_DATABASE_URL } from './config'
 import { deleteRegisteredUsers } from './clerk-api'
+import legalVersions from '../../src/config/legal-versions.json'
 
 // A direct Prisma client against the same disposable integration database
 // the test server itself uses - for setup/teardown and assertions the HTTP
@@ -41,6 +42,13 @@ export function daytimeZone(now: Date = new Date()): string {
 /** Gives the account a zone where it is daytime now (daytimeZone). */
 export async function pinDaytime(userId: string): Promise<void> {
   await testPrisma.user.update({ where: { id: userId }, data: { timezone: daytimeZone() } })
+}
+
+/** Records the current terms and privacy notice as accepted, which onboarding needs while CONSENT_REQUIRED is on (src/lib/privacy/consent.ts). */
+export async function acceptLegalTerms(userId: string) {
+  await testPrisma.consentRecord.createMany({
+    data: (['TERMS', 'PRIVACY'] as const).map((type) => ({ userId, type, version: legalVersions[type], source: 'onboarding' })),
+  })
 }
 
 export async function promoteToAdmin(userId: string) {

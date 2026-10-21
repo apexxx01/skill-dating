@@ -1,3 +1,4 @@
+import { CURRENT_VERSIONS, loadConsentStates } from '@/lib/privacy/consent'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import type { ErrorCode } from '@/lib/api/errors'
 import { datingFactsSelect, datingRefusal, datingStatus, type DatingStatus } from '@/lib/matching/profile'
@@ -66,6 +67,12 @@ export async function saveRomanceProfile(db: PrismaClient, userId: string, input
 
   const problems = scopeProblems(input, { cityKey: user.profile?.cityKey ?? null, countryCode: user.profile?.countryCode ?? null })
   if (problems) return { ok: false, code: 'VALIDATION_FAILED', details: problems }
+
+  // Gender and who someone is interested in reveal sexual orientation (special-category data): the mode needs explicit consent (src/lib/privacy/consent.ts).
+  if (!(await loadConsentStates(db, userId)).ROMANCE_MODE.current) return { ok: false, code: 'ROMANCE_CONSENT_REQUIRED', details: { consent: { type: 'ROMANCE_MODE', version: CURRENT_VERSIONS.ROMANCE_MODE } } }
+  // A profile a moderator hid stays paused until they undo it.
+  const existing = await db.romanceProfile.findUnique({ where: { userId }, select: { moderatedAt: true } })
+  if (existing?.moderatedAt && !input.paused) return { ok: false, code: 'ROMANCE_PROFILE_HIDDEN' }
 
   const columns = profileColumns(input)
   await db.romanceProfile.upsert({ where: { userId }, create: { userId, ...columns }, update: columns })

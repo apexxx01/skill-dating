@@ -18,6 +18,7 @@ export const profileSettingsSchema = z
       .nullable(),
     countryCode: z
       .string()
+      .max(8)
       .trim()
       .refine((value) => normalizeCountryCode(value) !== null, 'Not an ISO 3166-1 alpha-2 country code such as "IN"')
       .nullable(),
@@ -27,7 +28,7 @@ export const profileSettingsSchema = z
     showActivity: z.boolean(),
     // PRIVATE: shown to nobody but the owner, here. Only used to check that someone is 18 or older for dating. Set once, then locked
     // (a minor must not be able to change it to an adult's); it cannot be cleared.
-    birthDate: z.string().refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15'),
+    birthDate: z.string().max(32).refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15'),
   })
   .partial()
   .strict()

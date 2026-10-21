@@ -5,6 +5,7 @@ import { INTEGRATION_DATABASE_URL } from './config'
 import { bornYearsAgo, removePeople } from './matching-fixtures'
 import { makeRomancePerson } from './romance-fixtures'
 import { ROMANCE_MODE_LABEL } from '../../src/lib/romance/config'
+import versions from '../../src/config/legal-versions.json'
 
 // The romance profile: opt-in, 18+, verified, work first with the private filters underneath, and left again at any time.
 describe('the romance profile', () => {
@@ -40,7 +41,7 @@ describe('the romance profile', () => {
     await cleanupTestUsers(suffix)
   }, 180_000)
 
-  async function user(over: { birthDate?: string | null; verified?: boolean; phone?: boolean; github?: boolean; countryCode?: string; cityKey?: string } = {}): Promise<TestUser> {
+  async function user(over: { birthDate?: string | null; verified?: boolean; phone?: boolean; github?: boolean; countryCode?: string; cityKey?: string; consent?: boolean } = {}): Promise<TestUser> {
     const name = `${tag}u${n++}`
     const u = await registerAndLogin(`${name}@test.dev`, name)
     await testPrisma.user.update({
@@ -53,6 +54,8 @@ describe('the romance profile', () => {
       },
     })
     if (over.countryCode || over.cityKey) await testPrisma.profile.create({ data: { userId: u.userId, countryCode: over.countryCode ?? null, cityKey: over.cityKey ?? null, city: over.cityKey ?? null } })
+    // The mode needs explicit consent; most tests here are about something else, so it is given up front.
+    if (over.consent !== false) await testPrisma.consentRecord.create({ data: { userId: u.userId, type: 'ROMANCE_MODE', version: versions.ROMANCE_MODE, source: 'api' } })
     return u
   }
   const get = (u: TestUser | null) => req(u?.jar ?? null, 'GET', '/api/romance/profile')
@@ -62,6 +65,35 @@ describe('the romance profile', () => {
     expect((await get(null)).status).toBe(401)
     expect((await put(null, profile)).status).toBe(401)
     expect((await req(null, 'DELETE', '/api/romance/profile')).status).toBe(401)
+  })
+
+  describe('consent: the mode handles special-category data', () => {
+    it('needs explicit consent to the mode before it can be turned on', async () => {
+      const u = await user({ consent: false })
+      const refused = await put(u, anywhere)
+      expect(refused.status).toBe(403)
+      expect(refused.data.error.code).toBe('ROMANCE_CONSENT_REQUIRED')
+      expect(refused.data.error.details.consent).toEqual({ type: 'ROMANCE_MODE', version: versions.ROMANCE_MODE })
+      expect((await req(u.jar, 'POST', '/api/users/me/consents', { type: 'ROMANCE_MODE', version: '2000-01-01' })).data.error.code).toBe('CONSENT_VERSION_UNKNOWN')
+      const granted = await req(u.jar, 'POST', '/api/users/me/consents', { type: 'ROMANCE_MODE', version: versions.ROMANCE_MODE, source: 'romance-optin' })
+      expect(granted.status).toBe(201)
+      expect(granted.data.consent).toMatchObject({ type: 'ROMANCE_MODE', current: true })
+      expect((await put(u, anywhere)).status).toBe(201)
+    }, 60_000)
+
+    it('turns the mode off and deletes its data when consent is withdrawn, keeping the record of both', async () => {
+      const u = await user()
+      expect((await put(u, anywhere)).status).toBe(201)
+      const withdrawn = await req(u.jar, 'DELETE', '/api/users/me/consents/ROMANCE_MODE')
+      expect(withdrawn.status).toBe(200)
+      expect(withdrawn.data.consent).toMatchObject({ current: false })
+      expect(await testPrisma.romanceProfile.count({ where: { userId: u.userId } })).toBe(0)
+      const records = await testPrisma.consentRecord.findMany({ where: { userId: u.userId, type: 'ROMANCE_MODE' } })
+      expect(records).toHaveLength(1)
+      expect(records[0].withdrawnAt).not.toBeNull()
+      expect((await put(u, anywhere)).data.error.code).toBe('ROMANCE_CONSENT_REQUIRED')
+      expect((await req(u.jar, 'DELETE', '/api/users/me/consents/TERMS')).status).toBe(400)
+    }, 60_000)
   })
 
   describe('the gate: 18 or older, verified', () => {
