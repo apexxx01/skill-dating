@@ -1,3 +1,4 @@
+import { highRiskUserIds } from '@/lib/integrity/risk-job'
 import type { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { getCache, type Cache } from '@/lib/infra/cache'
@@ -117,10 +118,12 @@ export async function loadFeed(db: Db, viewerId: string, query: { tab: FeedTab; 
     if (window.length > 0) await cache.set(key, JSON.stringify(window), { ttlMs: FEED_CONFIG.windowCacheMs * 2 }).catch(() => undefined)
   }
 
-  const networkFor = await networkOf(db, scope)
+  const [networkFor, highRisk] = await Promise.all([networkOf(db, scope), highRiskUserIds(db, cache)])
   const asOf = new Date(cursor.asOf)
   const rankables: (Rankable & { id: string })[] = window
     .filter((entry) => entry.createdAt <= cursor.asOf && !scope.hidden.has(entry.authorId))
+    // Reduced reach: an author with a HIGH risk level reaches the people close to them (followers, crew, matches), not strangers.
+    .filter((entry) => !highRisk.has(entry.authorId) || entry.authorId === viewerId || networkFor(entry.authorId) !== 'none')
     .map((entry) => ({ id: entry.id, authorId: entry.authorId, createdAt: new Date(entry.createdAt), propsScore: entry.propsScore, authorTier: levelFor(entry.authorXp).tier, network: networkFor(entry.authorId) }))
   const ranked = rankPosts(rankables, asOf)
   const page = pageAt(ranked, cursor.page, query.limit)

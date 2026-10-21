@@ -45,3 +45,14 @@ describe('reliabilityOf', () => {
     expect(reliabilityOf([review(), review(), review({ showedUp: 'PARTLY' })], now).badge).toBe(false)
   })
 })
+
+describe('integrity weight', () => {
+  it('lets a down-weighted review move the score less', () => {
+    const now = new Date('2026-10-20T00:00:00Z')
+    const bad = { showedUp: 'NO' as const, wouldBuildAgain: false, createdAt: now }
+    const full = reliabilityOf([bad, bad], now).score
+    const lowered = reliabilityOf([{ ...bad, integrityWeight: 0.1 }, { ...bad, integrityWeight: 0.1 }], now).score
+    expect(lowered).toBeGreaterThan(full)
+    expect(reliabilityOf([{ ...bad, integrityWeight: 0 }], now).score).toBeCloseTo(0.75, 6)
+  })
+})

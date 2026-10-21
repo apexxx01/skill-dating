@@ -1,3 +1,6 @@
+import { checkContent } from '@/lib/safety/content'
+import { reachFor } from '@/lib/integrity/reach-db'
+import { sparkAllowance } from '@/lib/integrity/reach'
 import type { Match, Prisma, PrismaClient, Spark } from '@prisma/client'
 import type { ErrorCode, ErrorParams } from '@/lib/api/errors'
 import { blockRelation } from '@/lib/blocks'
@@ -142,10 +145,13 @@ export async function sendSpark(db: PrismaClient, fromId: string, input: SendSpa
   const opener = input.opener.trim()
   const verdict = checkOpener(opener, recent.map((row) => row.opener))
   if (!verdict.ok) return fail('SPARK_OPENER_REJECTED', { details: { reason: verdict.problem, message: verdict.message } })
+  // The platform's banned terms (src/lib/safety/content.ts) apply to openers too.
+  if (checkContent(opener, { surface: 'OPENER' }).verdict === 'REJECT') return fail('SPARK_OPENER_REJECTED', { details: { reason: 'CONTENT', message: 'That opener cannot be sent' } })
 
   // How many, and how fast.
   const subject = await subjectFor(db, fromId, now)
-  const allowance = limit(subject, 'DAILY_SPARKS', { enforced: options.enforced })
+  // The plan's limit, lowered for a new or unverified account and for a HIGH risk level (reach gating, src/lib/integrity/reach.ts).
+  const allowance = sparkAllowance(limit(subject, 'DAILY_SPARKS', { enforced: options.enforced }), await reachFor(db, fromId, now))
   const sentToday = await db.spark.count({ where: { fromId, createdAt: { gte: localDayStart(now, sender.timezone) } } })
   if (sentToday >= allowance) return fail('SPARK_LIMIT_REACHED', { params: { limit: allowance } })
   const lastHour = await db.spark.findMany({ where: { fromId, createdAt: { gte: new Date(now.getTime() - HOUR_MS) } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })

@@ -9,6 +9,8 @@ import { utcTimestamp } from '@/lib/sql'
 type Db = Pick<PrismaClient, '$queryRaw'>
 
 const DAY_MS = 24 * 60 * 60 * 1000
+/** An endorsement weighted below this (collusion) is not counted. */
+export const ENDORSEMENT_MIN_WEIGHT = 0.5
 
 export async function countCharacterEndorsers(db: Db, userIds: readonly string[], now: Date = new Date()): Promise<Map<string, number>> {
   const out = new Map<string, number>()
@@ -20,6 +22,8 @@ export async function countCharacterEndorsers(db: Db, userIds: readonly string[]
     JOIN "User" e ON e."id" = se."metadata"->>'endorserId'
     WHERE se."userId" = ANY(${[...new Set(userIds)]}::text[])
       AND se."type" = 'PEER_ENDORSEMENT'
+      -- An endorsement the collusion job lowered (src/lib/integrity) does not count toward the inbox gate.
+      AND se."integrityWeight" >= ${ENDORSEMENT_MIN_WEIGHT}
       AND e."deletedAt" IS NULL AND e."isEmailVerified" = true AND e."createdAt" <= ${trustedBefore}
       AND e."id" <> se."userId"
     GROUP BY se."userId"

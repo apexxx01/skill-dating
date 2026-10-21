@@ -7,10 +7,10 @@ import { hackathonPaysRewards } from '@/lib/squads/membership'
 
 const resultsSchema = z.object({
   results: z.array(z.object({
-    hackathonTeamId: z.string().min(1),
+    hackathonTeamId: z.string().max(64).min(1),
     rank: z.number().min(1),
     score: z.number().optional(),
-  })).min(1),
+  })).min(1).max(500),
 })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {

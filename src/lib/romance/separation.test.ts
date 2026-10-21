@@ -49,6 +49,24 @@ const MAY_NAME_THE_MODE: Record<string, string> = {
   'lib/media.ts': 'the ROMANCE_PHOTO rules',
   'lib/notification-kinds.ts': 'the mode’s own notification kinds',
   'lib/user-sync.ts': 'deleting an account removes the person from the mode',
+  'app/api/admin/actions/route.ts': 'a comment: a restriction can close the romance mode for a person',
+  'app/api/admin/queue/route.ts': 'a comment: romance reports come first in the queue',
+  'app/api/conversations/[id]/route.ts': 'the stricter content rule for the first messages of a romance match',
+  'app/api/users/me/consents/[type]/route.ts': 'withdrawing ROMANCE_MODE consent turns the mode off and deletes its data',
+  'lib/api/request-features.ts': 'the romance routes as one feature, for the kill switch and moderation restrictions',
+  'lib/moderation/actions.ts': 'the ROMANCE restriction a moderator can apply',
+  'lib/moderation/priority.ts': 'romance reports come first in the queue',
+  'lib/moderation/reports.ts': 'a comment: the queue order',
+  'lib/moderation/restrictions.ts': 'the ROMANCE restriction kind',
+  'lib/moderation/targets.ts': 'romance profiles, sparks and messages can be reported, hidden and removed',
+  'lib/ops/kill-switches.ts': 'the romance mode’s kill switch',
+  'lib/privacy/consent.ts': 'the ROMANCE_MODE consent type',
+  'lib/infra/media-moderation.ts': 'the scanner every romance photo passes before it is shown',
+  'lib/privacy/delete.ts': 'deleting an account purges the romance mode, as leaving it does',
+  'lib/privacy/inventory.ts': 'the data inventory lists the romance tables and what deleting an account does to them',
+  'lib/integrity/collusion-job.ts': 'a comment: a lowered endorsement counts less toward the mode’s inbox gate',
+  'lib/integrity/reach-sql.ts': 'the ROMANCE restriction kind, so a person restricted from the mode leaves its pool',
+  'lib/safety/content.ts': 'the stricter content rule for the first messages of a romance match',
   'types/api.ts': 'documents the storage key in the match types',
 }
 
@@ -118,7 +136,9 @@ describe('the romance mode stays apart', () => {
   it('reads the romance tables only in the mode’s own code and the few files that remove a person from it', () => {
     const readers = outside.filter((file) => /\.(romanceProfile|romanceDrop|romancePhoto|revealRequest|duo|buildDate)\b/.test(read(file))).map(rel).sort()
     // The shared match writer clears a romance drop when a pair matches; the digest counts the mode's sparks on the mode's marker.
-    expect(readers).toEqual(['lib/matching/spark-digest.ts', 'lib/matching/sparks.ts'])
+    // Moderation finds, hides and removes reported romance profiles (lib/moderation/targets.ts).
+    // Deleting an account dissolves the person's Duos (lib/privacy/delete.ts).
+    expect(readers).toEqual(['lib/matching/spark-digest.ts', 'lib/matching/sparks.ts', 'lib/moderation/targets.ts', 'lib/privacy/delete.ts'])
   })
 
   it('says the mode’s product name in exactly one place', () => {
@@ -137,6 +157,6 @@ describe('the romance mode stays apart', () => {
 
   it('keeps the romance routes under /api/romance, and no professional route imports them', () => {
     const importers = files.filter((file) => /from '@\/lib\/romance\//.test(read(file)) && !OWN_DIRS.some((dir) => rel(file).startsWith(dir))).map(rel).sort()
-    expect(importers).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'lib/api/errors.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/notification-kinds.ts', 'lib/user-sync.ts'])
+    expect(importers).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/consents/[type]/route.ts', 'lib/api/errors.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/moderation/targets.ts', 'lib/notification-kinds.ts', 'lib/privacy/delete.ts', 'lib/user-sync.ts'])
   })
 })

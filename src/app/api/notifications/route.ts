@@ -8,7 +8,7 @@ const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
   unreadOnly: z.coerce.boolean().default(false),
-  type: z.string().optional(),
+  type: z.string().max(200).optional(),
   cursor: cursorParam,
 })
 

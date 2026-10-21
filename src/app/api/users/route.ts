@@ -20,20 +20,20 @@ const updateProfileSchema = z.object({
   timezone: z.string().max(50).refine(isValidTimeZone, 'must be an IANA time zone such as "Europe/Paris"').optional(),
   availability: z.string().max(200).optional(),
   builderRole: z.string().max(100).optional(),
-  website: z.string().url().optional().or(z.literal('')),
+  website: z.string().max(2048).url().optional().or(z.literal('')),
   githubUsername: z.string().max(100).optional(),
   twitterUsername: z.string().max(100).optional(),
-  linkedinUrl: z.string().url().optional().or(z.literal('')),
+  linkedinUrl: z.string().max(2048).url().optional().or(z.literal('')),
   // PRIVATE, and required to finish onboarding (docs/SAFETY.md). Set once and then locked; under 16 is refused; nobody but the owner ever reads it back.
-  birthDate: z.string().refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15').optional(),
+  birthDate: z.string().max(32).refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15').optional(),
 })
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
-  search: z.string().optional(),
-  skills: z.string().optional(),
-  location: z.string().optional(),
+  search: z.string().max(200).optional(),
+  skills: z.string().max(200).optional(),
+  location: z.string().max(200).optional(),
   cursor: cursorParam,
 })
 
@@ -49,6 +49,8 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const hidden = await blockedUserIds(prisma, user.id)
   const where: Record<string, unknown> = {
+    // Invisible mode (a privacy setting) keeps a person out of search and discovery.
+    NOT: { profile: { invisibleMode: true } },
     id: { not: user.id, ...(hidden.length ? { notIn: hidden } : {}) },
   }
 

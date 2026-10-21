@@ -1,3 +1,4 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
@@ -20,8 +21,11 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(commentSchema)(request)
   if (body instanceof Response) return body
+  const verdict = await screenText(user.id, body.data.body, 'COMMENT')
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
   const result = await createComment(prisma, user.id, postIdOf(request), body.data)
   if (!result.ok) return createApiError(result.code, { params: result.params })
   const { comment } = result
+  await recordFlag(prisma, verdict, user.id, { type: 'COMMENT', id: comment.id })
   return createApiResponse({ comment: { id: comment.id, postId: comment.postId, parentId: comment.parentId, authorId: comment.authorId, body: comment.body, createdAt: comment.createdAt.toISOString() } }, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'posts:comment-create' } })

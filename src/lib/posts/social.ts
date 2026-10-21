@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import type { ErrorCode } from '@/lib/api/errors'
 import { decodeKeysetCursor, keysetOrderBy, keysetPage, keysetWhere } from '@/lib/api/pagination'
-import { blockRelation, blockedPeerIds } from '@/lib/blocks'
+import { blockRelation, hiddenPeerIds } from '@/lib/blocks'
 import { loadPersonSummaries } from '@/lib/matching/summary'
 import { transactWithEvents } from '@/lib/events'
 import { track } from '@/lib/infra/analytics'
@@ -88,7 +88,7 @@ export async function listFollows(
   const subject = await db.user.findUnique({ where: { id: userId }, select: { deletedAt: true } })
   if (!subject || subject.deletedAt) return null
   if (userId !== viewerId && (await blockRelation(db, viewerId, userId))) return null
-  const hidden = await blockedPeerIds(db, viewerId)
+  const hidden = await hiddenPeerIds(db, viewerId)
 
   const side = direction === 'followers' ? 'followerId' : 'followeeId'
   const anchor = direction === 'followers' ? 'followeeId' : 'followerId'

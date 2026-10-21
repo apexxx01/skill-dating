@@ -25,15 +25,15 @@ const updateHackathonSchema = z.object({
   city: z.string().trim().max(100).optional(),
   country: z.string().trim().max(100).optional(),
   status: z.enum(['UPCOMING', 'ACTIVE', 'ENDED', 'CANCELLED']).optional(),
-  prizePool: z.string().optional(),
+  prizePool: z.string().max(200).optional(),
   rules: z.string().max(10000).optional(),
   technologies: z.array(z.string().max(50)).max(20).optional(),
   maxTeamSize: z.number().min(1).max(10).optional(),
   minTeamSize: z.number().min(1).max(10).optional(),
-  location: z.string().optional(),
+  location: z.string().max(200).optional(),
   isPublic: z.boolean().optional(),
-  thumbnail: z.string().url().optional().or(z.literal('')),
-  banner: z.string().url().optional().or(z.literal('')),
+  thumbnail: z.string().max(2048).url().optional().or(z.literal('')),
+  banner: z.string().max(2048).url().optional().or(z.literal('')),
 })
 
 // Forward-only lifecycle: UPCOMING -> ACTIVE -> ENDED, or CANCELLED from

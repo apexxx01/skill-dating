@@ -1,3 +1,4 @@
+import { notHighRisk, notMutedBy, notRestricted } from '@/lib/integrity/reach-sql'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { birthDateCutoffForAge } from '@/lib/age'
 import { datingEligibleSql } from '@/lib/matching/dating'
@@ -102,6 +103,10 @@ export async function findRomanceCandidateIds(db: Db, viewer: RomanceViewer, now
       AND ${viewer.age} BETWEEN rp."ageMin" AND rp."ageMax"
       AND ${candidateScope}
       AND rp."minEndorsements" <= ${viewer.endorsers}
+      AND rp."moderatedAt" IS NULL
+      AND ${notHighRisk('u')}
+      AND ${notRestricted('u', now, ['ROMANCE'])}
+      AND ${notMutedBy('u', viewer.userId)}
       AND NOT EXISTS (
         SELECT 1 FROM "Block" b
         WHERE (b."blockerId" = ${viewer.userId} AND b."blockedId" = u."id") OR (b."blockerId" = u."id" AND b."blockedId" = ${viewer.userId})

@@ -12,6 +12,8 @@ export interface ReviewFacts {
   showedUp: ShowedUp
   wouldBuildAgain: boolean
   createdAt: Date
+  /** How much the review counts (1 by default): the collusion job lowers it for reviews inside a flagged cluster (src/lib/integrity). */
+  integrityWeight?: number
 }
 
 export const RELIABILITY_CONFIG = {
@@ -50,7 +52,7 @@ export function reliabilityOf(reviews: readonly ReviewFacts[], now: Date = new D
   let weights = 0
   for (const review of reviews) {
     const ageDays = Math.max(0, (now.getTime() - review.createdAt.getTime()) / DAY_MS)
-    const weight = Math.pow(0.5, ageDays / halfLifeDays)
+    const weight = Math.pow(0.5, ageDays / halfLifeDays) * (review.integrityWeight ?? 1)
     weighted += weight * reviewValue(review)
     weights += weight
   }

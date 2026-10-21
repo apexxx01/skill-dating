@@ -1,3 +1,4 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { deletePost, getPostFor, updatePost, updatePostSchema } from '@/lib/posts/posts'
@@ -16,8 +17,11 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   const body = await validateBody(updatePostSchema)(request)
   if (body instanceof Response) return body
   const id = idOf(request)
+  const verdict = await screenText(user.id, [body.data.title ?? '', body.data.body ?? '', ...(body.data.links ?? [])].join('\n'), 'POST')
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
   const result = await updatePost(prisma, user.id, id, body.data)
   if (!result.ok) return createApiError(result.code, { details: result.details })
+  await recordFlag(prisma, verdict, user.id, { type: 'SHIP_POST', id })
   const found = await getPostFor(prisma, user.id, id)
   return createApiResponse({ post: found?.view ?? null })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'posts:edit' } })

@@ -8,9 +8,9 @@ import { blockedUserIds } from '@/lib/blocks'
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
-  search: z.string().optional(),
-  skills: z.string().optional(),
-  location: z.string().optional(),
+  search: z.string().max(200).optional(),
+  skills: z.string().max(200).optional(),
+  location: z.string().max(200).optional(),
   cursor: cursorParam,
 })
 
@@ -35,7 +35,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   // Users blocked in either direction never appear.
   const hidden = await blockedUserIds(prisma, user.id)
-  const where: Record<string, unknown> = { id: { not: user.id, ...(hidden.length ? { notIn: hidden } : {}) } }
+  const where: Record<string, unknown> = { NOT: { profile: { invisibleMode: true } }, id: { not: user.id, ...(hidden.length ? { notIn: hidden } : {}) } }
 
   if (search) {
     where.OR = [

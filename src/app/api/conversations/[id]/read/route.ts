@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
+import { withAuth, validateBody, createApiResponse, createApiError, checkMembership, readBodyText } from '@/lib/api/handler'
 import { markConversationRead, unreadCountsByConversation } from '@/lib/messaging'
 import { z } from 'zod'
 
@@ -25,7 +25,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   // Body is optional: an empty body means "mark everything read".
   let upToMessageId: string | undefined
-  const raw = await request.text()
+  const raw = await readBodyText(request)
+  if (raw instanceof Response) return raw
   if (raw.trim().length > 0) {
     let parsed: unknown
     try {

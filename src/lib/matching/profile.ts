@@ -27,7 +27,7 @@ function isCalendarDate(value: string): boolean {
 
 const intentTagSchema = z
   .object({
-    tag: z.string().regex(INTENT_TAG_PATTERN, 'Lower-case letters, digits and dashes, 2 to 40 characters'),
+    tag: z.string().max(40).regex(INTENT_TAG_PATTERN, 'Lower-case letters, digits and dashes, 2 to 40 characters'),
     hackathonId: z.string().min(1).max(64).optional(),
     expiresAt: z.string().datetime({ offset: true, message: 'An ISO 8601 date and time' }).optional(),
   })
@@ -48,11 +48,11 @@ export const matchingProfileSchema = z
       .refine((tags) => new Set(tags.map((tag) => `${tag.tag}|${tag.hackathonId ?? ''}`)).size === tags.length, 'Each tag once')
       .default([]),
     hoursPerWeek: z.number().int().min(1).max(100).nullable().default(null),
-    availableFrom: z.string().refine(isCalendarDate, 'A date such as 2026-12-01').nullable().default(null),
+    availableFrom: z.string().max(32).refine(isCalendarDate, 'A date such as 2026-12-01').nullable().default(null),
     remoteOk: z.boolean().default(true),
     cityOnly: z.boolean().default(false),
     lookingForSkills: z
-      .array(z.string().regex(SKILL_SLUG, 'A skill slug'))
+      .array(z.string().max(64).regex(SKILL_SLUG, 'A skill slug'))
       .max(20)
       .refine((slugs) => new Set(slugs).size === slugs.length, 'Each skill once')
       .default([]),

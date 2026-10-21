@@ -57,7 +57,7 @@ export async function teammatesOf(db: Db | Tx, hackathonId: string, userId: stri
 
 /** Recomputes a person's reliability from their counted reviews. Call in the transaction that wrote a review. */
 export async function recomputeReliability(tx: Tx, userId: string, now: Date): Promise<void> {
-  const reviews = await tx.peerReview.findMany({ where: { revieweeId: userId, counted: true }, select: { showedUp: true, wouldBuildAgain: true, createdAt: true } })
+  const reviews = await tx.peerReview.findMany({ where: { revieweeId: userId, counted: true }, select: { showedUp: true, wouldBuildAgain: true, createdAt: true, integrityWeight: true } })
   const reliability = reliabilityOf(reviews, now)
   await tx.userReliability.upsert({
     where: { userId },

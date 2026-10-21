@@ -10,12 +10,12 @@ const createSkillSchema = z.object({
   category: z.string().min(1).max(50),
   subcategory: z.string().max(50).optional(),
   description: z.string().max(1000).optional(),
-  icon: z.string().optional(),
-  color: z.string().optional(),
+  icon: z.string().max(100).optional(),
+  color: z.string().max(50).optional(),
 })
 
 const addUserSkillSchema = z.object({
-  skillId: z.string(),
+  skillId: z.string().max(64),
   level: z.number().min(1).max(5).default(1),
   yearsExperience: z.number().min(0).max(50).optional(),
 })
@@ -23,8 +23,8 @@ const addUserSkillSchema = z.object({
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(50),
-  category: z.string().optional(),
-  search: z.string().optional(),
+  category: z.string().max(200).optional(),
+  search: z.string().max(200).optional(),
   cursor: cursorParam,
 })
 

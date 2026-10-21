@@ -6,8 +6,8 @@ import { emit, transactWithEvents } from '@/lib/events'
 import { hackathonPaysRewards, isLocked, otherSquadFor } from '@/lib/squads/membership'
 
 const registerTeamSchema = z.object({
-  teamId: z.string(),
-  projectId: z.string().optional(),
+  teamId: z.string().max(64),
+  projectId: z.string().max(64).optional(),
 })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

@@ -79,7 +79,7 @@ export async function loadTeamSpace(db: Db, teamId: string, viewerId: string, no
       members: { select: { userId: true, role: true, squadRole: true, roleLabel: true, user: { select: personSelect } }, orderBy: { joinedAt: 'asc' } },
       slots: { where: { status: 'OPEN' }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, role: true, customLabel: true, requiredSkills: true } },
       TeamChecklistItem: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], include: { assignee: { select: personSelect } } },
-      TeamIdea: { orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }], include: { author: { select: personSelect }, votes: { where: { userId: viewerId }, select: { id: true } } } },
+      TeamIdea: { where: { moderatedAt: null }, orderBy: [{ voteCount: 'desc' }, { createdAt: 'asc' }], include: { author: { select: personSelect }, votes: { where: { userId: viewerId }, select: { id: true } } } },
     },
   })
   if (!team) return null

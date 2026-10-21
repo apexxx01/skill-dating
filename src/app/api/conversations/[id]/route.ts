@@ -1,8 +1,10 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
+import { boundedJson } from '@/lib/api/limits'
 import { markMessagesRead } from '@/lib/messaging'
 import { emit, transactWithEvents } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
@@ -11,8 +13,8 @@ import { cursorParam, paginate } from '@/lib/api/pagination'
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(10000),
   type: z.enum(['TEXT', 'IMAGE', 'FILE', 'CODE', 'LINK_PREVIEW']).default('TEXT'),
-  replyToId: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  replyToId: z.string().max(64).optional(),
+  metadata: boundedJson(2048).optional(),
 })
 
 const querySchema = z.object({
@@ -147,7 +149,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   // hackathon rooms are not addressed to an individual and stay open.
   const conversationInfo = await prisma.conversation.findUnique({
     where: { id },
-    select: { type: true, closedAt: true, members: { select: { userId: true } } },
+    select: { type: true, closedAt: true, members: { select: { userId: true } }, match: { select: { connectionType: true } } },
   })
   // A conversation closed for good (its match was ended) stays readable, but nobody can post in it.
   if (conversationInfo?.closedAt) return createApiError('CONVERSATION_CLOSED')
@@ -162,6 +164,16 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   const direct = conversationInfo?.type === 'DIRECT' ? conversationInfo : null
+
+  // Content checks (src/lib/safety). In a romance match, until both have written, no links and no contact details.
+  let surface: 'MESSAGE' | 'FIRST_ROMANCE_MESSAGE' = 'MESSAGE'
+  if (conversationInfo?.match?.connectionType === 'DATING') {
+    const memberIds = conversationInfo.members.map((m) => m.userId)
+    const writers = await prisma.message.findMany({ where: { conversationId: id, senderId: { in: memberIds } }, distinct: ['senderId'], select: { senderId: true } })
+    if (writers.length < memberIds.length) surface = 'FIRST_ROMANCE_MESSAGE'
+  }
+  const verdict = await screenText(user.id, bodyResult.data.content, surface)
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
 
   // The message, the conversation's activity stamp, the notifications and the
   // first-message check commit together. For a direct conversation the first
@@ -246,5 +258,6 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return created
   })
 
+  await recordFlag(prisma, verdict, user.id, { type: 'MESSAGE', id: message.id })
   return createApiResponse({ ...message, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'conversations:send' } })

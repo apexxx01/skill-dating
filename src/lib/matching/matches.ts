@@ -187,6 +187,8 @@ export async function loadReceivedSparks(
   const base: Prisma.SparkWhereInput = {
     toId: userId,
     status: 'PENDING',
+    // A spark a moderator hid is not shown to the person sparked.
+    moderatedAt: null,
     // Romance sparks are the romance mode's (/api/romance/sparks/received).
     connectionType: { not: 'DATING' },
     from: { deletedAt: null, ...(hidden.length > 0 ? { id: { notIn: hidden } } : {}) },

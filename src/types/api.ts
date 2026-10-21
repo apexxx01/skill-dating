@@ -1428,3 +1428,140 @@ export interface HackathonSquadMetricsResponse {
   builderProposalsInvited: number
   soloPool: number
 }
+
+// --- Trust, safety and privacy (Stage 1F; docs/SAFETY.md, docs/PRIVACY.md) ------------------------------------------
+
+export type ReportTargetType = 'USER' | 'MESSAGE' | 'SHIP_POST' | 'COMMENT' | 'SPARK' | 'ROMANCE_PROFILE' | 'LFG_POST' | 'IDEA' | 'EXTERNAL_HACKATHON'
+export type ReportReasonName =
+  | 'HARASSMENT'
+  | 'SPAM'
+  | 'IMPERSONATION'
+  | 'INAPPROPRIATE_CONTENT'
+  | 'MINOR_SAFETY'
+  | 'SCAM'
+  | 'FAKE_PROFILE'
+  | 'COPYRIGHT'
+  | 'OTHER'
+  | 'BIRTHDATE_CORRECTION'
+
+/** POST /api/reports */
+export interface CreateReportRequest {
+  targetType?: ReportTargetType
+  targetId?: string
+  /** A report about a person, as before Stage 1F. */
+  reportedId?: string
+  reason: ReportReasonName
+  description?: string
+}
+
+export type ModerationActionName = 'WARN' | 'HIDE_CONTENT' | 'REMOVE_CONTENT' | 'RESTRICT_FEATURE' | 'SUSPEND' | 'BAN' | 'APPROVE_MEDIA'
+export type RestrictedFeatureName = 'romance' | 'messaging' | 'posting'
+
+export interface AccountModerationState {
+  suspendedUntil: IsoDate | null
+  banned: boolean
+  /** Restricted features with their end (null: until lifted). */
+  restricted: Partial<Record<RestrictedFeatureName, IsoDate | null>>
+}
+
+/** GET /api/users/me/moderation */
+export interface ModerationHistoryResponse {
+  state: AccountModerationState
+  actions: {
+    id: string
+    action: ModerationActionName
+    targetType: string
+    targetId: string
+    category: string | null
+    noteToUser: string | null
+    feature: RestrictedFeatureName | null
+    expiresAt: IsoDate | null
+    appealableUntil: IsoDate | null
+    canAppeal: boolean
+    reversedAt: IsoDate | null
+    createdAt: IsoDate
+    appeal: { id: string; status: AppealStatusName } | null
+  }[]
+}
+
+export type AppealStatusName = 'PENDING' | 'UPHELD' | 'OVERTURNED'
+
+/** GET /api/appeals */
+export interface AppealsResponse {
+  appeals: { id: string; actionId: string; body: string; status: AppealStatusName; decisionNote: string | null; decidedAt: IsoDate | null; createdAt: IsoDate }[]
+}
+
+/** GET /api/mutes */
+export interface MutesResponse {
+  mutes: { user: { id: string; username: string; name: string | null; image: string | null }; createdAt: IsoDate }[]
+}
+
+export type FieldVisibility = 'PUBLIC' | 'CONNECTIONS' | 'PRIVATE'
+export type PassportFieldName = 'bio' | 'headline' | 'location' | 'website' | 'githubUsername' | 'twitterUsername' | 'linkedinUrl' | 'availability' | 'builderRole' | 'timezone'
+
+/** GET and PATCH /api/users/me/privacy */
+export interface PrivacySettings {
+  fieldVisibility: Record<PassportFieldName, FieldVisibility>
+  hideFromLeaderboards: boolean
+  hideFromRecruiters: boolean
+  matchingPaused: boolean
+  invisibleMode: boolean
+  whoCanMessage: 'EVERYONE' | 'CONNECTIONS' | 'NOBODY'
+  showActivity: boolean
+}
+
+/** GET and POST /api/users/me/export */
+export interface DataExportResponse {
+  export: {
+    id: string
+    status: 'PENDING' | 'READY' | 'FAILED'
+    bytes: number | null
+    createdAt: IsoDate
+    completedAt: IsoDate | null
+    expiresAt: IsoDate | null
+    /** A signed link, set once READY, valid until expiresAt. */
+    downloadUrl: string | null
+  }
+}
+
+export type ConsentTypeName = 'TERMS' | 'PRIVACY' | 'ROMANCE_MODE' | 'MARKETING'
+
+export interface ConsentState {
+  type: ConsentTypeName
+  currentVersion: string
+  grantedVersion: string | null
+  grantedAt: IsoDate | null
+  current: boolean
+  /** Accepted once, for an older version: must be accepted again. */
+  stale: boolean
+}
+
+/** GET /api/users/me/consents */
+export interface ConsentsResponse {
+  consents: ConsentState[]
+  required: ConsentTypeName[]
+}
+
+export type MediaStatusName = 'PENDING' | 'READY' | 'REJECTED' | 'SCANNING' | 'IN_REVIEW' | 'BLOCKED'
+
+// Staff ------------------------------------------------------------------------------------------------------------------
+
+export type RiskLevelName = 'LOW' | 'ELEVATED' | 'HIGH'
+
+/** GET /api/admin/queue */
+export interface QueueResponse {
+  kind: 'reports' | 'appeals'
+  items: ({ kind: 'REPORT'; id: string; reason: ReportReasonName; targetType: ReportTargetType | 'MEDIA'; targetId: string | null; reportedId: string; reporterId: string | null; source: 'USER' | 'AUTOMATED'; priority: number; status: string; createdAt: IsoDate } | { kind: 'APPEAL'; id: string; actionId: string; userId: string; body: string; createdAt: IsoDate })[]
+  nextOffset: number | null
+}
+
+/** GET /api/admin/users/{id}/risk */
+export interface RiskView {
+  userId: string
+  score: number
+  level: RiskLevelName
+  overrideLevel: RiskLevelName | null
+  effectiveLevel: RiskLevelName
+  factors: Partial<Record<'collusion' | 'reports' | 'blocks' | 'throttles' | 'velocity' | 'unverified', number>>
+  computedAt: IsoDate | null
+}

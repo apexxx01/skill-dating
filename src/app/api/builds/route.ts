@@ -8,7 +8,7 @@ import { blockedUserIds } from '@/lib/blocks'
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
-  hackathonId: z.string().optional(),
+  hackathonId: z.string().max(64).optional(),
   cursor: cursorParam,
 })
 

@@ -1,3 +1,5 @@
+import { applyFieldVisibility, visibilityOf } from '@/lib/privacy/settings'
+import { areConnected } from '@/lib/privacy/messaging'
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { authorize } from '@/lib/api/handler'
@@ -129,8 +131,14 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   // The passport's "Reliable teammate" badge (docs/SQUADS.md): only the badge, never the reliability number behind it.
   const reliability = await prisma.userReliability.findUnique({ where: { userId: id }, select: { badge: true } })
 
+  // Passport field visibility (a privacy setting): fields the person keeps to connections or to themselves are null for others.
+  const privacy = id === user.id ? null : await prisma.profile.findUnique({ where: { userId: id }, select: { fieldVisibility: true } })
+  const visibility = visibilityOf(privacy?.fieldVisibility)
+  const needsConnection = id !== user.id && Object.values(visibility).includes('CONNECTIONS')
+  const visible = applyFieldVisibility(targetUser, visibility, { isOwner: id === user.id, connected: needsConnection ? await areConnected(prisma, user.id, id) : false })
+
   return createApiResponse({
-    ...targetUser,
+    ...visible,
     rank: standing.rank ?? 0,
     ...(own ? { email: own.email } : {}),
     compatibility,

@@ -125,8 +125,19 @@ export async function loadPairFacts(db: Db, userIds: readonly string[]): Promise
   return { history, forbidden }
 }
 
-/** Who of these accounts the trust gate trusts (a week old, verified email; src/lib/trust.ts) and are not deleted. */
+/**
+ * Who of these accounts may be suggested for a squad (the builder, the solo pool, refill suggestions): trusted by the trust gate (a week old, verified
+ * email; src/lib/trust.ts), not deleted, not suspended or banned, and without an effective HIGH risk level (reduced reach, docs/SAFETY.md).
+ */
 export async function trustedIds(db: Db, userIds: readonly string[], now: Date): Promise<Set<string>> {
-  const users = await db.user.findMany({ where: { id: { in: [...new Set(userIds)] }, deletedAt: null }, select: { id: true, createdAt: true, isEmailVerified: true } })
+  const users = await db.user.findMany({
+    where: {
+      id: { in: [...new Set(userIds)] },
+      deletedAt: null,
+      NOT: { risk: { OR: [{ overrideLevel: 'HIGH' }, { level: 'HIGH', overrideLevel: null }] } },
+      restrictions: { none: { kind: { in: ['SUSPENDED', 'BANNED'] }, liftedAt: null, OR: [{ endsAt: null }, { endsAt: { gt: now } }] } },
+    },
+    select: { id: true, createdAt: true, isEmailVerified: true },
+  })
   return new Set(users.filter((user) => accountDistrust(user, now) === null).map((user) => user.id))
 }

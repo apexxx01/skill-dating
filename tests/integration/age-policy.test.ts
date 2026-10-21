@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
-import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
+import { cleanupTestUsers, promoteToAdmin, testPrisma, acceptLegalTerms } from './db'
 import { bornYearsAgo } from './matching-fixtures'
 
 // The platform age policy (docs/SAFETY.md): a date of birth is required to finish onboarding; under 16 is refused and kept out; 16 and 17 are minors, with
@@ -36,6 +36,7 @@ describe('the platform age policy', () => {
       expect(headlineOnly.status).toBe(200)
       expect((await req(me.jar, 'GET', '/api/users/me')).data.onboardingComplete).toBe(false)
 
+      await acceptLegalTerms(me.userId)
       const done = await req(me.jar, 'PATCH', '/api/users', { birthDate: bornYearsAgo(30) })
       expect(done.status).toBe(200)
       expect(JSON.stringify(done.data)).not.toContain('birthDate')

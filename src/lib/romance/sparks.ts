@@ -1,3 +1,6 @@
+import { checkContent } from '@/lib/safety/content'
+import { isHighRisk } from '@/lib/integrity/risk-job'
+import { REACH_CONFIG } from '@/lib/integrity/reach'
 import type { Match, Prisma, PrismaClient, Spark } from '@prisma/client'
 import type { ErrorCode, ErrorParams } from '@/lib/api/errors'
 import { ageOn } from '@/lib/age'
@@ -158,10 +161,14 @@ export async function sendRomanceSpark(db: Db, fromId: string, input: SendRomanc
   const opener = input.opener.trim()
   const verdict = checkOpener(opener, recent.map((row) => row.opener))
   if (!verdict.ok) return fail('SPARK_OPENER_REJECTED', { details: { reason: verdict.problem, message: verdict.message } })
+  // The platform's banned terms (src/lib/safety/content.ts) apply to openers too.
+  if (checkContent(opener, { surface: 'OPENER' }).verdict === 'REJECT') return fail('SPARK_OPENER_REJECTED', { details: { reason: 'CONTENT', message: 'That opener cannot be sent' } })
 
   // How many, and how fast: a few a week in the mode, and the same hourly throttle as any spark.
   const subject = await subjectFor(db, fromId, now)
-  const allowance = limit(subject, 'ROMANCE_SPARKS_PER_WEEK', { enforced: options.enforced })
+  const planAllowance = limit(subject, 'ROMANCE_SPARKS_PER_WEEK', { enforced: options.enforced })
+  // A HIGH risk level caps sparks whatever the plan (reach gating, src/lib/integrity/reach.ts).
+  const allowance = (await isHighRisk(db, fromId)) ? Math.min(planAllowance, REACH_CONFIG.highRiskSparksPerDay) : planAllowance
   const sentThisWeek = await db.spark.count({ where: { fromId, connectionType: 'DATING', createdAt: { gte: localWeekStart(now, sender.timezone) } } })
   if (sentThisWeek >= allowance) return fail('ROMANCE_SPARK_LIMIT_REACHED', { params: { limit: allowance, mode: ROMANCE_MODE_LABEL } })
   const lastHour = await db.spark.findMany({ where: { fromId, createdAt: { gte: new Date(now.getTime() - HOUR_MS) } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })

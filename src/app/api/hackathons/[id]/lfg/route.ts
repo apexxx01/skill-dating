@@ -1,3 +1,4 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { decodeOffsetCursor, encodeOffsetCursor } from '@/lib/api/pagination'
@@ -30,6 +31,8 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (!id) return createApiError('MISSING_PARAMETER', { params: { parameters: 'hackathonId' } })
   const body = await validateBody(lfgCreateSchema)(request)
   if (body instanceof Response) return body
+  const verdict = await screenText(user.id, body.data.note ?? '', 'LFG')
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
 
   const hackathon = await prisma.hackathon.findUnique({ where: { id }, select: { id: true, status: true, endDate: true, submissionDeadline: true } })
   if (!hackathon) return createApiError('HACKATHON_NOT_FOUND')
@@ -52,5 +55,6 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
         return createApiError('VALIDATION_FAILED', { details: { expiresAt: ['Must be in the future and no later than when the teams lock'] } })
     }
   }
+  await recordFlag(prisma, verdict, user.id, { type: 'LFG_POST', id: result.postId })
   return createApiResponse(await lfgPostView(prisma, result.postId, user.id), 201)
 }, { idempotent: true, rateLimit: { windowMs: 60 * 60 * 1000, maxRequests: 20, keyPrefix: 'hackathons:lfg-create' } })

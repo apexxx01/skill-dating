@@ -89,7 +89,7 @@ export async function removeProps(db: Db, giverId: string, postId: string): Prom
     const existing = await tx.prop.findUnique({ where: { userId_postId: { userId: giverId, postId } } })
     if (existing) {
       await tx.prop.delete({ where: { id: existing.id } })
-      await tx.shipPost.update({ where: { id: postId }, data: { propsScore: { decrement: existing.weight }, propsCount: { decrement: 1 } } })
+      await tx.shipPost.update({ where: { id: postId }, data: { propsScore: { decrement: existing.weight * existing.integrityWeight }, propsCount: { decrement: 1 } } })
     }
     const current = await tx.shipPost.findUniqueOrThrow({ where: { id: postId }, select: { propsScore: true, propsCount: true } })
     return { propsScore: Math.max(0, Math.round(current.propsScore * 100) / 100), propsCount: current.propsCount }

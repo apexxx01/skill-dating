@@ -1,7 +1,8 @@
+import { reachFor } from '@/lib/integrity/reach-db'
 import type { PostKind, PostVisibility, Prisma, PrismaClient, ShipPost } from '@prisma/client'
 import { z } from 'zod'
 import type { ErrorCode } from '@/lib/api/errors'
-import { blockRelation, blockedPeerIds } from '@/lib/blocks'
+import { blockRelation, hiddenPeerIds } from '@/lib/blocks'
 import { transactWithEvents, emit } from '@/lib/events'
 import { track } from '@/lib/infra/analytics'
 import { getStorage, type Storage } from '@/lib/infra/storage'
@@ -143,6 +144,9 @@ export async function createPost(db: Db, author: { id: string; timezone: string 
   if (projectId && !(await db.project.findUnique({ where: { id: projectId }, select: { id: true } }))) return fail('POST_INVALID_CONTEXT')
   if (teamId && !(await db.team.findUnique({ where: { id: teamId }, select: { id: true } }))) return fail('POST_INVALID_CONTEXT')
 
+  // Reach gating (src/lib/integrity/reach.ts): an account without a verified email cannot post to the public feed.
+  if (input.visibility === 'PUBLIC' && !(await reachFor(db, author.id, now)).canPostPublic) return fail('EMAIL_VERIFICATION_REQUIRED', { visibility: ['Verify your email address to post publicly'] })
+
   const coAuthorIds = [...new Set(input.coAuthorIds)].filter((id) => id !== author.id)
   const limit = coAuthorLimit(input.kind, input.kind === 'DEMO' && teamId ? await squadMaxTeamSize(db, teamId) : null)
   if (coAuthorIds.length > limit) return fail('VALIDATION_FAILED', { coAuthorIds: [`At most ${limit} co-authors`] })
@@ -240,7 +244,7 @@ export async function loadViewerScope(db: Db, userId: string): Promise<ViewerSco
     db.projectMember.findMany({ where: { userId }, select: { projectId: true } }),
     db.project.findMany({ where: { ownerId: userId }, select: { id: true } }),
     db.teamMember.findMany({ where: { userId }, select: { teamId: true } }),
-    blockedPeerIds(db, userId),
+    hiddenPeerIds(db, userId),
   ])
   return {
     userId,

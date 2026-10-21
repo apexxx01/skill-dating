@@ -6,7 +6,7 @@ import { track } from '@/lib/infra/analytics'
 import { hackathonPaysRewards } from '@/lib/squads/membership'
 
 const submitSchema = z.object({
-  teamId: z.string().min(1),
+  teamId: z.string().max(64).min(1),
 })
 
 // Submission is a team action, not an individual one - any member of the

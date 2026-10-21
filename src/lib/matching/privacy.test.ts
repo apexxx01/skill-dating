@@ -34,6 +34,8 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'app/api/users/route.ts': 'accepts it from the owner at onboarding; the response and the audit log never carry it',
   'app/api/admin/users/[id]/birthdate/route.ts': 'accepts a correction from an admin; the response carries an age band, never a date',
   'lib/user-sync.ts': 'wipes it when the account is deleted',
+  'lib/integrity/risk.ts': 'the risk score adds points when no date of birth is on file; it is given a yes/no, never the date',
+  'lib/integrity/risk-job.ts': 'reads only whether a date of birth is on file (birthDate !== null) for the risk score; returns no date',
   'types/api.ts': 'documents the owner’s own profile settings',
 }
 

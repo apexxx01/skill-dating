@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { boundedRecord } from '@/lib/api/limits'
 import type { WorkingStyleAnswers } from './types'
 
 // The working-style quiz: a short, fixed set of questions about how a person likes to build. It lives in code, not in the
@@ -82,8 +83,7 @@ export const WORKING_STYLE_QUIZ: readonly QuizQuestion[] = [
 const BY_ID = new Map(WORKING_STYLE_QUIZ.map((question) => [question.id, question]))
 
 /** The answers a request may carry: any subset of the questions, each with one of its options. Unknown questions or options are refused. */
-export const workingStyleSchema = z
-  .record(z.string(), z.string())
+export const workingStyleSchema = boundedRecord(z.string().max(64), { maxKeys: WORKING_STYLE_QUIZ.length })
   .superRefine((answers, ctx) => {
     for (const [questionId, optionId] of Object.entries(answers)) {
       const question = BY_ID.get(questionId)

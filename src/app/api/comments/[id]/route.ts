@@ -1,3 +1,4 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { deleteComment, editComment, editCommentSchema } from '@/lib/posts/comments'
@@ -8,9 +9,12 @@ const idOf = (request: NextRequest) => new URL(request.url).pathname.split('/').
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(editCommentSchema)(request)
   if (body instanceof Response) return body
+  const verdict = await screenText(user.id, body.data.body, 'COMMENT')
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
   const result = await editComment(prisma, user.id, idOf(request), body.data.body)
   if (!result.ok) return createApiError(result.code, { params: result.params })
   const { comment } = result
+  await recordFlag(prisma, verdict, user.id, { type: 'COMMENT', id: comment.id })
   return createApiResponse({ comment: { id: comment.id, postId: comment.postId, parentId: comment.parentId, body: comment.body, editedAt: comment.editedAt?.toISOString() ?? null } })
 }, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'comments:edit' } })
 

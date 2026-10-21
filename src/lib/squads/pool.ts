@@ -378,6 +378,9 @@ export async function myProposals(db: Db, userId: string, input: { cursor?: stri
 /** `squads/auto-form`: the scheduled run, or one hackathon's round on demand. */
 export async function runAutoFormJob(data: { hackathonId?: string; round?: number }) {
   const { prisma } = await import('@/lib/prisma')
+  // The `squad_autoform` kill switch (src/lib/ops/kill-switches.ts) stops automatic squads without touching anything else.
+  const { isKilled } = await import('@/lib/ops/kill-switches')
+  if (await isKilled(prisma, 'squad_autoform')) return { rounds: 0, outcomes: [], paused: true }
   const outcomes = await autoForm(prisma, data)
   return { rounds: outcomes.length, outcomes }
 }

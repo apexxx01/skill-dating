@@ -1,7 +1,8 @@
+import { reachFor } from '@/lib/integrity/reach-db'
 import type { Comment, PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import type { ErrorCode } from '@/lib/api/errors'
-import { blockedPeerIds } from '@/lib/blocks'
+import { blockedPeerIds, hiddenPeerIds } from '@/lib/blocks'
 import { transactWithEvents } from '@/lib/events'
 import { track } from '@/lib/infra/analytics'
 import { loadPersonSummaries } from '@/lib/matching/summary'
@@ -55,6 +56,8 @@ export async function createComment(db: Db, authorId: string, postId: string, in
   }
   const author = await db.user.findUnique({ where: { id: authorId }, select: { createdAt: true, isEmailVerified: true, name: true, username: true } })
   if (!author) return { ok: false, code: 'USER_NOT_FOUND' }
+  // Reach gating (src/lib/integrity/reach.ts): commenting is public writing, so it needs a verified email.
+  if (!(await reachFor(db, authorId, now)).canComment) return { ok: false, code: 'EMAIL_VERIFICATION_REQUIRED' }
   const trusted = accountDistrust(author, now) === null
 
   const outcome = await transactWithEvents(db, async (tx) => {
@@ -117,7 +120,7 @@ export async function deleteComment(db: Db, userId: string, role: string, commen
 export async function listComments(db: Db, viewerId: string, postId: string, options: { after?: string; limit: number }): Promise<{ comments: CommentView[]; nextCursor: string | null } | null> {
   const post = await db.shipPost.findUnique({ where: { id: postId } })
   if (!post || !canView(post, await loadViewerScope(db, viewerId))) return null
-  const hidden = await blockedPeerIds(db, viewerId)
+  const hidden = await hiddenPeerIds(db, viewerId)
   const visibleAuthor = hidden.length > 0 ? { authorId: { notIn: hidden } } : {}
   const tops = await db.comment.findMany({
     where: { postId, parentId: null, ...visibleAuthor, ...(options.after ? { id: { gt: options.after } } : {}) },

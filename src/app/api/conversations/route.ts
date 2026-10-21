@@ -1,3 +1,4 @@
+import { mayMessage } from '@/lib/privacy/messaging'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
 import { unreadCountsByConversation, totalUnread } from '@/lib/messaging'
@@ -154,6 +155,9 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       return createApiResponse(existing)
     }
   }
+
+  // The recipient's "who can message me" setting (src/lib/privacy/messaging.ts) decides whether a new direct conversation may start.
+  if (type === 'DIRECT' && !(await mayMessage(prisma, user.id, participantIds[0]))) return createApiError('MESSAGING_NOT_ALLOWED')
 
   const conversation = await prisma.conversation.create({
     data: {

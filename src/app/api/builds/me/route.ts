@@ -11,9 +11,9 @@ const buildSchema = z.object({
   teamSize: z.number().min(1).max(20).default(1),
   maxTeamSize: z.number().min(1).max(20).default(5),
   rolesNeeded: z.array(z.string().max(50)).max(20).default([]),
-  hackathonId: z.string().optional(),
-  githubUrl: z.string().url().optional().or(z.literal('')),
-  demoUrl: z.string().url().optional().or(z.literal('')),
+  hackathonId: z.string().max(64).optional(),
+  githubUrl: z.string().max(2048).url().optional().or(z.literal('')),
+  demoUrl: z.string().max(2048).url().optional().or(z.literal('')),
   isPublic: z.boolean().default(true),
 })
 

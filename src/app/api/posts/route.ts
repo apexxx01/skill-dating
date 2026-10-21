@@ -1,3 +1,4 @@
+import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
@@ -14,12 +15,15 @@ import { userPosts } from '@/lib/posts/timelines'
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(createPostSchema)(request)
   if (body instanceof Response) return body
+  const verdict = await screenText(user.id, [body.data.title, body.data.body, ...body.data.links].join('\n'), 'POST')
+  if (verdict.verdict === 'REJECT') return contentRejection(verdict)
 
   const zone = await prisma.user.findUnique({ where: { id: user.id }, select: { timezone: true } })
   const result = await createPost(prisma, { id: user.id, timezone: zone?.timezone ?? null }, body.data)
   if (!result.ok) return createApiError(result.code, { details: result.details })
 
   const { post } = result
+  await recordFlag(prisma, verdict, user.id, { type: 'SHIP_POST', id: post.id })
   if (post.shipDayKey) await bumpShipDayCounter(post.shipDayKey, getCache())
   if (post.projectId && post.visibility !== 'CREW') {
     // A failure to queue is logged, not shown: the post is saved and the notification is a convenience.

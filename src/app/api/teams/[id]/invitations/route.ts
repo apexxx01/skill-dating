@@ -6,7 +6,7 @@ import { hackathonLimits, isLocked } from '@/lib/squads/membership'
 import { INVITATION_TTL_MS } from '@/lib/squads/lifecycle'
 
 const inviteSchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().max(64).min(1),
   message: z.string().max(1000).optional(),
   // The open slot the invitee is asked to fill.
   slotId: z.string().min(1).max(64).optional(),

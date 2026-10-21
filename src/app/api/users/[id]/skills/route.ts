@@ -11,7 +11,7 @@ const listQuerySchema = z.object({
 })
 
 const addUserSkillSchema = z.object({
-  skillId: z.string(),
+  skillId: z.string().max(64),
   level: z.number().min(1).max(5).default(1),
   yearsExperience: z.number().min(0).max(50).optional(),
 })

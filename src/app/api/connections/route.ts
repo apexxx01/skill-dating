@@ -8,7 +8,7 @@ import { blockGuard } from '@/lib/blocks'
 const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK'] as const
 
 const createConnectionSchema = z.object({
-  receiverId: z.string().min(1),
+  receiverId: z.string().max(64).min(1),
   type: z.enum(CONNECTION_TYPES).default('NETWORK'),
   message: z.string().max(1000).optional(),
 })

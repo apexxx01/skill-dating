@@ -1,3 +1,4 @@
+import { notHighRisk, notMutedBy, notRestricted } from '@/lib/integrity/reach-sql'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { MIN_TRUSTED_ACCOUNT_AGE_DAYS } from '@/lib/trust'
 import { utcTimestamp } from '@/lib/sql'
@@ -123,6 +124,9 @@ export async function findCandidateIds(
           SELECT 1 FROM "Drop" d
           WHERE d."userId" = ${viewer.userId} AND d."candidateId" = u."id" ${historyClause}
         )
+        AND ${notHighRisk('u')}
+        AND ${notRestricted('u', now)}
+        AND ${notMutedBy('u', viewer.userId)}
         ${only}
         ${except}
     ),

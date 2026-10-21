@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { withAuth, createApiError } from '@/lib/api/handler'
+import { withAuth, createApiError, readBodyText } from '@/lib/api/handler'
 import {
   MAX_CHANNELS_PER_TOKEN,
   TOKEN_TTL_MS,
@@ -21,7 +21,8 @@ const bodySchema = z.object({
 export const POST = withAuth(
   async (request: NextRequest, { user, prisma }) => {
     // The body is optional: no body means "my own channel".
-    const raw = await request.text()
+    const raw = await readBodyText(request)
+    if (raw instanceof Response) return raw
     let parsed: unknown = {}
     if (raw.trim()) {
       try {

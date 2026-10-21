@@ -3,7 +3,7 @@ import { withAuth, validateBody, createApiResponse, createApiError, checkOwnersh
 import { z } from 'zod'
 
 const transferSchema = z.object({
-  newOwnerId: z.string().min(1),
+  newOwnerId: z.string().max(64).min(1),
 })
 
 // Team.ownerId is the field every ownership-gated action actually checks

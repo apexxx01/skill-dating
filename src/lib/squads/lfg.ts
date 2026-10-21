@@ -29,7 +29,7 @@ export const lfgStackSchema = z.array(z.string().trim().min(1).max(40)).max(15)
 export const lfgCreateSchema = z
   .object({
     kind: z.enum(['PERSON', 'TEAM']),
-    teamId: z.string().min(1).optional(),
+    teamId: z.string().max(64).min(1).optional(),
     roles: z.array(squadRoleSchema).min(1).max(12),
     stack: lfgStackSchema.default([]),
     timezone: z.string().max(60).refine(isValidTimeZone, 'Not an IANA time zone').optional(),
