@@ -372,10 +372,16 @@ another if `docs/API.md` does not list every code. Codes are only added, never r
 | Integration | `npm run test:integration` | PostgreSQL and a Clerk **development** secret key |
 | Typecheck, lint | `npm run typecheck`, `npm run lint` | nothing |
 
-Integration tests run against a real `next dev` server and a real database rebuilt from
-migrations, with real Clerk users and sessions. The server runs the in-memory infrastructure, so
-those tests check policy and wiring, not the providers. `TEST_SERVER_LOG=<file>` keeps the server's
-output when a run fails. One contract suite (`cache.contract.ts`) defines how every `Cache` must
+Integration tests run against a real server and a real database rebuilt from migrations, with real
+Clerk users and sessions. By default the server is a **production build** (`next build` into its own
+directory, `.next-test`, then `next start`), so routes are compiled before the first request and the
+suite exercises what production runs; `TEST_SERVER=dev` uses `next dev` instead (faster to start), and
+`TEST_SKIP_BUILD=1` reuses the last build when nothing under `src/` changed. A production build always
+runs with `NODE_ENV=production`, so the harness also sets `VERCEL_ENV=preview` (start on the stand-ins)
+and `INTEGRATION_TEST_SERVER=true`, which lets it keep uploads in memory and reach the suite's fixture
+page; `src/lib/env.ts` refuses that setting wherever production services are required. The server runs
+the in-memory infrastructure, so those tests check policy and wiring, not the providers.
+`TEST_SERVER_LOG=<file>` keeps the server's output (and the build's) when a run fails. One contract suite (`cache.contract.ts`) defines how every `Cache` must
 behave and runs against both implementations.
 
 **What is not verified against the real service.** The Upstash adapter is tested through a fake
@@ -390,13 +396,14 @@ SDK's dev mode: `GET` describes the functions, an unsigned `POST` is refused wit
 running. That `500` is the SDK's behaviour, not a fault in the route. That an unsigned request is
 rejected when `INNGEST_SIGNING_KEY` is set has not been exercised, since it needs a real key.
 
-Run against `next dev`, the integration suite can hit a race inside Next itself: several first
-requests to dynamic-segment routes at once make the dev server read a manifest file while another
-compile is writing it, giving a `500` from inside `next/dist` before any application code runs, or a brief `404` for a
-page that exists (`SyntaxError: Unexpected end of data` in the server log). A single such failure in a
-full run is a flake, and re-running clears it. The
-bypass test therefore requests each route once, one at a time, before sending anything in parallel.
-`next start` uses prebuilt manifests and is not affected.
+Run against `next dev` (`TEST_SERVER=dev`), the integration suite can hit a race inside Next itself:
+several first requests to dynamic-segment routes at once make the dev server read a manifest file while
+another compile is writing it, giving a `500` from inside `next/dist` before any application code runs,
+or a brief `404` for a page that exists; under the suite's load the dev server also drops connections
+(`fetch failed`) and lets requests run past their timeout. That is why the production build is the
+default: `next start` uses prebuilt manifests and is not affected. The bypass test still requests each
+route once, one at a time, before sending anything in parallel (the warm-up), so the dev mode keeps
+working.
 
 ## Deploying
 

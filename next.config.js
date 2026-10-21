@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The integration suite builds into its own directory (tests/integration/global-setup.ts), so a test build never
+  // overwrites the .next of a dev server running in the same checkout.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   experimental: {
     serverActions: {
       bodySizeLimit: '2mb',

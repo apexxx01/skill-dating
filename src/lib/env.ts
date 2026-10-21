@@ -89,6 +89,11 @@ const envSchema = z.object({
     // Comma-separated host:port pairs the page fetcher (src/lib/infra/page-fetch.ts) may reach even though they resolve to a private or loopback
     // address: only for a local test page. Refused in production, where every private address is always blocked.
     PAGE_FETCH_ALLOW_PRIVATE: z.string().regex(/^[a-z0-9.-]+:\d{2,5}(,[a-z0-9.-]+:\d{2,5})*$/i, 'must be host:port pairs separated by commas').optional(),
+
+    // Set only by the integration harness (tests/integration/global-setup.ts) when it runs the suite against a production build (`next start`, which
+    // always runs with NODE_ENV=production). It lets that build keep uploads in memory and honour PAGE_FETCH_ALLOW_PRIVATE, as `next dev` does. Refused
+    // wherever the production services are required, so a real deployment can never turn it on.
+    INTEGRATION_TEST_SERVER: flag('false'),
   })
 
 // Rules that span several settings. They are checked from which settings are
@@ -151,7 +156,11 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
       problems.set(missing, `is required when ${present(a) ? a : b} is set`)
     }
   }
-  if (source.NODE_ENV === 'production' && present('PAGE_FETCH_ALLOW_PRIVATE')) {
+  const testServer = source.INTEGRATION_TEST_SERVER === 'true'
+  if (testServer && requiresProductionConfig(source)) {
+    problems.set('INTEGRATION_TEST_SERVER', 'must not be set in production')
+  }
+  if (source.NODE_ENV === 'production' && !testServer && present('PAGE_FETCH_ALLOW_PRIVATE')) {
     problems.set('PAGE_FETCH_ALLOW_PRIVATE', 'must not be set in production')
   }
   if (requiresProductionConfig(source)) {

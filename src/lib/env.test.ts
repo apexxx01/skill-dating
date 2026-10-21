@@ -191,6 +191,20 @@ describe('deployment tiers', () => {
     expect(list).toEqual(['VERCEL_ENV: must be one of: production, preview, development'])
   })
 
+  it('lets the integration harness run a production build on the stand-ins, and nothing else', () => {
+    const harness = parseEnv({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', INTEGRATION_TEST_SERVER: 'true', PAGE_FETCH_ALLOW_PRIVATE: 'localhost:3460' })
+    expect(harness.INTEGRATION_TEST_SERVER).toBe(true)
+    expect(harness.PAGE_FETCH_ALLOW_PRIVATE).toBe('localhost:3460')
+    expect(parseEnv(base).INTEGRATION_TEST_SERVER).toBe(false)
+    // Never where the production services are required.
+    expect(problems({ ...production, INTEGRATION_TEST_SERVER: 'true' })).toContain('INTEGRATION_TEST_SERVER: must not be set in production')
+    expect(problems({ ...production, VERCEL_ENV: 'production', INTEGRATION_TEST_SERVER: 'true' })).toContain('INTEGRATION_TEST_SERVER: must not be set in production')
+    // Without it a production build still refuses the private-address allowance.
+    expect(problems({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', PAGE_FETCH_ALLOW_PRIVATE: 'localhost:3460' })).toContain(
+      'PAGE_FETCH_ALLOW_PRIVATE: must not be set in production'
+    )
+  })
+
   it('decides strictness from VERCEL_ENV first, then NODE_ENV', () => {
     expect(requiresProductionConfig({ VERCEL_ENV: 'production' })).toBe(true)
     expect(requiresProductionConfig({ VERCEL_ENV: 'preview', NODE_ENV: 'production' })).toBe(false)

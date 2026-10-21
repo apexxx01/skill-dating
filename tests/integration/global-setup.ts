@@ -8,7 +8,7 @@ import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL, INTEGRATION_DB_NAME, IN
 import { loadEnvLocal } from './env'
 import { clerkSecretKey, deleteRegisteredUsers, sweepStaleTestUsers } from './clerk-api'
 
-// Integration tests run against a real Next.js dev server and a real,
+// Integration tests run against a real Next.js server (a production build by default) and a real,
 // disposable Postgres database - not mocks. They exercise the actual HTTP
 // routes exactly as a client would, which is the only way to catch the
 // class of bug this suite exists for (transaction races, auth holes,
@@ -18,6 +18,15 @@ export { INTEGRATION_BASE_URL }
 const TEST_DATABASE_URL = INTEGRATION_DATABASE_URL
 
 let serverProcess: ChildProcess | undefined
+
+// Where the production build used by the suite goes: its own directory, so it never overwrites a dev server's .next.
+const TEST_DIST_DIR = '.next-test'
+
+function readServerMode(): 'prod' | 'dev' {
+  const raw = process.env.TEST_SERVER || 'prod'
+  if (raw !== 'prod' && raw !== 'dev') throw new Error(`TEST_SERVER must be "prod" or "dev", got "${raw}"`)
+  return raw
+}
 
 // DROP/CREATE DATABASE cannot run against the database being dropped, so this
 // connects to the server's maintenance database. The name is validated in
@@ -107,29 +116,49 @@ export default async function setup() {
     await setup.$disconnect()
   }
 
-  // Spawned directly via `next dev`, not `npm run dev` - npm's own wrapper
-  // process doesn't reliably propagate a kill signal down to the actual
-  // next-server child it launches (confirmed the hard way earlier in this
-  // project's history: `pkill`-ing the npm wrapper left next-server running
-  // on the port). `detached: true` + killing the negative PID takes out the
-  // whole process group Next spawns, not just the immediate child.
-  // Override NODE_ENV rather than inheriting vitest's 'test' - 'next dev'
-  // otherwise runs against a test-mode Next.js build that behaves
-  // differently in ways unrelated to the actual env-loading fix above.
-  const childEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, NODE_ENV: 'development' as const, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
+  // Which server the suite runs against (TEST_SERVER):
+  //   prod (default)  `next build` into its own directory, then `next start`. Routes are compiled once, before the
+  //                   first request, so nothing the suite does can race a compile, and it is what production runs.
+  //   dev             `next dev`, which compiles each route on its first request. Faster to start, but under the
+  //                   suite's parallel load it can drop connections and serve 500s from inside Next itself.
+  // TEST_SKIP_BUILD=1 reuses the last production build (only safe when nothing under src/ changed since).
+  const mode = readServerMode()
+  const baseEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
 
-  // TEST_SERVER_LOG=<file> keeps the dev server's output, for diagnosing a failing run.
+  // TEST_SERVER_LOG=<file> keeps the server's output, for diagnosing a failing run.
   const logPath = process.env.TEST_SERVER_LOG
   const serverLog = logPath ? fs.openSync(logPath, 'w') : 'ignore'
 
-  serverProcess = spawn('npx', ['next', 'dev', '-p', String(INTEGRATION_PORT)], {
-    cwd: projectRoot,
-    env: childEnv,
-    stdio: ['ignore', serverLog, serverLog],
-    detached: true,
-  })
-
-  await waitForServer(INTEGRATION_BASE_URL, 30_000)
+  // Spawned directly via `next`, not `npm run` - npm's own wrapper process doesn't reliably propagate a kill signal
+  // down to the actual next-server child it launches (`pkill`-ing the npm wrapper left next-server running on the
+  // port). `detached: true` + killing the negative PID takes out the whole process group Next spawns.
+  if (mode === 'dev') {
+    // Override NODE_ENV rather than inheriting vitest's 'test': 'next dev' otherwise runs a test-mode Next.js build.
+    serverProcess = spawn('npx', ['next', 'dev', '-p', String(INTEGRATION_PORT)], {
+      cwd: projectRoot,
+      env: { ...baseEnv, NODE_ENV: 'development' as const },
+      stdio: ['ignore', serverLog, serverLog],
+      detached: true,
+    })
+    await waitForServer(INTEGRATION_BASE_URL, 30_000)
+  } else {
+    // A production build always runs with NODE_ENV=production. VERCEL_ENV=preview lets it start on the in-memory
+    // stand-ins (no Redis, Inngest or Ably here), and INTEGRATION_TEST_SERVER keeps uploads in memory and honours the
+    // fixture page's private address, as the dev server does (src/lib/env.ts refuses it in real production).
+    const prodEnv = { ...baseEnv, NODE_ENV: 'production' as const, VERCEL_ENV: 'preview', INTEGRATION_TEST_SERVER: 'true', NEXT_DIST_DIR: TEST_DIST_DIR, NEXT_TELEMETRY_DISABLED: '1' }
+    if (process.env.TEST_SKIP_BUILD !== '1' || !fs.existsSync(path.join(projectRoot, TEST_DIST_DIR, 'BUILD_ID'))) {
+      const started = Date.now()
+      execSync('npx next build', { cwd: projectRoot, env: prodEnv, stdio: logPath ? ['ignore', serverLog, serverLog] : 'ignore' })
+      console.log(`integration: production build took ${Math.round((Date.now() - started) / 1000)}s`)
+    }
+    serverProcess = spawn('npx', ['next', 'start', '-p', String(INTEGRATION_PORT)], {
+      cwd: projectRoot,
+      env: prodEnv,
+      stdio: ['ignore', serverLog, serverLog],
+      detached: true,
+    })
+    await waitForServer(INTEGRATION_BASE_URL, 60_000)
+  }
 
   return async function teardown() {
     try {

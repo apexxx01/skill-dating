@@ -147,8 +147,8 @@ export function createStorage(): Storage {
       publicBaseUrl: env.STORAGE_PUBLIC_BASE_URL,
     })
   }
-  // Development and tests keep objects in this process; production without a bucket refuses.
-  return env.NODE_ENV === 'production' ? new UnavailableStorage() : new MemoryStorage()
+  // Development and tests keep objects in this process (including the integration suite's production build); production without a bucket refuses.
+  return env.NODE_ENV === 'production' && !env.INTEGRATION_TEST_SERVER ? new UnavailableStorage() : new MemoryStorage()
 }
 
 const globalForStorage = globalThis as unknown as { __storage?: Storage }

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { MemoryStorage } from './storage.memory'
-import { S3Storage, StorageUnavailableError, UnavailableStorage } from './storage'
+import { S3Storage, StorageUnavailableError, UnavailableStorage, createStorage } from './storage'
+import { resetEnvCache } from '@/lib/env'
 
 const config = { endpoint: 'https://acct.r2.cloudflarestorage.com', bucket: 'skill-dating', region: 'auto', accessKeyId: 'AKID', secretAccessKey: 'SECRET' }
 const now = new Date('2026-10-18T10:00:00Z')
@@ -88,5 +89,30 @@ describe('MemoryStorage', () => {
     expect(await storage.head('posts/u/x.png')).toEqual({ size: 10, contentType: 'image/png' })
     await storage.remove('posts/u/x.png')
     expect(await storage.head('posts/u/x.png')).toBeNull()
+  })
+})
+
+describe('createStorage', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetEnvCache()
+  })
+
+  function storageFor(vars: Record<string, string>) {
+    for (const [name, value] of Object.entries(vars)) vi.stubEnv(name, value)
+    resetEnvCache()
+    return createStorage()
+  }
+
+  it('refuses uploads in a production build without a bucket', () => {
+    expect(storageFor({ NODE_ENV: 'production', VERCEL_ENV: 'preview' }).kind).toBe('unavailable')
+  })
+
+  it('keeps uploads in memory for the integration suite running a production build', () => {
+    expect(storageFor({ NODE_ENV: 'production', VERCEL_ENV: 'preview', INTEGRATION_TEST_SERVER: 'true' }).kind).toBe('memory')
+  })
+
+  it('keeps uploads in memory in development', () => {
+    expect(storageFor({ NODE_ENV: 'development' }).kind).toBe('memory')
   })
 })
