@@ -217,6 +217,50 @@ enum ReportReason {
   OTHER
   // A person asking for their own locked date of birth to be corrected (the report is filed against themselves; an admin decides).
   BIRTHDATE_CORRECTION
+  // Pretending to be another person, an organisation or the platform. Its own priority (src/lib/moderation/priority.ts).
+  IMPERSONATION
+  // Anything that puts a minor at risk. Always first in the queue.
+  MINOR_SAFETY
+}
+
+// What a report is about (src/lib/moderation/targets.ts). USER is the person; the others are one thing they made.
+enum ReportTarget {
+  USER
+  MESSAGE
+  SHIP_POST
+  COMMENT
+  SPARK
+  ROMANCE_PROFILE
+  LFG_POST
+  IDEA
+  EXTERNAL_HACKATHON
+  // An upload the media scanner sent for review (src/lib/infra/media-moderation.ts).
+  MEDIA
+}
+
+enum ReportSource {
+  // Filed by a person.
+  USER
+  // Filed by the platform: a flagged message or post, a photo the scanner was unsure about.
+  AUTOMATED
+}
+
+enum AppealStatus {
+  PENDING
+  // The action stands.
+  UPHELD
+  // The action is reversed.
+  OVERTURNED
+}
+
+enum RestrictionKind {
+  // Signed in but closed to everything but appeals, their own data and their account (src/lib/moderation/restrictions.ts).
+  SUSPENDED
+  BANNED
+  // One feature closed, the rest open.
+  ROMANCE
+  MESSAGING
+  POSTING
 }
 
 enum ReportStatus {
@@ -236,6 +280,9 @@ model User {
   passwordHash         String?
   name                 String?
   username             String            @unique
+  // The username with every difference a reader would not notice folded away (src/lib/identity/confusables.ts): two people never share one, and
+  // nobody gets a reserved name's. Not unique in the database, because names given before it existed may collide; new names are checked against it.
+  usernameSkeleton     String?
   image                String?
   bio                  String?
   headline             String?
@@ -353,6 +400,13 @@ model User {
   followers           Follow[]                 @relation("Followers")
   watches             Watch[]
   romanceProfile      RomanceProfile?
+  risk                UserRisk?
+  dataExports         DataExport[]
+  consents            ConsentRecord[]
+  appeals             Appeal[]
+  restrictions        UserRestriction[]
+  mutesMade           Mute[]                   @relation("MutesMade")
+  mutesReceived       Mute[]                   @relation("MutesReceived")
   romanceDrops        RomanceDrop[]            @relation("RomanceDropsReceived")
   romanceDropsShown   RomanceDrop[]            @relation("RomanceDropsShown")
   duosAsA             Duo[]                    @relation("DuoAsA")
@@ -360,6 +414,7 @@ model User {
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
+  @@index([usernameSkeleton])
 }
 
 model Account {
@@ -397,12 +452,20 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+// Who may start a direct conversation with a person (src/lib/privacy/settings.ts).
+enum MessagePermission {
+  EVERYONE
+  // People they are connected with, matched with, or share a crew with.
+  CONNECTIONS
+  NOBODY
+}
+
 model Profile {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                   String            @id @default(cuid())
+  userId               String            @unique
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   headline             String?
-  bio                  String?  @db.Text
+  bio                  String?           @db.Text
   location             String?
   timezone             String?
   availability         String?
@@ -412,9 +475,9 @@ model Profile {
   portfolioUrl         String?
   linkedinUrl          String?
   twitterUrl           String?
-  showEmail            Boolean  @default(false)
-  showLocation         Boolean  @default(true)
-  showAvailability     Boolean  @default(true)
+  showEmail            Boolean           @default(false)
+  showLocation         Boolean           @default(true)
+  showAvailability     Boolean           @default(true)
   // Where the person is, for the country, city and campus leaderboards (see src/lib/places.ts).
   // countryCode is ISO 3166-1 alpha-2. city and campus hold tidied free text; the *Key columns
   // hold the comparable form ("São Paulo" -> "sao-paulo"), and are what the boards group by.
@@ -425,10 +488,18 @@ model Profile {
   campusKey            String?
   // Privacy. Opting out of leaderboards removes the person from every board and from every rank
   // others can see; hiding activity keeps the contribution heatmap to themselves.
-  hideFromLeaderboards Boolean  @default(false)
-  showActivity         Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  hideFromLeaderboards Boolean           @default(false)
+  showActivity         Boolean           @default(true)
+  // The rest of the privacy settings (GET/PATCH /api/users/me/privacy, src/lib/privacy/settings.ts).
+  // Who sees each passport field: { field: PUBLIC | CONNECTIONS | PRIVATE }. A field not named is PUBLIC.
+  fieldVisibility      Json              @default("{}")
+  // Kept out of any recruiter surface (none exists yet; src/lib/age-policy.ts recruiterVisible is the one place it is read).
+  hideFromRecruiters   Boolean           @default(false)
+  // Not shown as active: no "last active", left out of discovery and search lists, presence not published.
+  invisibleMode        Boolean           @default(false)
+  whoCanMessage        MessagePermission @default(EVERYONE)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   @@index([countryCode])
   @@index([countryCode, cityKey])
@@ -472,17 +543,20 @@ model UserSkill {
 }
 
 model SkillEvidence {
-  id          String    @id @default(cuid())
-  userId      String
-  skillId     String
-  type        String // CHALLENGE, GITHUB_PROJECT, HACKATHON_PROJECT, CONTRIBUTION, PEER_ENDORSEMENT, PORTFOLIO, CERTIFICATION, CONNECTED_PROFILE
-  title       String
-  description String?   @db.Text
-  url         String?
-  metadata    Json?
-  verifiedAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  userId          String
+  skillId         String
+  type            String // CHALLENGE, GITHUB_PROJECT, HACKATHON_PROJECT, CONTRIBUTION, PEER_ENDORSEMENT, PORTFOLIO, CERTIFICATION, CONNECTED_PROFILE
+  title           String
+  description     String?   @db.Text
+  url             String?
+  metadata        Json?
+  verifiedAt      DateTime?
+  // For a PEER_ENDORSEMENT row: how much it counts, 1 unless the nightly collusion job found it inside a dense reciprocal cluster (src/lib/integrity).
+  // Lowered, never deleted; restored when an admin dismisses the signal.
+  integrityWeight Float     @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
@@ -713,6 +787,8 @@ model Hackathon {
   submittedById        String?
   verifiedAt           DateTime?
   isPublic             Boolean            @default(true)
+  // Set when a moderator hid or removed an external hackathon (with isPublic false).
+  moderatedAt          DateTime?
   thumbnail            String?
   banner               String?
   createdAt            DateTime           @default(now())
@@ -1097,6 +1173,8 @@ model Message {
   type           String    @default("TEXT") // TEXT, IMAGE, FILE, SYSTEM, CODE, LINK_PREVIEW
   replyToId      String?
   editedAt       DateTime?
+  // Set when a moderator hid or removed it (with deletedAt); a hide can be undone, a removal also blanks the text.
+  moderatedAt    DateTime?
   deletedAt      DateTime?
   metadata       Json?
   createdAt      DateTime  @default(now())
@@ -1186,34 +1264,120 @@ model NotificationPreference {
 }
 
 model Report {
-  id          String       @id @default(cuid())
-  reporterId  String
-  reportedId  String
-  reason      ReportReason
-  description String?      @db.Text
-  status      ReportStatus @default(PENDING)
-  metadata    Json?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id           String       @id @default(cuid())
+  // Null for a report the platform filed itself (source AUTOMATED).
+  reporterId   String?
+  // The person the report is about: the reported user, or whoever made the reported thing.
+  reportedId   String
+  reason       ReportReason
+  description  String?      @db.Text
+  status       ReportStatus @default(PENDING)
+  metadata     Json?
+  targetType   ReportTarget @default(USER)
+  // The reported thing's id (null for USER, where it is reportedId).
+  targetId     String?
+  source       ReportSource @default(USER)
+  // Higher first in the queue (src/lib/moderation/priority.ts): minor safety and the romance mode, then impersonation, then by reporter trust and volume.
+  priority     Int          @default(0)
+  // What the reported thing said when it was reported, so an edit or a delete does not erase the evidence. Kept as long as the report (2 years once resolved).
+  snapshot     Json?
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  reporter User @relation("ReportsSubmitted", fields: [reporterId], references: [id], onDelete: Cascade)
-  reported User @relation("ReportsAgainst", fields: [reportedId], references: [id], onDelete: Cascade)
+  reporter User? @relation("ReportsSubmitted", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported User  @relation("ReportsAgainst", fields: [reportedId], references: [id], onDelete: Cascade)
 
   @@index([status])
+  // The queue: open reports, most urgent first.
+  @@index([status, priority, createdAt])
+  @@index([reportedId, createdAt])
+  @@index([targetType, targetId])
+  // Retention: resolved reports older than two years.
+  @@index([resolvedAt])
 }
 
+// One decision by a moderator or an admin (src/lib/moderation/actions.ts). Never deleted; a reversal is recorded on it.
 model ModerationAction {
-  id          String   @id @default(cuid())
-  moderatorId String
-  targetId    String
-  targetType  String // USER, MESSAGE, PROJECT, TEAM, REPORT
-  action      String // WARN, SUSPEND, BAN, DELETE, LOCK, UNLOCK
-  reason      String   @db.Text
-  duration    Int? // For temporary actions (in days)
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id              String    @id @default(cuid())
+  moderatorId     String
+  targetId        String
+  // USER or a ReportTarget value.
+  targetType      String
+  // WARN, HIDE_CONTENT, REMOVE_CONTENT, RESTRICT_FEATURE, SUSPEND, BAN, APPROVE_MEDIA (src/lib/moderation/actions.ts MODERATION_ACTIONS).
+  action          String
+  reason          String    @db.Text
+  duration        Int? // For temporary actions (in days)
+  metadata        Json?
+  // The person it is about (the user, or whoever made the content).
+  subjectUserId   String?
+  reportId        String?
+  // What the person is told, besides the reason's category. Shown to them.
+  noteToUser      String?   @db.Text
+  // RESTRICT_FEATURE: romance, messaging or posting.
+  feature         String?
+  expiresAt       DateTime?
+  // Until when the person may appeal (null: not appealable, e.g. a warning).
+  appealableUntil DateTime?
+  reversedAt      DateTime?
+  reversedById    String?
+  reverseReason   String?   @db.Text
+  createdAt       DateTime  @default(now())
 
-  moderator User @relation(fields: [moderatorId], references: [id], onDelete: Cascade)
+  moderator User    @relation(fields: [moderatorId], references: [id], onDelete: Cascade)
+  appeal    Appeal?
+
+  @@index([subjectUserId, createdAt])
+  @@index([reportId])
+}
+
+// A person asking for a moderation action against them to be looked at again (POST /api/appeals). One per action. Reviewed in the queue.
+model Appeal {
+  id           String       @id @default(cuid())
+  actionId     String       @unique
+  userId       String
+  body         String       @db.Text
+  status       AppealStatus @default(PENDING)
+  decidedById  String?
+  decisionNote String?      @db.Text
+  decidedAt    DateTime?
+  createdAt    DateTime     @default(now())
+
+  action ModerationAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+// What a moderation action closed for a person, and until when (null: until lifted). Lifted, never deleted.
+model UserRestriction {
+  id        String          @id @default(cuid())
+  userId    String
+  kind      RestrictionKind
+  actionId  String?
+  endsAt    DateTime?
+  liftedAt  DateTime?
+  createdAt DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, liftedAt])
+}
+
+// One person hiding another without blocking them (POST /api/mutes): the muted person's posts, comments and listings no longer show to the muter.
+// Nothing is said to the muted person, and they can still interact (unlike a block).
+model Mute {
+  id        String   @id @default(cuid())
+  muterId   String
+  mutedId   String
+  createdAt DateTime @default(now())
+
+  muter User @relation("MutesMade", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("MutesReceived", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@index([mutedId])
 }
 
 model AuditEvent {
@@ -1540,6 +1704,8 @@ model Spark {
   // A fingerprint of the opener's words, to notice the same message going to many people.
   openerHash     String
   status         SparkStatus @default(PENDING)
+  // Set when a moderator hid it: the receiver no longer sees it.
+  moderatedAt    DateTime?
   createdAt      DateTime    @default(now())
 
   from User  @relation("SparksSent", fields: [fromId], references: [id], onDelete: Cascade)
@@ -1595,6 +1761,8 @@ model Match {
 enum MediaPurpose {
   POST_MEDIA
   ROMANCE_PHOTO
+  // A profile picture (PUT /api/users/me/avatar). Scanned before it is shown, like a romance photo.
+  AVATAR
 }
 
 enum MediaKind {
@@ -1610,6 +1778,12 @@ enum MediaStatus {
   READY
   // Uploaded but not what was declared; the object is deleted.
   REJECTED
+  // Uploaded and checked, waiting for the media scanner (src/lib/infra/media-moderation.ts). Never served.
+  SCANNING
+  // The scanner was unsure: waiting for a moderator in the queue. Never served.
+  IN_REVIEW
+  // The scanner or a moderator refused it. The object is deleted; only the hash, the verdict and the labels are kept (docs/SAFETY.md).
+  BLOCKED
 }
 
 // A file a person uploaded or is about to (src/lib/media-assets.ts). The server never receives the bytes: it checks a declaration (type, size, dimensions, hash),
@@ -1628,6 +1802,10 @@ model MediaAsset {
   durationMs  Int?
   sha256      String
   status      MediaStatus  @default(PENDING)
+  // The media scanner's answer (SAFE, NEEDS_REVIEW, BLOCKED) and its labels, for purposes that are scanned.
+  scanVerdict String?
+  scanLabels  String[]     @default([])
+  scannedAt   DateTime?
   createdAt   DateTime     @default(now())
   confirmedAt DateTime?
 
@@ -1681,6 +1859,8 @@ model RomanceProfile {
   // "Only people endorsed by at least this many builders can spark me": 0 to 5.
   minEndorsements    Int             @default(0)
   paused             Boolean         @default(false)
+  // Set when a moderator hid the profile: it stays paused, and its owner cannot unpause it until a moderator undoes the hide.
+  moderatedAt        DateTime?
   // The ISO week ("2026-W43", in their zone then) the weekly drop was last made for, so a week is made once.
   lastDropWeek       String?
   // The local date ("YYYY-MM-DD") of the last time a drop was looked for and none was found, so an empty week is looked at once a day and not every hour.
@@ -1862,6 +2042,8 @@ model ShipPost {
   projectUpdateId String?
   createdAt       DateTime       @default(now())
   editedAt        DateTime?
+  // Set when a moderator hid or removed it (with deletedAt); a hide can be undone, a removal also blanks the text.
+  moderatedAt     DateTime?
   deletedAt       DateTime?
 
   author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -1879,11 +2061,13 @@ model ShipPost {
 
 // One builder's respect for one post. Unique per pair. `weight` is fixed when it is given (src/lib/posts/props-weight.ts); 0 for a giver the trust gate does not trust.
 model Prop {
-  id        String   @id @default(cuid())
-  userId    String
-  postId    String
-  weight    Float
-  createdAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  userId          String
+  postId          String
+  weight          Float
+  // Multiplies `weight` in the post's propsScore: 1 unless the collusion job lowered it (src/lib/integrity). Restored when the signal is dismissed.
+  integrityWeight Float    @default(1)
+  createdAt       DateTime @default(now())
 
   user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   post ShipPost @relation(fields: [postId], references: [id], onDelete: Cascade)
@@ -1895,14 +2079,16 @@ model Prop {
 
 // One level of threading: a reply's parent is always a top-level comment. Deleting is soft (the thread keeps its shape). Editable for a short window.
 model Comment {
-  id        String    @id @default(cuid())
-  postId    String
-  authorId  String
-  parentId  String?
-  body      String    @db.Text
-  editedAt  DateTime?
-  deletedAt DateTime?
-  createdAt DateTime  @default(now())
+  id          String    @id @default(cuid())
+  postId      String
+  authorId    String
+  parentId    String?
+  body        String    @db.Text
+  editedAt    DateTime?
+  // Set when a moderator hid or removed it (with deletedAt); a hide can be undone, a removal also blanks the text.
+  moderatedAt DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
 
   post    ShipPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
   author  User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -2062,6 +2248,8 @@ model LfgPost {
   note        String
   expiresAt   DateTime
   closedAt    DateTime?
+  // Set when a moderator hid or removed it (with closedAt).
+  moderatedAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -2105,6 +2293,8 @@ model TeamIdea {
   description String?
   voteCount   Int       @default(0)
   chosenAt    DateTime?
+  // Set when a moderator hid or removed it: it is left out of the board.
+  moderatedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -2161,6 +2351,8 @@ model PeerReview {
   // Visible to admins only.
   note            String?
   counted         Boolean  @default(true)
+  // How much the review counts toward reliability: 1 unless the collusion job lowered it (src/lib/integrity).
+  integrityWeight Float    @default(1)
   createdAt       DateTime @default(now())
 
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
@@ -2183,4 +2375,124 @@ model UserReliability {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// --- Integrity (src/lib/integrity, docs/SAFETY.md) ---------------------------------------------------------------------
+
+enum FraudSignalStatus {
+  // Found by the job; its down-weighting is in force.
+  OPEN
+  // An admin agreed. The down-weighting stays.
+  CONFIRMED
+  // An admin disagreed. Every weight it lowered is restored, and the same group is not flagged again.
+  DISMISSED
+}
+
+// A group of accounts the nightly collusion job found boosting each other (src/lib/integrity/collusion.ts): a dense cluster of reciprocal endorsements,
+// Props, connection accepts, peer reviews and team accepts, dominated by young or low-proof accounts. It lowers the weight of what they gave each other and
+// feeds their risk scores. It never bans anyone and never deletes anything.
+model FraudSignal {
+  id           String            @id @default(cuid())
+  type         String
+  // 0 to 100.
+  score        Int
+  memberIds    String[]
+  // What was seen: counts per kind of interaction, density, the members' ages and proof. Ids only, never content.
+  evidence     Json
+  // The rows whose weight it lowered, so a dismissal can restore exactly those: { props: [], endorsements: [], peerReviews: [] }.
+  affected     Json              @default("{}")
+  // Sorted member ids, hashed: the same group is one signal, updated by later runs.
+  fingerprint  String
+  status       FraudSignalStatus @default(OPEN)
+  windowStart  DateTime
+  windowEnd    DateTime
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([type, fingerprint])
+  @@index([status, createdAt])
+  @@index([memberIds], type: Gin)
+}
+
+enum RiskLevel {
+  LOW
+  ELEVATED
+  HIGH
+}
+
+// A person's risk score (src/lib/integrity/risk.ts), recomputed nightly from their signals. HIGH reduces their reach (drops, feed, squad builder) and
+// tightens their rate limits; every change is written to AuditEvent and an admin can override the level either way.
+model UserRisk {
+  userId         String     @id
+  // 0 to 100.
+  score          Int
+  level          RiskLevel
+  // The parts of the score, by factor: { collusion, reports, blocks, throttles, velocity, unverified }.
+  factors        Json       @default("{}")
+  // Set by an admin: wins over the computed level until cleared.
+  overrideLevel  RiskLevel?
+  overrideById   String?
+  overrideReason String?
+  computedAt     DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([level])
+  @@index([overrideLevel])
+}
+
+// --- Privacy (src/lib/privacy, docs/PRIVACY.md) ---------------------------------------------------------------------
+
+enum DataExportStatus {
+  PENDING
+  READY
+  FAILED
+  // The file was deleted after 24 hours.
+  EXPIRED
+}
+
+// A person's request for a copy of their data (GET /api/users/me/export). A job builds the JSON file into the bucket; the download link is a signed URL
+// that lasts as long as the file (24 hours), after which the retention job deletes the file and marks the row EXPIRED.
+model DataExport {
+  id          String           @id @default(cuid())
+  userId      String
+  status      DataExportStatus @default(PENDING)
+  storageKey  String?
+  bytes       Int?
+  expiresAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
+enum ConsentType {
+  TERMS
+  PRIVACY
+  // The romance mode processes special-category data (gender and who someone is interested in reveal sexual orientation): explicit consent is required.
+  ROMANCE_MODE
+  MARKETING
+}
+
+// Each consent a person gave, and its withdrawal: an append-only record (src/lib/privacy/consent.ts). The current state of a type is its latest row.
+model ConsentRecord {
+  id          String      @id @default(cuid())
+  userId      String
+  type        ConsentType
+  // The version of the document agreed to, e.g. "2026-10-01".
+  version     String
+  grantedAt   DateTime    @default(now())
+  withdrawnAt DateTime?
+  // Where it was given: onboarding, settings, romance-optin, api.
+  source      String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, grantedAt])
 }
