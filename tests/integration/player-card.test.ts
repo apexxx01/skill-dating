@@ -47,6 +47,7 @@ describe('player card', () => {
       streak: { current: 0, longest: 0, freezes: 0, lastDay: null },
       topAchievements: [],
       counts: { shipped: 0, hackathons: 0, wins: 0, endorsementsReceived: 0, crews: 0, milestones: 0 },
+      reliableTeammate: false,
     })
   })
 

@@ -16,6 +16,7 @@ interface Setup {
   counters?: Record<string, number>
   earned?: { slug: string; name: string; icon?: string | null; rarity: number | null; xpReward: number; earnedAt: string }[]
   crews?: number
+  reliability?: { badge: boolean } | null
 }
 
 function fakeDb(setup: Setup = {}) {
@@ -40,6 +41,7 @@ function fakeDb(setup: Setup = {}) {
     },
     userCounter: { findMany: vi.fn(async () => Object.entries(setup.counters ?? {}).map(([key, value]) => ({ key, value }))) },
     teamMember: { count: vi.fn(async () => setup.crews ?? 0) },
+    userReliability: { findUnique: vi.fn(async () => setup.reliability ?? null) },
     $queryRaw: vi.fn(async () => []),
   } as never
 }
@@ -76,6 +78,14 @@ describe('buildPlayerCard', () => {
     expect((await buildPlayerCard(fakeDb(), cache, 'u1', now))!.ranks).toEqual({ global: 1, country: null, city: null })
     expect((await buildPlayerCard(fakeDb(), cache, 'nobody', now))!.ranks.global).toBeNull()
     expect((await buildPlayerCard(fakeDb({ profile: { hideFromLeaderboards: true, countryCode: 'IN' } }), cache, 'u1', now))!.ranks).toEqual({ global: null, country: null, city: null })
+  })
+
+  it('carries the reliable-teammate badge and nothing of the number behind it', async () => {
+    expect((await buildPlayerCard(fakeDb(), cache, 'u1', now))!.reliableTeammate).toBe(false)
+    expect((await buildPlayerCard(fakeDb({ reliability: { badge: false } }), cache, 'u1', now))!.reliableTeammate).toBe(false)
+    const card = (await buildPlayerCard(fakeDb({ reliability: { badge: true } }), cache, 'u1', now))!
+    expect(card.reliableTeammate).toBe(true)
+    expect(JSON.stringify(card)).not.toMatch(/score|reliability"/)
   })
 
   it('names what the person wears, a season title and up to three badges included', async () => {

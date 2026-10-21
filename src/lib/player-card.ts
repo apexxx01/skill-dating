@@ -18,7 +18,7 @@ import { STATS_TTL_MS, statsCacheKey } from '@/lib/xp-views'
 // away whenever the person earns anything. What a particular viewer may see of it (the streak, when the
 // person keeps their activity private) is decided after the cache, in forViewer().
 
-type Db = Pick<PrismaClient, 'user' | 'profile' | 'season' | 'userAchievement' | 'userCounter' | 'teamMember' | '$queryRaw'>
+type Db = Pick<PrismaClient, 'user' | 'profile' | 'season' | 'userAchievement' | 'userCounter' | 'teamMember' | 'userReliability' | '$queryRaw'>
 
 const TOP_ACHIEVEMENTS = 3
 
@@ -29,7 +29,7 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
   })
   if (!user || user.deletedAt) return null
 
-  const [membership, periods, counters, earned, crews] = await Promise.all([
+  const [membership, periods, counters, earned, crews, reliability] = await Promise.all([
     loadMembership(db, userId),
     currentPeriods(db, now),
     readCounters(db, userId),
@@ -38,6 +38,8 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
       select: { earnedAt: true, achievement: { select: { slug: true, name: true, icon: true, rarity: true, xpReward: true } } },
     }),
     db.teamMember.count({ where: { userId } }),
+    // Only the badge, never the reliability number behind it (docs/SQUADS.md), the same as GET /api/users/{id}.
+    db.userReliability.findUnique({ where: { userId }, select: { badge: true } }),
   ])
 
   // Absolute place on the all-time boards the person is on. Nobody on none of them (opted out) has no rank. If the
@@ -92,6 +94,7 @@ export async function buildPlayerCard(db: Db, cache: Cache, userId: string, now:
       crews,
       milestones: counters.milestones ?? 0,
     },
+    reliableTeammate: reliability?.badge ?? false,
   }
 }
 

@@ -110,6 +110,8 @@ describe('pledges, peer reviews and reliability', () => {
     expect(notes.data.reviews.find((r: any) => r.reviewerId === owner.userId)).toMatchObject({ note: 'Carried the backend', counted: true })
 
     expect((await req(outsider.jar, 'GET', `/api/users/${mate.userId}`)).data.reliableTeammate).toBe(false)
+    // Read the player card now, so a cached copy without the badge exists: the review below must retire it.
+    expect((await req(outsider.jar, 'GET', `/api/users/${mate.userId}/stats`)).data.reliableTeammate).toBe(false)
     // One good review so far: two more from earlier hackathons, then one through the API recomputes it from all four.
     for (let i = 0; i < 2; i++) {
       const old = await hackathon()
@@ -126,6 +128,12 @@ describe('pledges, peer reviews and reliability', () => {
     const profile = await req(outsider.jar, 'GET', `/api/users/${mate.userId}`)
     expect(profile.data.reliableTeammate).toBe(true)
     expect(JSON.stringify(profile.data)).not.toMatch(/reliability|"score"/)
+
+    // The player card carries the same badge, by the same rule, and nothing of the number.
+    const card = await req(outsider.jar, 'GET', `/api/users/${mate.userId}/stats`)
+    expect(card.data.reliableTeammate).toBe(true)
+    expect(JSON.stringify(card.data)).not.toMatch(/reliability|"score"/)
+    expect((await req(mate.jar, 'GET', `/api/users/${owner.userId}/stats`)).data.reliableTeammate).toBe(false)
   })
 
   it('asks squads to review each other once, and never pairs a mutual no again', async () => {

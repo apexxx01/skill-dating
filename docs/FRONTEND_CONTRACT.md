@@ -772,7 +772,8 @@ refuses them with `409 TEAM_LOCKED`.
 
 **Strength privacy.** Strength never contains the members' reliability. Do not try to derive one.
 
-**Profile badge.** `GET /api/users/{id}` has `reliableTeammate: boolean`. Show it as a "Reliable teammate" badge. There is no number to show.
+**Profile badge.** `GET /api/users/{id}` and the player card `GET /api/users/{id}/stats` both have `reliableTeammate: boolean`, by the same rule. Show
+it as a "Reliable teammate" badge. There is no number to show.
 
 ### Admin
 

@@ -478,7 +478,8 @@ request runs no count.
 `GET /api/users/{id}/stats` returns everything a profile header shows in one call: `xp`, `level`, `tier`, `progress`, `ranks`
 (absolute places on the all-time global, country and city boards; `null` where the person is not on one), `streak`, the three
 rarest `topAchievements` earned, `equipped` cosmetics and `counts` (`shipped`, `hackathons`, `wins`, `endorsementsReceived`, `crews`
-= teams the person is in now, `milestones`). It is cached for 60 seconds and **retired by every award**. A person who keeps their
+= teams the person is in now, `milestones`), and `reliableTeammate` (the squads badge, [SQUADS.md](SQUADS.md); never the number behind it). It is
+cached for 60 seconds and **retired by every award** and by every counted peer review. A person who keeps their
 activity private (`showActivity: false`) shows no streak to others.
 
 ## Cosmetics

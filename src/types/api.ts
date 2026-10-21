@@ -771,6 +771,8 @@ export interface PlayerCard {
     /** Milestones completed. */
     milestones: number
   }
+  /** The "Reliable teammate" badge, by the same rule as on the profile (docs/SQUADS.md). The reliability number behind it is never sent. */
+  reliableTeammate: boolean
 }
 
 /** What a person wears: the slug of a cosmetic they own in each slot, or null. */

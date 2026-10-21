@@ -301,8 +301,8 @@ Most hackathons live on Devfolio, Devpost, MLH, Unstop or Luma. This platform is
   - It feeds squad strength (commitment fit), the builder, the solo pool, and `score.ts`'s `priorSignal`. `priorSignal` is the mean of the known
     parts: Build Date rating, reliability, and the viewer's own would-build-again (1/0). Its reasons are "You said you would build with them
     again" and "Reliable teammate on past squads".
-  - **Never shown as a number.** `GET /api/users/{id}` carries only `reliableTeammate: true|false`: a score of at least 0.85 from at least 3
-    reviews.
+  - **Never shown as a number.** `GET /api/users/{id}` and the player card (`GET /api/users/{id}/stats`) carry only `reliableTeammate: true|false`:
+    a score of at least 0.85 from at least 3 reviews. A counted review retires the cached player card, so the badge shows at once.
 - **Chemistry**: a "would build again" from either side makes a pair good chemistry. A **mutual "no"** makes them a forbidden pair: the builder
   and the pool never put them together again.
 

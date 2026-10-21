@@ -4,6 +4,7 @@ import { blockRelation } from '@/lib/blocks'
 import { KIND_SPECS } from '@/lib/notification-kinds'
 import { accountDistrust } from '@/lib/trust'
 import { reliabilityOf } from './reliability'
+import { invalidateUserViews } from '@/lib/xp-views'
 
 // Commitment pledges and peer reviews (docs/SQUADS.md, "Reliability and peer review"): the number one hackathon pain is a teammate who ghosts.
 // Before a hackathon each squad member pledges how they will take part; after it, each reviews each teammate in private (showed up, would build
@@ -85,7 +86,7 @@ export async function writePeerReview(
 
   const reviewer = await db.user.findUnique({ where: { id: reviewerId }, select: { createdAt: true, isEmailVerified: true } })
   const counted = accountDistrust(reviewer, now) === null
-  return db.$transaction(async (tx) => {
+  const outcome = await db.$transaction(async (tx) => {
     const created = await tx.peerReview.createMany({
       data: [{ hackathonId: hackathon.id, teamId: mates.teamId, reviewerId, revieweeId: body.revieweeId, showedUp: body.showedUp, wouldBuildAgain: body.wouldBuildAgain, note: body.note || null, counted, createdAt: now }],
       skipDuplicates: true,
@@ -95,6 +96,9 @@ export async function writePeerReview(
     const review = await tx.peerReview.findUniqueOrThrow({ where: { hackathonId_reviewerId_revieweeId: { hackathonId: hackathon.id, reviewerId, revieweeId: body.revieweeId } }, select: { id: true } })
     return { ok: true as const, reviewId: review.id, counted }
   })
+  // The player card shows the badge and is cached; a counted review may have changed it.
+  if (outcome.ok && counted) await invalidateUserViews(body.revieweeId).catch(() => undefined)
+  return outcome
 }
 
 export interface ReviewTodo {
