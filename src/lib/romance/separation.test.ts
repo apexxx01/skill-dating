@@ -59,6 +59,7 @@ const MAY_NAME_THE_MODE: Record<string, string> = {
   'lib/moderation/reports.ts': 'a comment: the queue order',
   'lib/moderation/restrictions.ts': 'the ROMANCE restriction kind',
   'lib/moderation/targets.ts': 'romance profiles, sparks and messages can be reported, hidden and removed',
+  'lib/moderation/target-types.ts': 'ROMANCE_PROFILE in the list of what can be reported',
   'lib/ops/kill-switches.ts': 'the romance mode’s kill switch',
   'lib/privacy/consent.ts': 'the ROMANCE_MODE consent type',
   'lib/infra/media-moderation.ts': 'the scanner every romance photo passes before it is shown',
