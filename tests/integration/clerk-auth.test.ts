@@ -3,7 +3,7 @@ import { Webhook } from 'svix'
 import { INTEGRATION_BASE_URL } from './config'
 import { cookieJar, req, registerAndLogin, syntheticIp, uniqueSuffix } from './helpers'
 import { createClerkUser, createSession, deleteClerkUser, mintToken, updateClerkUser } from './clerk-api'
-import { cleanupTestUsers, testPrisma } from './db'
+import { cleanupTestUsers, testPrisma, acceptLegalTerms } from './db'
 
 // The Clerk-backed authentication path, against real Clerk users and real
 // session tokens: no application-side bypass exists, so what passes here passes
@@ -185,8 +185,12 @@ describe('clerk authentication', () => {
       const incomplete = await req(A.jar, 'GET', '/api/users/me')
       expect(incomplete.data).toMatchObject({ onboardingComplete: false, ageRequired: true })
 
-      // Onboarded (a headline, at least one skill and a date of birth): /onboarding sends them on.
+      // Not onboarded without the terms and the privacy notice accepted either.
       await testPrisma.user.update({ where: { id: A.userId }, data: { birthDate: new Date('1995-06-15T00:00:00Z') } })
+      expect((await req(A.jar, 'GET', '/api/users/me')).data).toMatchObject({ onboardingComplete: false, consentRequired: ['TERMS', 'PRIVACY'] })
+
+      // Onboarded (a headline, at least one skill, a date of birth and the consents): /onboarding sends them on.
+      await acceptLegalTerms(A.userId)
       const me = await req(A.jar, 'GET', '/api/users/me')
       expect(me.data.onboardingComplete).toBe(true)
       const after = await page('/onboarding', await auth())
@@ -206,6 +210,7 @@ describe('clerk authentication', () => {
         const skill = await testPrisma.skill.create({ data: { name: `${label} Skill ${suffix}`, slug: `${label}-skill-${suffix}`, category: 'Test' } })
         await testPrisma.user.update({ where: { id: U.userId }, data: { headline: 'Builder', birthDate: new Date('1995-06-15T00:00:00Z') } })
         await testPrisma.userSkill.create({ data: { userId: U.userId, skillId: skill.id } })
+        await acceptLegalTerms(U.userId)
         const me = await req(U.jar, 'GET', '/api/users/me')
         expect(me.data.onboardingComplete).toBe(true)
         const cleanup = async () => {

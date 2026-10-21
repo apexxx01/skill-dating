@@ -6,7 +6,12 @@ import { applyVerification } from '@/lib/verification'
 import { track } from '@/lib/infra/analytics'
 import { log } from '@/lib/log'
 import { getStorage } from '@/lib/infra/storage'
-import { purgeRomance, removeObjects } from '@/lib/romance/lifecycle'
+import { removeObjects } from '@/lib/romance/lifecycle'
+import { deleteAccountData } from '@/lib/privacy/delete'
+import { skeleton } from '@/lib/identity/confusables'
+import { usernameRefusal } from '@/lib/identity/usernames'
+import { isDisposableEmail } from '@/lib/identity/signup'
+import { isKilled } from '@/lib/ops/kill-switches'
 
 // Keeps the local User row in step with the Clerk account. Two entry points use
 // this: the first authenticated request (lazy upsert) and the Clerk webhook.
@@ -31,6 +36,19 @@ export const SELECTED_USER_FIELDS = {
 } satisfies Prisma.UserSelect
 
 export type LocalUser = Prisma.UserGetPayload<{ select: typeof SELECTED_USER_FIELDS }>
+
+/** A new account was refused (src/lib/identity/signup.ts): the code says why. Nothing is created. */
+export class SignupRefusedError extends Error {
+  constructor(readonly code: 'SIGNUPS_PAUSED' | 'SIGNUP_EMAIL_REJECTED' | 'SIGNUP_RATE_LIMITED') {
+    super(`Sign-up refused: ${code}`)
+    this.name = 'SignupRefusedError'
+  }
+}
+
+export interface SyncOptions {
+  /** Runs just before a new local account is created (not for an existing or linked one); throws SignupRefusedError to refuse it. */
+  beforeCreate?: (facts: ClerkFacts) => Promise<void>
+}
 
 /** The email is verified, but belongs to a local account bound to a different Clerk user. */
 export class AccountConflictError extends Error {
@@ -84,9 +102,19 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 }
 
-async function usernameHolder(tx: Tx, username: string): Promise<string | null> {
+/**
+ * Who holds a name, for the collision rule: the exact holder, or, for a name that is reserved or reads like someone else's (src/lib/identity), a holder
+ * that makes it count as taken, so the deterministic suffix applies to it too.
+ */
+async function usernameHolder(tx: Tx, username: string, ownerId?: string): Promise<string | null> {
   const row = await tx.user.findUnique({ where: { username }, select: { id: true } })
-  return row?.id ?? null
+  if (row) return row.id
+  const refusal = await usernameRefusal(
+    username,
+    async (s) => (await tx.user.findFirst({ where: { usernameSkeleton: s, ...(ownerId ? { id: { not: ownerId } } : {}) }, select: { id: true } }))?.id ?? null,
+    ownerId
+  )
+  return refusal ? `refused:${refusal}` : null
 }
 
 /**
@@ -97,7 +125,7 @@ async function usernameHolder(tx: Tx, username: string): Promise<string | null> 
 async function chosenUsername(tx: Tx, facts: ClerkFacts, current: string, ownerId: string): Promise<string | null> {
   if (!facts.username) return null
   if (isCurrentUsernameFor(current, facts.username, facts.clerkId)) return null
-  return resolveUsername(facts.username, facts.clerkId, (u) => usernameHolder(tx, u), ownerId)
+  return resolveUsername(facts.username, facts.clerkId, (u) => usernameHolder(tx, u, ownerId), ownerId)
 }
 
 async function findLegacyRowByEmail(tx: Tx, email: string) {
@@ -107,7 +135,7 @@ async function findLegacyRowByEmail(tx: Tx, email: string) {
   })
 }
 
-async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: LocalUser; signedUp: boolean }> {
+async function syncInTransaction(tx: Tx, facts: ClerkFacts, options: SyncOptions = {}): Promise<{ user: LocalUser; signedUp: boolean }> {
   // One writer per Clerk account at a time: a second concurrent first request
   // waits here, then finds the row the first one created.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'clerk-sync:' + facts.clerkId}, 0))`
@@ -132,7 +160,7 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: Loc
       // squatter cannot keep access to a victim's account after the victim links it.
       await tx.user.update({
         where: { id: userId },
-        data: { clerkId: facts.clerkId, ...(username ? { username } : {}), lastActiveAt: new Date(), passwordHash: null },
+        data: { clerkId: facts.clerkId, ...(username ? { username, usernameSkeleton: skeleton(username) } : {}), lastActiveAt: new Date(), passwordHash: null },
       })
       await tx.account.deleteMany({ where: { userId } })
       await tx.session.deleteMany({ where: { userId } })
@@ -140,7 +168,7 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: Loc
         data: { userId, action: 'USER_LINKED', targetType: 'USER', targetId: userId, newValue: { clerkId: facts.clerkId } },
       })
     } else {
-      const created = await createRow(tx, facts)
+      const created = await createRow(tx, facts, options)
       userId = created.id
       signedUp = true
     }
@@ -150,7 +178,11 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts): Promise<{ user: Loc
   return { user: await tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS }), signedUp }
 }
 
-async function createRow(tx: Tx, facts: ClerkFacts) {
+async function createRow(tx: Tx, facts: ClerkFacts, options: SyncOptions = {}) {
+  // Sign-up abuse (src/lib/identity/signup.ts): the kill switch, throwaway domains, and whatever the caller adds (the per-address limit).
+  if (await isKilled(tx as unknown as PrismaClient, 'signups')) throw new SignupRefusedError('SIGNUPS_PAUSED')
+  if (isDisposableEmail(facts.email)) throw new SignupRefusedError('SIGNUP_EMAIL_REJECTED')
+  await options.beforeCreate?.(facts)
   // An email that is not verified is never used to look anything up, and if a
   // row already has it we must not squat it: use the placeholder instead.
   let email = facts.email
@@ -167,6 +199,7 @@ async function createRow(tx: Tx, facts: ClerkFacts) {
       clerkId: facts.clerkId,
       email,
       username,
+      usernameSkeleton: skeleton(username),
       name: facts.name,
       image: facts.image,
     },
@@ -183,7 +216,10 @@ async function updateExisting(tx: Tx, existing: { id: string; username: string }
 
   // The username is owned by Clerk; a change there is applied through the same collision rule.
   const username = await chosenUsername(tx, facts, existing.username, existing.id)
-  if (username && username !== existing.username) data.username = username
+  if (username && username !== existing.username) {
+    data.username = username
+    data.usernameSkeleton = skeleton(username)
+  }
 
   // Email follows Clerk once it is verified, unless another row already holds it.
   if (facts.emailVerified && facts.email) {
@@ -215,12 +251,12 @@ async function recordConflict(db: PrismaClient, clerkId: string): Promise<void> 
  * Safe to call concurrently for the same account. Retries only when a unique
  * constraint was lost to a different account that raced for the same username.
  */
-export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma): Promise<LocalUser> {
+export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma, options: SyncOptions = {}): Promise<LocalUser> {
   const facts = extractClerkFacts(cu)
   const attempts = 5
   for (let attempt = 1; ; attempt++) {
     try {
-      const { user, signedUp } = await db.$transaction((tx) => syncInTransaction(tx, facts), { timeout: 15_000 })
+      const { user, signedUp } = await db.$transaction((tx) => syncInTransaction(tx, facts, options), { timeout: 15_000 })
       // Counted after the commit, and only for a brand new account (linking an old row is not a signup).
       if (signedUp) await track(user.id, 'signup')
       return user
@@ -274,20 +310,22 @@ export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = pri
         isPhoneVerified: false,
         // Private data that must not outlive the account.
         birthDate: null,
+        birthDateRefusedAt: null,
+        usernameSkeleton: null,
+        organizationVerified: false,
+        identityVerified: false,
+        portfolioVerified: false,
+        verificationLevel: 'NONE',
       },
     })
-    await tx.matchingProfile.deleteMany({ where: { userId: row.id } })
-    // The romance mode goes with the person: profile, photos, drops, pending sparks, and their open romance matches are ended (src/lib/romance/lifecycle.ts).
-    objectKeys = (await purgeRomance(tx, row.id)).objectKeys
-    await tx.account.deleteMany({ where: { userId: row.id } })
-    await tx.session.deleteMany({ where: { userId: row.id } })
-    await tx.profile.deleteMany({ where: { userId: row.id } })
-    await tx.verification.deleteMany({ where: { userId: row.id } })
+    // Everything else the person had, table by table, by the data inventory (src/lib/privacy/inventory.ts): private data deleted, posts and comments
+    // blanked, the romance mode purged, links cleared; what others depend on kept and attributed to the anonymised account.
+    objectKeys = await deleteAccountData(tx, row.id)
     await tx.auditEvent.create({
       data: { userId: row.id, action: 'USER_DELETED', targetType: 'USER', targetId: row.id },
     })
     return true
-  })
+  }, { timeout: 60_000 })
   // The photos' objects in the bucket, once the rows that pointed to them are gone.
   if (found && objectKeys.length > 0) await removeObjects(getStorage(), objectKeys)
   return found

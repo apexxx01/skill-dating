@@ -1,5 +1,5 @@
 import type { User as ClerkUser } from '@clerk/nextjs/server'
-import { AccountConflictError } from '@/lib/user-sync'
+import { AccountConflictError, SignupRefusedError } from '@/lib/user-sync'
 
 // What to do with a verified Clerk webhook event. The payload is only a change
 // notification: for created/updated the user is fetched from Clerk again and the
@@ -54,6 +54,8 @@ export async function processClerkEvent(event: ClerkEvent, deps: WebhookDeps): P
   } catch (error) {
     // Permanent (the email belongs to another account); retrying cannot help.
     if (error instanceof AccountConflictError) return { status: 'conflict' }
+    // A refused sign-up (a throwaway domain, sign-ups paused) is final too: no local account is made, and the person is told when they first sign in.
+    if (error instanceof SignupRefusedError) return { status: 'ignored', reason: `sign-up refused: ${error.code}` }
     throw error
   }
 }
