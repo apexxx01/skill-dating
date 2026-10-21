@@ -396,7 +396,7 @@ Redis client, which proves command mapping, key prefixing and reply parsing but 
 Cloud. The Ably adapter's token signing is tested against the real SDK offline, but publishing is
 not. Run each against a real instance before depending on it.
 
-`/api/inngest` is the Inngest SDK's own handler. Without keys (development, tests) it runs in the
+`/api/inngest` is the Inngest SDK's own handler. Without a signing key (development, tests, a preview, the integration suite's production build) it runs in the
 SDK's dev mode: `GET` describes the functions, an unsigned `POST` is refused with `401`, and `PUT`
 (registration) answers `500` because it tries to reach a local Inngest dev server that is not
 running. That `500` is the SDK's behaviour, not a fault in the route. That an unsigned request is

@@ -243,13 +243,22 @@ type InngestRetries = NonNullable<Parameters<Inngest['createFunction']>[0]['retr
 // route that serves it, and a build must not need credentials.
 let inngestClient: Inngest | undefined
 
+/**
+ * Whether the Inngest SDK runs in its dev mode. Cloud mode needs the signing key and refuses every request without it, so a process that has no key
+ * (development, tests, a preview, the integration suite's production build: all of which run jobs in-process) serves /api/inngest in dev mode. Real
+ * production cannot start without the key (src/lib/env.ts), so it is always in cloud mode.
+ */
+export function inngestDevMode(config: { NODE_ENV: string; INNGEST_SIGNING_KEY?: string }): boolean {
+  return config.NODE_ENV !== 'production' || !config.INNGEST_SIGNING_KEY
+}
+
 export function getInngest(): Inngest {
   if (!inngestClient) {
     inngestClient = new Inngest({
       id: APP_ID,
       eventKey: env.INNGEST_EVENT_KEY,
       signingKey: env.INNGEST_SIGNING_KEY,
-      isDev: env.NODE_ENV !== 'production',
+      isDev: inngestDevMode(env),
     })
   }
   return inngestClient

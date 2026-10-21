@@ -7,6 +7,7 @@ import {
   createJobQueue,
   defineJob,
   getJobQueue,
+  inngestDevMode,
   setJobQueue,
   inngestFunctions,
   jobs,
@@ -246,3 +247,11 @@ describe('a queue shared by several bundles', () => {
   })
 })
 
+describe('inngestDevMode', () => {
+  it('uses cloud mode only where it can work: production with a signing key', () => {
+    expect(inngestDevMode({ NODE_ENV: 'production', INNGEST_SIGNING_KEY: 'signkey-prod-x' })).toBe(false)
+    expect(inngestDevMode({ NODE_ENV: 'production' })).toBe(true)
+    expect(inngestDevMode({ NODE_ENV: 'development', INNGEST_SIGNING_KEY: 'signkey-x' })).toBe(true)
+    expect(inngestDevMode({ NODE_ENV: 'test' })).toBe(true)
+  })
+})
