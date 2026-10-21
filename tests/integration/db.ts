@@ -20,6 +20,29 @@ export async function establishAccount(userId: string, over: { ageDays?: number;
   })
 }
 
+/**
+ * An IANA zone where it is daytime right now (between 09:00 and 17:00), so a test does not depend on when it runs: a project shipped between 02:00 and
+ * 05:00 local time unlocks the secret Night Owl achievement (75 XP), which changes every exact XP total, and a run near local midnight crosses a day.
+ * Test accounts have no zone of their own, which means UTC, so a suite run between 02:00 and 05:00 UTC failed every test that counts XP after a ship.
+ */
+export function daytimeZone(now: Date = new Date()): string {
+  // Closest to UTC first, and on the same calendar date as UTC when there is a choice (some tests compare with today's UTC date).
+  const offsets = Array.from({ length: 25 }, (_, i) => i - 12).sort((a, b) => Math.abs(a) - Math.abs(b) || b - a)
+  const fits = offsets.filter((hours) => {
+    const local = now.getUTCHours() + hours
+    return ((local % 24) + 24) % 24 >= 9 && ((local % 24) + 24) % 24 < 17
+  })
+  const sameDay = fits.find((hours) => now.getUTCHours() + hours >= 0 && now.getUTCHours() + hours < 24)
+  const hours = sameDay ?? fits[0] ?? 0
+  // Etc/GMT zones have the sign reversed: Etc/GMT-5 is five hours ahead of UTC.
+  return hours === 0 ? 'UTC' : `Etc/GMT${hours > 0 ? '-' : '+'}${Math.abs(hours)}`
+}
+
+/** Gives the account a zone where it is daytime now (daytimeZone). */
+export async function pinDaytime(userId: string): Promise<void> {
+  await testPrisma.user.update({ where: { id: userId }, data: { timezone: daytimeZone() } })
+}
+
 export async function promoteToAdmin(userId: string) {
   await testPrisma.user.update({ where: { id: userId }, data: { role: 'ADMIN' } })
 }

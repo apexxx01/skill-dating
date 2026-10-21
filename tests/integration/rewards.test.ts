@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
-import { cleanupTestUsers, testPrisma } from './db'
+import { cleanupTestUsers, testPrisma, pinDaytime } from './db'
 import { loadEnvLocal } from './env'
 import { INTEGRATION_DATABASE_URL } from './config'
 import { levelFor, xpAtLevelStart } from '../../src/lib/levels'
@@ -18,9 +18,13 @@ describe('rewards engine', () => {
     await cleanupTestUsers(suffix)
   })
 
-  const user = async (label: string): Promise<TestUser> => {
+  const user = async (label: string, options: { zone?: boolean } = {}): Promise<TestUser> => {
     const name = `rw${label}${suffix}${n++}`
-    return registerAndLogin(`${name}@test.dev`, name)
+    const u = await registerAndLogin(`${name}@test.dev`, name)
+    // Daytime where the account is, so a ship never unlocks Night Owl and changes the totals these tests count (daytimeZone in db.ts). The test of
+    // the UTC fallback needs an account without a zone.
+    if (options.zone !== false) await pinDaytime(u.userId)
+    return u
   }
 
   const createProject = (u: TestUser, name: string) => req(u.jar, 'POST', '/api/projects', { name: `${name} ${suffix}${n++}` })
@@ -280,7 +284,7 @@ describe('rewards engine', () => {
 
     it('falls back to UTC for a user without a time zone', async () => {
       const { grant, inTransaction } = await engine()
-      const u = await user('notz')
+      const u = await user('notz', { zone: false })
       await testPrisma.xPEvent.createMany({
         data: ['a', 'b', 'c'].map((id) => ({
           userId: u.userId, type: 'PROJECT_CREATED', amount: 50, description: 'seed', sourceType: 'PROJECT', sourceId: id, dedupeKey: `project:${id}`, createdAt: awardedAt,

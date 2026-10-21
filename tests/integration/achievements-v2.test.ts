@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
-import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
+import { cleanupTestUsers, promoteToAdmin, testPrisma, pinDaytime } from './db'
 import { ACHIEVEMENT_DEFINITIONS } from '../../src/lib/achievement-definitions'
 import { xpAtLevelStart } from '../../src/lib/levels'
 import { addDaysToDateKey, localDateKey } from '../../src/lib/time'
@@ -14,7 +14,10 @@ describe('achievements v2', () => {
 
   const user = async (): Promise<TestUser> => {
     const name = `av${suffix}${n++}`
-    return registerAndLogin(`${name}@test.dev`, name)
+    // Daytime where the account is, so a ship never unlocks Night Owl and changes the totals these tests count (daytimeZone in db.ts).
+    const u = await registerAndLogin(`${name}@test.dev`, name)
+    await pinDaytime(u.userId)
+    return u
   }
   const counter = (u: TestUser, key: string) => testPrisma.userCounter.findUnique({ where: { userId_key: { userId: u.userId, key } } }).then((row) => row?.value ?? 0)
   const setCounter = (u: TestUser, key: string, value: number) =>

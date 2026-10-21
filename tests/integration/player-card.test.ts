@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { req, registerAndLogin, reconcileLeaderboards, uniqueSuffix, type TestUser } from './helpers'
-import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
+import { cleanupTestUsers, promoteToAdmin, testPrisma, pinDaytime } from './db'
 import { levelFor } from '../../src/lib/levels'
 
 // GET /api/users/{id}/stats: the player card, in one call, cached for 60 seconds and refreshed by every award.
@@ -17,7 +17,10 @@ describe('player card', () => {
 
   const user = async (): Promise<TestUser> => {
     const name = `pc${suffix}${n++}`
-    return registerAndLogin(`${name}@test.dev`, name)
+    // Daytime where the account is, so a ship never unlocks Night Owl and changes the totals these tests count (daytimeZone in db.ts).
+    const u = await registerAndLogin(`${name}@test.dev`, name)
+    await pinDaytime(u.userId)
+    return u
   }
   const card = (viewer: TestUser | null, userId: string) => req(viewer?.jar ?? null, 'GET', `/api/users/${userId}/stats`)
   const project = async (u: TestUser) => (await req(u.jar, 'POST', '/api/projects', { name: `Pc ${suffix}${n++}` })).data as { id: string }
