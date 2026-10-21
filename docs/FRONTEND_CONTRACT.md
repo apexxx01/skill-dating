@@ -621,7 +621,7 @@ and never `propsScore`. A new post by the user does not appear at the top of the
 | A project's timeline | `GET /api/projects/{id}/timeline` → `PostsPageResponse` (a private project's is `404 PROJECT_NOT_FOUND` to non-members) |
 | A person's posts | `GET /api/users/{id}/posts` → `PostsPageResponse`; followers / following: `GET /api/users/{id}/followers`, `/following` → `FollowPeopleResponse` |
 
-Composer rules to enforce before sending (the server enforces them too): title 3 to 120 characters, body 1 to 10,000, at most 6 files, 5 links, 10 tags and 5 co-authors. A `SHIP` post needs a
+Composer rules to enforce before sending (the server enforces them too): title 3 to 120 characters, body 1 to 10,000, at most 6 files, 5 links, 10 tags and 5 co-authors (a `DEMO` post for a hackathon squad: up to the hackathon's `maxTeamSize`, at most 10). A `SHIP` post needs a
 project the user belongs to; `CREW` visibility needs a project or crew. Co-authors can only be members of the project or crew (`400 POST_COAUTHOR_NOT_MEMBER`). When `shipped` is `true` in the
 response the project has just shipped: show the ship celebration. A post made on the author's Friday has the `ship-day` tag in `stackTags`; render it as the Ship Day badge.
 

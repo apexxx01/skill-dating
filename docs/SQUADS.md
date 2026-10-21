@@ -228,7 +228,8 @@ Writes:
 - **Ideas**: `POST /ideas`. `POST`/`DELETE /ideas/{ideaId}/vote` are one vote per member, and both are safe to repeat.
   `POST /ideas/{ideaId}/choose` (owner or admin) marks one idea as chosen. Its author, or whoever runs the team, deletes an idea. At most 50.
 - **Post our demo**: `POST /demo-post`. A `DEMO` post on the Ship Feed through the existing `createPost`, for the team and its project,
-  co-authored by the other members (at most five, the feed's limit, skipping anyone blocked).
+  co-authored by every other member (up to the hackathon's `maxTeamSize`, hard cap 10, skipping anyone blocked; other post kinds keep the feed's
+  limit of five).
 - **Keep building**: `POST /keep-building` (owner or admin), once the results are in or the hackathon has ended.
   - The squad becomes a permanent crew: `keptBuildingAt` is set and `hackathonId` cleared, so the hackathon's size limits and lock stop applying.
     Its `HackathonTeam` keeps the history.

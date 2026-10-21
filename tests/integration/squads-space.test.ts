@@ -101,6 +101,32 @@ describe('the hackathon team space', () => {
     expect((await req(outsider.jar, 'POST', `/api/teams/${teamId}/demo-post`, { title: 'Not ours', body: 'x' })).data.error.code).toBe('FORBIDDEN')
   })
 
+  it("credits every member of a big squad on its demo, up to the hackathon's team size, and keeps other posts at five", async () => {
+    // A squad of seven for a hackathon that allows eight: more than the five co-authors any other post may name.
+    const big = await makeHackathon({ maxTeamSize: 8 })
+    hackathons.push(big.id)
+    const team = await testPrisma.team.create({ data: { name: `Big Squad ${suffix}`, slug: `big-squad-${suffix}`, ownerId: owner.userId, hackathonId: big.id, maxSize: 8 } })
+    await testPrisma.teamMember.create({ data: { teamId: team.id, userId: owner.userId, role: 'OWNER' } })
+    const mates: string[] = []
+    for (let i = 0; i < 6; i++) {
+      const mate = await testPrisma.user.create({ data: { email: `bigmate${i}${suffix}@test.dev`, username: `bigmate${i}${suffix}`.slice(0, 30) } })
+      await testPrisma.teamMember.create({ data: { teamId: team.id, userId: mate.id, role: 'MEMBER' } })
+      mates.push(mate.id)
+    }
+
+    const posted = await req(owner.jar, 'POST', `/api/teams/${team.id}/demo-post`, { title: 'Seven of us built this', body: 'The whole squad.' })
+    expect(posted.status).toBe(201)
+    expect([...posted.data.post.coAuthorIds].sort()).toEqual([...mates].sort())
+
+    // A post of another kind keeps the general limit of five, even in the same crew.
+    const update = await req(owner.jar, 'POST', '/api/posts', { kind: 'UPDATE', title: 'Progress', body: 'Still going', teamId: team.id, coAuthorIds: mates })
+    expect(update.status).toBe(400)
+    expect(update.data.error.code).toBe('VALIDATION_FAILED')
+    expect((await req(owner.jar, 'POST', '/api/posts', { kind: 'UPDATE', title: 'Progress', body: 'Still going', teamId: team.id, coAuthorIds: mates.slice(0, 5) })).status).toBe(201)
+    // And no post names more than ten, whatever the hackathon allows.
+    expect((await req(owner.jar, 'POST', '/api/posts', { kind: 'DEMO', title: 'Too many', body: 'x', teamId: team.id, coAuthorIds: Array.from({ length: 11 }, (_, i) => `x${i}`) })).status).toBe(400)
+  })
+
   it('keeps building after the end: a permanent crew with a project from the chosen idea, once', async () => {
     expect((await req(owner.jar, 'POST', `/api/teams/${teamId}/keep-building`, {})).data.error.code).toBe('KEEP_BUILDING_TOO_EARLY')
     await testPrisma.hackathon.update({ where: { id: hackathonId }, data: { status: 'ENDED', endDate: new Date(Date.now() - 1000), submissionDeadline: new Date(Date.now() - 2000) } })

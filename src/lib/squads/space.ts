@@ -2,7 +2,8 @@ import type { Prisma, PrismaClient, SquadRole } from '@prisma/client'
 import { z } from 'zod'
 import { blockRelation } from '@/lib/blocks'
 import { emit, transactWithEvents } from '@/lib/events'
-import { createPost, type CreatePostResult } from '@/lib/posts/posts'
+import { coAuthorLimit } from '@/lib/posts/co-authors'
+import { createPost, squadMaxTeamSize, type CreatePostResult } from '@/lib/posts/posts'
 import { isLocked, lockTimeOf } from './membership'
 import { roleLabel } from './roles'
 import { slugify } from './teams'
@@ -159,15 +160,14 @@ export async function chooseIdea(db: Db, input: { teamId: string; ideaId: string
 
 // --- Post our demo --------------------------------------------------------------------------------------------------
 
-/** The most co-authors a post can name (src/lib/posts/posts.ts). */
-export const MAX_CO_AUTHORS = 5
-
-/** A DEMO post on the feed for the team (and its project), co-authored by the other members (the first five who have not blocked the author). */
+/** A DEMO post on the feed for the team (and its project), co-authored by every other member who has not blocked the author. */
 export async function postDemo(db: Db, input: { teamId: string; author: { id: string; timezone: string | null }; body: z.infer<typeof demoPostSchema> }): Promise<CreatePostResult> {
   const team = await db.team.findUniqueOrThrow({ where: { id: input.teamId }, select: { projectId: true, members: { select: { userId: true }, orderBy: { joinedAt: 'asc' } } } })
+  // Every member is credited, up to what the hackathon allows in a team (hard cap 10; src/lib/posts/co-authors.ts).
+  const limit = coAuthorLimit('DEMO', await squadMaxTeamSize(db, input.teamId))
   const coAuthorIds: string[] = []
   for (const member of team.members) {
-    if (member.userId === input.author.id || coAuthorIds.length >= MAX_CO_AUTHORS) continue
+    if (member.userId === input.author.id || coAuthorIds.length >= limit) continue
     if (!(await blockRelation(db, input.author.id, member.userId))) coAuthorIds.push(member.userId)
   }
   return createPost(db, input.author, {

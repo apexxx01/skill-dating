@@ -11,6 +11,7 @@ import { MEDIA_LIMITS } from '@/lib/media'
 import { shipProjectOnce } from '@/lib/ship'
 import { SHIP_DAY_TAG, shipDayKeyOf } from '@/lib/ship-day'
 import { excerptOf, isPublicLink, sanitizeLine, sanitizeMarkdown } from './sanitize'
+import { coAuthorLimit, MAX_CO_AUTHOR_LIMIT } from './co-authors'
 
 // Ship posts: something a builder shows. Created, edited (a revision count), soft-deleted. The text is Markdown, sanitised on the way in (sanitize.ts); media are the author's own
 // confirmed uploads; co-authors, the project and the crew must fit together. A SHIP post for a project that is not yet shipped ships it through the one ship gate (src/lib/ship.ts), so there
@@ -41,7 +42,8 @@ export const createPostSchema = z
     links: z.array(z.string().max(500).refine(isPublicLink, 'An http or https link')).max(5).default([]),
     mediaIds: z.array(z.string().min(1).max(64)).max(MEDIA_LIMITS.maxPerPost).default([]),
     stackTags: z.array(tag).max(10).default([]),
-    coAuthorIds: z.array(z.string().min(1).max(64)).max(5).default([]),
+    // The hard cap here; the limit for the kind (and, for a DEMO post, its hackathon) is checked in createPost (co-authors.ts).
+    coAuthorIds: z.array(z.string().min(1).max(64)).max(MAX_CO_AUTHOR_LIMIT).default([]),
     visibility: z.enum(POST_VISIBILITIES).default('PUBLIC'),
   })
   .strict()
@@ -121,6 +123,14 @@ async function memberIds(db: Pick<Db, 'projectMember' | 'project' | 'teamMember'
   return ids
 }
 
+/** The max team size of the hackathon a crew is a squad for (its current hackathon, else the last one it was registered for), or null. */
+export async function squadMaxTeamSize(db: Pick<Db, 'team' | 'hackathonTeam'>, teamId: string): Promise<number | null> {
+  const team = await db.team.findUnique({ where: { id: teamId }, select: { hackathon: { select: { maxTeamSize: true } } } })
+  if (team?.hackathon) return team.hackathon.maxTeamSize
+  const registered = await db.hackathonTeam.findFirst({ where: { teamId }, orderBy: { createdAt: 'desc' }, select: { hackathon: { select: { maxTeamSize: true } } } })
+  return registered?.hackathon.maxTeamSize ?? null
+}
+
 export type CreatePostResult = { ok: true; post: ShipPost; shipped: boolean } | PostFailure
 
 export async function createPost(db: Db, author: { id: string; timezone: string | null }, input: CreatePostInput, now: Date = new Date()): Promise<CreatePostResult> {
@@ -134,6 +144,8 @@ export async function createPost(db: Db, author: { id: string; timezone: string 
   if (teamId && !(await db.team.findUnique({ where: { id: teamId }, select: { id: true } }))) return fail('POST_INVALID_CONTEXT')
 
   const coAuthorIds = [...new Set(input.coAuthorIds)].filter((id) => id !== author.id)
+  const limit = coAuthorLimit(input.kind, input.kind === 'DEMO' && teamId ? await squadMaxTeamSize(db, teamId) : null)
+  if (coAuthorIds.length > limit) return fail('VALIDATION_FAILED', { coAuthorIds: [`At most ${limit} co-authors`] })
   for (const id of coAuthorIds) {
     if (!members.has(id)) return fail('POST_COAUTHOR_NOT_MEMBER', { coAuthorIds: [id] })
     if (await blockRelation(db, author.id, id)) return fail('POST_COAUTHOR_NOT_MEMBER', { coAuthorIds: [id] })

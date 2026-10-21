@@ -397,7 +397,7 @@ Owner or team admin. Marks the one chosen idea. **Response:** `{ ideaId, chosen:
 
 #### `POST /api/teams/[id]/demo-post`
 Honours `Idempotency-Key`. 10 an hour. **Body:** `{ title (3-120), body, links?, mediaIds?, stackTags? }`. Creates a `DEMO` post on the feed
-for the team (and its project), co-authored by up to five other members. **Response `201`:** `{ post }`. The errors are those of
+for the team (and its project), co-authored by every other member, up to the hackathon's `maxTeamSize` (hard cap 10). **Response `201`:** `{ post }`. The errors are those of
 `POST /api/posts`.
 
 #### `POST /api/teams/[id]/keep-building`
@@ -645,7 +645,7 @@ Leaves the mode: the profile, its photos (and their uploads), every drop for or 
 Long form in `docs/FEED.md`. A post is `{ id, kind, title, body, links, media[], stackTags, visibility, shipDay, author, coAuthors[], project, teamId, propsScore, propsCount, commentCount, yourProps, revision, createdAt, editedAt }`; the body is sanitized markdown (no raw HTML, only http and https links). Anything the caller may not see (followers-only, crew-only, a block either way, deleted) is `404 POST_NOT_FOUND`.
 
 ### `POST /api/posts`
-Honours `Idempotency-Key`. **Body:** `{ kind: SHIP|UPDATE|DEVLOG|DEMO, title (3-120), body (1-10000), projectId?, teamId?, links? (5), mediaIds? (confirmed POST_MEDIA uploads of the caller), stackTags? (10), coAuthorIds? (5, members of the project or crew), visibility?: PUBLIC|FOLLOWERS|CREW }` (unknown keys refused). A `SHIP` post needs a `projectId`; the first one for a project ships it and pays once through the one ship gate, later ones are plain posts. An `UPDATE` or `DEVLOG` on a project is a project update (its XP and daily cap). `CREW` needs a project or crew. The author must belong to the project or crew. A post made on the author's Friday carries the `shipday` tag. **Response `201`:** `{ post, shipped }`. **Errors:** `400 POST_INVALID_CONTEXT`, `400 POST_COAUTHOR_NOT_MEMBER`, `404 MEDIA_NOT_FOUND`, `400 VALIDATION_FAILED`.
+Honours `Idempotency-Key`. **Body:** `{ kind: SHIP|UPDATE|DEVLOG|DEMO, title (3-120), body (1-10000), projectId?, teamId?, links? (5), mediaIds? (confirmed POST_MEDIA uploads of the caller), stackTags? (10), coAuthorIds? (5; for a `DEMO` post of a hackathon squad, up to the hackathon's `maxTeamSize`, hard cap 10; members of the project or crew), visibility?: PUBLIC|FOLLOWERS|CREW }` (unknown keys refused). A `SHIP` post needs a `projectId`; the first one for a project ships it and pays once through the one ship gate, later ones are plain posts. An `UPDATE` or `DEVLOG` on a project is a project update (its XP and daily cap). `CREW` needs a project or crew. The author must belong to the project or crew. A post made on the author's Friday carries the `shipday` tag. **Response `201`:** `{ post, shipped }`. **Errors:** `400 POST_INVALID_CONTEXT`, `400 POST_COAUTHOR_NOT_MEMBER`, `404 MEDIA_NOT_FOUND`, `400 VALIDATION_FAILED`.
 
 ### `GET /api/posts`
 The caller's own posts, newest first. **Query:** `cursor?`, `limit?` (1-50, default 20). **Response:** `{ posts, nextCursor }`.
