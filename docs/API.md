@@ -49,7 +49,7 @@ legacy row clears its password hash and its OAuth accounts.
 **Auth:** none (answers `null` when signed out). Compatibility for the frozen UI, which polls this path through `useSession()` in `src/lib/session-client.tsx`. **Response:** `{ user: { id, name, email, image, role }, expires }` with the **local** user id, or `null`. Temporary: remove it when the UI moves to Clerk's hooks.
 
 ### `GET /api/users/me`
-The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, ageRequired, isMinor, ageRefused, onboardingComplete }`. `onboardingComplete` is true with a headline, at least one skill and (while `BIRTH_DATE_REQUIRED` is on, the default) a date of birth on file; the middleware and the onboarding page use it, because Clerk's user id is not the local id. `ageRequired` says the date is still missing, `isMinor` that the account is a 16 or 17 year old's (docs/SAFETY.md), `ageRefused` that it was refused for being under 16. The date itself is never part of this response.
+The caller's own local profile summary. **Response:** `{ id, username, name, email, image, role, headline, verificationLevel, skillCount, ageRequired, isMinor, ageRefused, onboardingComplete }`. `onboardingComplete` is true with a headline, at least one skill and (while `BIRTH_DATE_REQUIRED` is on, the default) a date of birth on file; the middleware and the onboarding page use it, because Clerk's user id is not the local id. `ageRequired` says the date is still missing, `isMinor` that the account is a 16 or 17 year old's (docs/SAFETY.md), `ageRefused` that it was refused for being under 16. The date itself is never part of this response. `consentRequired` lists the documents (`TERMS`, `PRIVACY`) still to accept in their current version; while `CONSENT_REQUIRED` is on (the default) onboarding is complete only when it is empty ([PRIVACY.md](PRIVACY.md#consent-srclibprivacyconsentts)). `DELETE /api/users/me` deletes the account: see [Privacy](#privacy).
 
 ### `POST /api/webhooks/clerk`
 **Auth:** none; the credential is the Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`) over the raw body, made with `CLERK_WEBHOOK_SECRET`, and timestamps more than five minutes off are refused. `503` when the secret is not configured, `400` for any signature failure, `413` over 1 MB, `500` on a transient failure (Clerk then retries). Handles `user.created` and `user.updated` by fetching the user from Clerk and applying its **current** state (the payload is only a notification, so replays and reordering cannot roll anything back), and `user.deleted` by tombstoning: the local row is anonymised and detached from Clerk (email replaced, personal fields cleared, username `deleted_…`, `deletedAt` set) but never deleted, because projects, teams, messages and endorsements cascade from it. Tombstoned accounts are left out of every list and search and refused by the auth layer. Other event types are acknowledged and ignored. **Response `200`:** `{ status: 'synced' | 'tombstoned' | 'conflict' | 'ignored', ... }`.
@@ -556,9 +556,20 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 
 ## Reports & Moderation
 
+The design (what can be reported, the queue order, actions, appeals) is in [SAFETY.md](SAFETY.md#moderation-srclibmoderation).
+
 ### `POST /api/reports`
-**Body:** `{ reportedId, reason, description? }`. `reason` is `SPAM`, `HARASSMENT`, `INAPPROPRIATE_CONTENT`, `FAKE_PROFILE`, `SCAM`, `COPYRIGHT`, `OTHER` or `BIRTHDATE_CORRECTION`. The last is a person asking for their own locked date of birth to be corrected: `reportedId` must be the caller (`400 BIRTHDATE_CORRECTION_SELF_ONLY` otherwise), `description` is required (at least 10 characters: what is wrong and what it should be), and it is the one report a person refused for their age may still file. An admin decides with `POST /api/admin/users/{id}/birthdate`.
-**Errors:** `400` self-report (every reason but the correction), `404` reported user not found, `409` an identical pending report from this reporter against this target already exists (returns the existing report in `details`).
+Honours `Idempotency-Key`. 10 a minute. **Body:** `{ targetType?, targetId?, reportedId?, reason, description? }`. `targetType` is `USER` (default), `MESSAGE`,
+`SHIP_POST`, `COMMENT`, `SPARK`, `ROMANCE_PROFILE`, `LFG_POST`, `IDEA` or `EXTERNAL_HACKATHON`; `targetId` is the thing's id (for `USER` the person, and
+`reportedId` alone still works). `reason` is `HARASSMENT`, `SPAM`, `IMPERSONATION`, `INAPPROPRIATE_CONTENT`, `MINOR_SAFETY`, `SCAM`, `FAKE_PROFILE`,
+`COPYRIGHT`, `OTHER` or `BIRTHDATE_CORRECTION`. You can only report what you can see: a message in your conversation, a post you can view, a spark sent
+to you, a romance profile you were shown or matched with, an idea of your team (anything else is `404 REPORT_TARGET_NOT_FOUND`). The report keeps a
+snapshot of what the thing said. `BIRTHDATE_CORRECTION` is a person asking for their own locked date of birth to be corrected: about themselves only
+(`400 BIRTHDATE_CORRECTION_SELF_ONLY`), with a description of at least 10 characters; it is the one report a person refused for their age may still file,
+and an admin decides with `POST /api/admin/users/{id}/birthdate`. **Response `201`:** the report (`id, reporterId, reportedId, reason, description,
+status, targetType, targetId, source, createdAt`, with `reporter` and `reported` summaries); the queue's internals are not returned.
+**Errors:** `400 CANNOT_REPORT_SELF` (about yourself or your own thing), `404 REPORTED_USER_NOT_FOUND`, `404 REPORT_TARGET_NOT_FOUND`, `409
+REPORT_ALREADY_PENDING` (an open report from you about the same thing; the existing report is in `details`).
 
 ### `GET /api/reports`
 **Auth:** `ADMIN`/`MODERATOR` only (`403` for everyone else, not an empty list). Query: `page, cursor, limit, status`.
@@ -572,15 +583,124 @@ Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `4
 ### `POST /api/admin/users/[id]/birthdate`
 **Auth:** `ADMIN` only. **Body:** `{ birthDate: "YYYY-MM-DD", reason }` (`reason` 10 to 1000 characters, required; unknown keys are refused). Corrects a person's locked date of birth, whatever it was before (or was not), and clears a refusal for being under 16. The old and the new date and the reason go into the audit trail (`BIRTH_DATE_CORRECTED`); the response never carries a date: `{ id, ageBand: "MINOR"|"ADULT", isMinor, changed }`. A date that would put the person under 16 is not applied (`403 AGE_BELOW_MINIMUM`: a correction cannot admit a child; the account is dealt with through moderation). A correction to 16 or 17 clears the place down to a country. `404 USER_NOT_FOUND`.
 
+### `GET /api/admin/queue`
+**Auth:** `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?`, `limit` (20, at most 50), `offset`. Reports: open (`PENDING`,
+`REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. **Response:** `{ kind, items[], nextOffset }`;
+each item has `kind: "REPORT"|"APPEAL"`.
+
+### `GET /api/admin/reports/[id]`
+**Auth:** `ADMIN`/`MODERATOR`. The report with its context: `{ report, target: { asReported, now }, priorReports[], priorActions[] (with their appeal),
+restrictions[], risk: { subject, reporter } }`. Opening a `PENDING` report marks it `REVIEWING` (audited). `404 REPORT_NOT_FOUND`.
+
+### `POST /api/admin/actions`
+**Auth:** `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. **Body:** `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?,
+durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays`
+optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA`; for
+an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing,
+writes an `AuditEvent` and notifies the person. **Response `201`:** `{ action }`. **Errors:** `400 MODERATION_ACTION_INVALID` (hiding a person, approving
+something that is not media), `400 VALIDATION_FAILED` (a missing feature or duration), `403 FORBIDDEN` (acting on yourself; a moderator acting on a staff
+account), `403 REAUTH_REQUIRED` (`BAN` and `REMOVE_CONTENT` need a session signed in within the last 10 minutes), `404 REPORT_TARGET_NOT_FOUND`, `404
+REPORT_NOT_FOUND`.
+
+### `POST /api/admin/actions/[id]/reverse`
+**Auth:** `ADMIN`/`MODERATOR`. **Body:** `{ reason }`. Lifts what the action restricted and restores what it hid (removed text stays removed). Audited; the
+person is told. `404 MODERATION_ACTION_NOT_FOUND`; `400 VALIDATION_FAILED` when already reversed.
+
+### `POST /api/admin/appeals/[id]/decide`
+**Auth:** `ADMIN`/`MODERATOR`, not the moderator who took the action (`403`). **Body:** `{ decision: UPHELD|OVERTURNED, note? }`. OVERTURNED reverses the
+action. **Errors:** `404 APPEAL_NOT_FOUND`, `409 APPEAL_ALREADY_DECIDED`.
+
+### `GET /api/admin/users`
+**Auth:** `ADMIN`/`MODERATOR`. Query: `q` (an id, a username, or a prefix; an e-mail address for admins only: `403` for a moderator), `limit` (10, at
+most 25). **Response:** `{ users: [{ id, username, name, role, createdAt, deletedAt, isEmailVerified, verificationLevel, organizationVerified, risk: {
+score, effectiveLevel }, restrictions[], email? }] }`; `email` for admins only. Every search is audited.
+
+### `GET /api/admin/users/[id]/risk` and `PATCH /api/admin/users/[id]/risk`
+**Auth:** `ADMIN`/`MODERATOR`. GET: `{ userId, score, level, overrideLevel, effectiveLevel, factors, computedAt }`. PATCH **Body:** `{ level:
+LOW|ELEVATED|HIGH|null, reason }`: an override that wins over the computed level (null clears it). Audited (`RISK_OVERRIDDEN`).
+
+### `PATCH /api/admin/users/[id]/verification`
+**Auth:** `ADMIN` only, with a session signed in within the last 10 minutes (`403 REAUTH_REQUIRED`). **Body:** `{ organizationVerified?,
+portfolioVerified?, identityVerified?, reason }` (at least one mark). The verified-organisation mark can only be granted here. The verification level
+follows the marks. Audited with the old and the new state.
+
+### `PATCH /api/admin/users/[id]/role`
+**Auth:** `ADMIN` only, with a recent sign-in. **Body:** `{ role: USER|MODERATOR|ADMIN, reason }`. Not on yourself (`403`). Audited.
+
+### `PUT /api/admin/users/[id]/plan`
+**Auth:** `ADMIN` only, with a recent sign-in. **Body:** `{ plan: FREE|PRO|CREW_PRO|ORG, until?, reason }`: an entitlement override, written as the person's
+`Subscription` with provider `admin`. Audited with the old and the new plan.
+
+### `GET /api/admin/audit`
+**Auth:** `ADMIN` only. Query: `actorId?, targetId?, targetType?, action?, limit` (50, at most 100), `cursor`. Newest first: `{ events: [{ id, userId,
+action, targetType, targetId, oldValue, newValue, createdAt }], nextCursor }` (addresses and user agents are not returned).
+
+### `GET /api/admin/fraud-signals` and `PATCH /api/admin/fraud-signals/[id]`
+**Auth:** `ADMIN`/`MODERATOR`. GET query: `status?` (`OPEN|CONFIRMED|DISMISSED`), `limit`, `cursor`: `{ signals: [{ id, type, score, memberIds, evidence,
+status, windowStart, windowEnd, reviewedById, reviewedAt, createdAt }], nextCursor }`. PATCH **Body:** `{ status: CONFIRMED|DISMISSED, note? }`:
+DISMISSED restores every weight the signal lowered. Audited. `404 FRAUD_SIGNAL_NOT_FOUND`.
+
+### `POST /api/appeals` and `GET /api/appeals`
+POST honours `Idempotency-Key`; 10 an hour. **Body:** `{ actionId, body }` (10 to 5000 characters). The person an action is about, once, within 30 days;
+works while suspended or banned. **Response `201`:** `{ appeal }`. **Errors:** `404 MODERATION_ACTION_NOT_FOUND` (someone else's, or none), `409
+APPEAL_EXISTS`, `409 APPEAL_NOT_ALLOWED` (a warning, the window closed, already reversed). GET: `{ appeals: [{ id, actionId, body, status, decisionNote,
+decidedAt, createdAt }] }`.
+
+### `GET /api/users/me/moderation`
+What moderation did about the caller: `{ state: { suspendedUntil, banned, restricted: { romance?, messaging?, posting? } }, actions: [{ id, action,
+targetType, targetId, category, noteToUser, feature, expiresAt, appealableUntil, canAppeal, reversedAt, createdAt, appeal }] }`. Never who reported them or
+the moderator's own note.
+
+### `POST /api/mutes`, `GET /api/mutes`, `DELETE /api/mutes/[userId]`
+POST **Body:** `{ userId }`: hides the person's posts, comments, listings and drops from the caller, without a block (they are not told). Idempotent;
+`201 { muted: true, userId, createdAt }`. `400 CANNOT_MUTE_SELF`, `404 USER_NOT_FOUND`. GET: `{ mutes: [{ user, createdAt }] }`. DELETE: `{ muted: false,
+userId }`, idempotent.
+
+## Privacy
+
+The design is in [PRIVACY.md](PRIVACY.md).
+
+### `GET /api/users/me/privacy` and `PATCH /api/users/me/privacy`
+`{ fieldVisibility: { bio|headline|location|website|githubUsername|twitterUsername|linkedinUrl|availability|builderRole|timezone: PUBLIC|CONNECTIONS|PRIVATE },
+hideFromLeaderboards, hideFromRecruiters, matchingPaused, invisibleMode, whoCanMessage: EVERYONE|CONNECTIONS|NOBODY, showActivity }`. PATCH takes any
+subset (unknown keys refused) and returns all of them. Audited.
+
+### `POST /api/users/me/export` and `GET /api/users/me/export`
+POST honours `Idempotency-Key`; 5 a day. Starts building an export of everything held about the caller; **`202`** `{ export }` (an export already being
+prepared is returned). GET: the latest `{ export: { id, status: PENDING|READY|FAILED, bytes, createdAt, completedAt, expiresAt, downloadUrl } }`;
+`downloadUrl` is a signed link, set once READY, valid until `expiresAt` (24 hours after it was made). **Errors:** `404 EXPORT_NOT_FOUND`, `410
+EXPORT_EXPIRED`. Both work while suspended or banned. The person is notified when it is ready.
+
+### `GET /api/media/dev-download/[...key]`
+Only while the in-memory storage stand-in is in use (development, the integration suite): reads an object the server wrote (an export). Owner only.
+`404 MEDIA_NOT_FOUND` with a real bucket.
+
+### `GET /api/users/me/consents` and `POST /api/users/me/consents`
+GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: ["TERMS"?, "PRIVACY"?] }`. POST **Body:** `{ type:
+TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400
+CONSENT_VERSION_UNKNOWN`). **`201`** `{ consent, required }`. Audited.
+
+### `DELETE /api/users/me/consents/[type]`
+`ROMANCE_MODE` or `MARKETING` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off
+and deletes its data. **Response:** `{ consent }`.
+
+### `DELETE /api/users/me`
+Deletes the caller's account: the Clerk account, and the local data by the data inventory. Needs a session signed in within the last 10 minutes (`403
+REAUTH_REQUIRED`). 5 an hour. **Response:** `{ deleted: true }`. `503 SERVICE_UNAVAILABLE` when Clerk cannot be reached (nothing was deleted).
+
+### `PUT /api/users/me/avatar` and `DELETE /api/users/me/avatar`
+PUT **Body:** `{ mediaId }`: a READY `AVATAR` upload of the caller (scanned before it is READY) becomes the profile picture. `404 MEDIA_NOT_FOUND` while it
+is still being scanned or reviewed, `503 STORAGE_UNAVAILABLE` without a public bucket. **Response:** `{ image }`. DELETE: `{ image: null }`.
+
 ## Media
 
 Uploads go straight to object storage with a presigned URL; see ARCHITECTURE.md ("Storage"). Three steps: declare, PUT, confirm.
 
 ### `POST /api/media/uploads`
-Honours `Idempotency-Key`. **Body:** `{ purpose: "POST_MEDIA"|"ROMANCE_PHOTO", contentType, bytes, width, height, durationMs?, sha256 }` (`sha256` is the lower-case hex SHA-256 of the file; unknown keys are refused). The rules: JPEG, PNG or WebP (IMAGE, at most 10 MB), GIF (at most 15 MB) or MP4/WebM video (at most 100 MB and 120 seconds, `durationMs` required; a duration for anything else is refused); each side 16 to 8000 pixels; a `ROMANCE_PHOTO` must be a JPEG, PNG or WebP of at most 8 MB and at least 400 by 400. **Response `201`:** `{ asset: { id, purpose, status: "PENDING", type, width, height, durationMs }, upload: { method: "PUT", url, headers, expiresAt }, duplicate: false }`; PUT the bytes to `upload.url` with exactly `upload.headers` (they are part of the signature; the URL is good for 10 minutes). If the caller already has a confirmed file with the same hash and purpose: `200 { asset (with url), upload: null, duplicate: true }` and nothing to upload. **Errors:** `400 MEDIA_INVALID` (`details.problems: [{ problem, message }]`, with `problem` one of `TYPE_NOT_ALLOWED`, `TOO_LARGE`, `DIMENSIONS_OUT_OF_RANGE`, `TOO_SMALL`, `DURATION_REQUIRED`, `DURATION_TOO_LONG`, `DURATION_NOT_ALLOWED`, `PURPOSE_TYPE_MISMATCH`), `400 VALIDATION_FAILED`, `429 MEDIA_PENDING_LIMIT` (20 unfinished uploads), `503 STORAGE_UNAVAILABLE`.
+Honours `Idempotency-Key`. **Body:** `{ purpose: "POST_MEDIA"|"ROMANCE_PHOTO"|"AVATAR", contentType, bytes, width, height, durationMs?, sha256 }` (`sha256` is the lower-case hex SHA-256 of the file; unknown keys are refused). The rules: JPEG, PNG or WebP (IMAGE, at most 10 MB), GIF (at most 15 MB) or MP4/WebM video (at most 100 MB and 120 seconds, `durationMs` required; a duration for anything else is refused); each side 16 to 8000 pixels; a `ROMANCE_PHOTO` must be a JPEG, PNG or WebP of at most 8 MB and at least 400 by 400; an `AVATAR` a JPEG, PNG or WebP of at most 5 MB and at least 64 by 64. Romance photos and avatars are scanned before anyone else can see them: in production without a media scanner they are refused (`503 MEDIA_SCANNING_UNAVAILABLE`). **Response `201`:** `{ asset: { id, purpose, status: "PENDING", type, width, height, durationMs }, upload: { method: "PUT", url, headers, expiresAt }, duplicate: false }`; PUT the bytes to `upload.url` with exactly `upload.headers` (they are part of the signature; the URL is good for 10 minutes). If the caller already has a confirmed file with the same hash and purpose: `200 { asset (with url), upload: null, duplicate: true }` and nothing to upload. **Errors:** `400 MEDIA_INVALID` (`details.problems: [{ problem, message }]`, with `problem` one of `TYPE_NOT_ALLOWED`, `TOO_LARGE`, `DIMENSIONS_OUT_OF_RANGE`, `TOO_SMALL`, `DURATION_REQUIRED`, `DURATION_TOO_LONG`, `DURATION_NOT_ALLOWED`, `PURPOSE_TYPE_MISMATCH`), `400 VALIDATION_FAILED`, `429 MEDIA_PENDING_LIMIT` (20 unfinished uploads), `503 STORAGE_UNAVAILABLE`.
 
 ### `POST /api/media/[id]/complete`
-After the PUT. The server reads the real object and compares its size and type with the declaration. **Response:** `{ id, purpose, status: "READY", type, width, height, durationMs, url }`. Safe to repeat. **Errors:** `404 MEDIA_NOT_FOUND` (also somebody else's), `409 MEDIA_NOT_UPLOADED`, `422 MEDIA_MISMATCH` (`details: { declared, found }`; the object is deleted and the asset rejected, and the same file can be declared again), `503 STORAGE_UNAVAILABLE`.
+After the PUT. The server reads the real object and compares its size and type with the declaration. **Response:** `{ id, purpose, status, type, width, height, durationMs, url }`. Post media becomes `READY`. A romance photo or an avatar is then scanned: `READY` when the scanner passes it, `IN_REVIEW` (held for a moderator), `BLOCKED` (refused; the object is deleted), or `SCANNING` while the scanner is retried; `url` is null until it is `READY`. Safe to repeat. **Errors:** `404 MEDIA_NOT_FOUND` (also somebody else's), `409 MEDIA_NOT_UPLOADED`, `422 MEDIA_MISMATCH` (`details: { declared, found }`; the object is deleted and the asset rejected, and the same file can be declared again), `503 STORAGE_UNAVAILABLE`.
 
 ### `GET /api/media/[id]`
 One of the caller's own uploads and where it stands (`url` once `READY`). `404 MEDIA_NOT_FOUND` for anyone else's.
@@ -927,6 +1047,26 @@ A flag is **on for a user** when they are on its `allowUserIds` (even while it i
 
 ---
 
+## The request gate
+
+Every authenticated route passes through these checks after the session and the role, before the route itself ([SECURITY.md](SECURITY.md#authorization-model)):
+
+| Situation | Answer |
+| --- | --- |
+| a banned account (anything but its own account, notices, export, deletion, consent and appeals) | `403 ACCOUNT_BANNED` |
+| a suspended account (the same exceptions) | `403 ACCOUNT_SUSPENDED` with `params.until` |
+| a feature under a kill switch | `503 ROMANCE_PAUSED`, `MESSAGING_PAUSED`, `POSTING_PAUSED`, `EXTERNAL_HACKATHONS_PAUSED`; a new account while sign-ups are paused: `503 SIGNUPS_PAUSED` |
+| a feature a moderator restricted for this person | `403 FEATURE_RESTRICTED` with `params.feature` (`romance`, `messaging`, `posting`) and `params.until` when it ends |
+| a write while an older version of the terms or privacy notice is on file | `403 CONSENT_REQUIRED` with `details.consents` |
+| a write by a HIGH risk account over 30 in 10 minutes | `429 RATE_LIMITED` |
+| a first sign-in from a throwaway e-mail domain / too many new accounts from one address | `403 SIGNUP_EMAIL_REJECTED` / `429 SIGNUP_RATE_LIMITED` |
+| any body over 256 KB | `413 PAYLOAD_TOO_LARGE` |
+
+Content written by people (posts, comments, messages, LFG posts, ideas) is checked as well: `400 CONTENT_REJECTED` with `details.reasons` (`BANNED_TERM`,
+`LINK_SPAM`, `LINK_NOT_ALLOWED`, `CONTACT_DETAILS`, `REPEATED`); a flagged one goes through and a moderator is told. Public posts and comments need a
+verified e-mail (`403 EMAIL_VERIFICATION_REQUIRED`). A new direct conversation follows the recipient's "who can message me" (`403 MESSAGING_NOT_ALLOWED`).
+Turning the romance mode on needs its consent (`403 ROMANCE_CONSENT_REQUIRED`); a profile a moderator hid cannot be unpaused (`409 ROMANCE_PROFILE_HIDDEN`).
+
 ## Errors
 
 Every error response, from every route, has this shape:
@@ -1112,6 +1252,38 @@ and a unit test fails if a code is missing here.
 | `PEER_REVIEW_WINDOW_CLOSED` | 409 | Peer reviews are open for a week after the results or the end of the hackathon |
 | `PEER_REVIEW_EXISTS` | 409 | You have already reviewed this teammate for this hackathon |
 | `NOT_TEAMMATES` | 403 | You can only review your own teammates |
+| `EMAIL_VERIFICATION_REQUIRED` | 403 | Verify your email address first |
+| `CONTENT_REJECTED` | 400 | This cannot be sent as written ({reasons}) |
+| `FEATURE_RESTRICTED` | 403 | You cannot use {feature} right now |
+| `ACCOUNT_SUSPENDED` | 403 | Your account is suspended |
+| `ACCOUNT_BANNED` | 403 | Your account has been banned |
+| `REPORT_TARGET_NOT_FOUND` | 404 | The reported content was not found |
+| `MODERATION_ACTION_NOT_FOUND` | 404 | Moderation action not found |
+| `MODERATION_ACTION_INVALID` | 400 | This action cannot be taken on this {target} |
+| `APPEAL_NOT_FOUND` | 404 | Appeal not found |
+| `APPEAL_NOT_ALLOWED` | 409 | This action cannot be appealed |
+| `APPEAL_EXISTS` | 409 | You have already appealed this action |
+| `APPEAL_ALREADY_DECIDED` | 409 | This appeal has already been decided |
+| `CANNOT_MUTE_SELF` | 400 | You cannot mute yourself |
+| `FRAUD_SIGNAL_NOT_FOUND` | 404 | Fraud signal not found |
+| `REAUTH_REQUIRED` | 403 | Sign in again to do this: it needs a session started in the last {maxAgeMinutes} minutes |
+| `SIGNUPS_PAUSED` | 503 | New accounts are paused for a short while. Try again later |
+| `ROMANCE_PAUSED` | 503 | {mode} is paused for a short while. Try again later |
+| `MESSAGING_PAUSED` | 503 | Messaging is paused for a short while. Try again later |
+| `POSTING_PAUSED` | 503 | Posting is paused for a short while. Try again later |
+| `EXTERNAL_HACKATHONS_PAUSED` | 503 | Adding hackathons from other sites is paused for a short while |
+| `SIGNUP_EMAIL_REJECTED` | 403 | Sign up with a permanent email address |
+| `SIGNUP_RATE_LIMITED` | 429 | Too many new accounts from this network. Try again later |
+| `NAME_RESERVED` | 400 | This name cannot be used |
+| `CONSENT_REQUIRED` | 403 | Accept the current {documents} to continue |
+| `ROMANCE_CONSENT_REQUIRED` | 403 | Agree to how {mode} uses your data to turn it on |
+| `CONSENT_VERSION_UNKNOWN` | 400 | That is not the current version of the {document} |
+| `EXPORT_NOT_FOUND` | 404 | Export not found |
+| `EXPORT_IN_PROGRESS` | 409 | An export of your data is already being prepared |
+| `EXPORT_EXPIRED` | 410 | This export has expired. Ask for a new one |
+| `MEDIA_SCANNING_UNAVAILABLE` | 503 | Photo uploads are not available right now |
+| `MESSAGING_NOT_ALLOWED` | 403 | This person does not accept messages from you |
+| `ROMANCE_PROFILE_HIDDEN` | 409 | Your profile was hidden by a moderator and cannot be shown until they review it |
 
 ---
 

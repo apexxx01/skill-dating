@@ -88,3 +88,84 @@ production configuration without it.
 Inngest runs these on a schedule (cron triggers; see the job table in [GAMIFICATION.md](GAMIFICATION.md#operations)): the hourly
 `seasons/rollover`, the nightly `achievements/rarity` (03:30 UTC) and `leaderboards/reconcile` (04:00 UTC). Without Inngest credentials
 they do not run on their own and a scheduler of your own has to call the admin route.
+
+Stage 1F added four nightly jobs: `integrity/collusion` (02:30 UTC), `integrity/risk` (03:00 UTC), `privacy/retention` (05:15 UTC), and the
+event-driven `privacy/export` and `media/scan`. Its migrations are additive (new tables, nullable columns, enum values, defaults); one fills
+`User.usernameSkeleton` for existing rows and one creates the six kill-switch flags, OFF.
+
+## Settings added in Stage 1F
+
+| Setting | Required | What it does |
+| --- | --- | --- |
+| `MEDIA_MODERATION_URL`, `MEDIA_MODERATION_TOKEN` | for romance photos and avatars in production | the media scanner ([SAFETY.md](SAFETY.md#media-safety-srclibinframedia-moderationts)). Without them production refuses those uploads (fail closed). Set together. |
+| `CONSENT_REQUIRED` | no (default `true`) | onboarding is complete only with the current terms and privacy notice accepted ([PRIVACY.md](PRIVACY.md#consent-srclibprivacyconsentts)) |
+| `INTEGRATION_TEST_SERVER` | never in production (refused) | set by the integration harness only, so its production build may use the in-memory stand-ins |
+
+## Kill switches
+
+Six feature flags, created OFF by the migration `20261021000600_kill_switches`. Turning one **ON** stops that feature for everyone within 30 seconds
+(the flag cache's lifetime; on Redis every instance at once), with its own error code, until it is turned off. Nothing else changes and nothing is
+lost.
+
+```
+PATCH /api/admin/flags/kill.messaging  { "enabled": true }     (admin; audited)
+```
+
+| Flag | Stops | Answers | Owner |
+| --- | --- | --- | --- |
+| `kill.signups` | new accounts (existing ones are not affected) | `503 SIGNUPS_PAUSED` | engineering on-call |
+| `kill.romance` | the romance mode: every romance route except leaving it | `503 ROMANCE_PAUSED` | Trust & Safety lead |
+| `kill.messaging` | starting conversations, sending, editing and reacting to messages | `503 MESSAGING_PAUSED` | Trust & Safety lead |
+| `kill.posting` | Ship Feed posts and edits, comments, LFG posts, squad ideas and demos | `503 POSTING_PAUSED` | Trust & Safety lead |
+| `kill.external-hackathons` | adding hackathons from other sites | `503 EXTERNAL_HACKATHONS_PAUSED` | Squads product owner |
+| `kill.squad-autoform` | the solo pool's automatic squads (the job skips) | the job returns `paused: true` | Squads product owner |
+
+The owner decides when to turn a switch on and off, says so in the incident channel, and writes down why (the flag change itself is in the audit log).
+Turning one on outside an incident needs the owner's or the on-call engineer's agreement.
+
+## Backups and restore
+
+- **What is backed up.** PostgreSQL is the system of record: the host's automated daily snapshots, kept 30 days, plus **point-in-time recovery** (the
+  write-ahead log, kept 7 days) so any moment of the last week can be restored. Redis holds only what can be rebuilt (leaderboards are rebuilt from the
+  XP log by `leaderboards/reconcile`; rate limits, caches and idempotency keys are short-lived). The bucket keeps versioning on, so a deleted or overwritten
+  object can be brought back for 30 days; export files are excluded from versioning (they must not outlive their 24 hours).
+- **Who.** The engineering on-call can restore; restoring production needs a second engineer's agreement in the incident channel.
+- **How (point in time).** Restore into a **new** database at the chosen time (never over the live one), point a one-off copy of the application at
+  it with `npm run db:migrate:status` (it should be up to date or behind, never ahead), check the data in question, then either switch
+  `DATABASE_URL` to it during a maintenance window or copy the affected rows back with a reviewed script. Run `npm run postdeploy` after switching, so
+  the leaderboards are rebuilt from the restored XP log.
+- **Drill.** Once a quarter, and before launch: restore last night's snapshot and a point in time from the day before into a scratch database, run the
+  migrations status check and the integration suite against it (`TEST_DB_BASE_URL`), and write down how long it took and what went wrong. A restore
+  nobody has practised is not a backup.
+- **After a restore,** anything written after the restore point is gone: tell affected people, and remember that accounts deleted since then come back
+  and must be deleted again (the Clerk webhook deliveries can be replayed from the Svix dashboard).
+
+## Secrets rotation
+
+Every credential lives in the hosting platform's environment and nowhere else (never in the repository; `tests/integration/no-secret-leaks.test.ts`
+checks the tree). Rotate each at least yearly, on staff departure, and at once when exposed:
+
+| Secret | How |
+| --- | --- |
+| `CLERK_SECRET_KEY` | Clerk dashboard: create a new secret key, set it in production and redeploy, then delete the old key in Clerk. |
+| `CLERK_WEBHOOK_SECRET` | Clerk dashboard, Webhooks: roll the signing secret; set it and redeploy within the grace period Svix gives. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | public by design; changes only with the instance. |
+| `DATABASE_URL` | create a new database role with the same grants, switch, redeploy, then drop the old role. |
+| `UPSTASH_REDIS_REST_TOKEN`, `INNGEST_*`, `ABLY_API_KEY`, `STORAGE_*`, `MEDIA_MODERATION_TOKEN`, `POSTHOG_KEY`, `SENTRY_DSN` | each provider's console: create a new key, set it, redeploy, revoke the old one. |
+
+**The Clerk key exposed earlier in development.** A Clerk secret key was exposed during development. Before launch, and regardless of which instance it
+belonged to: rotate the secret keys of **both** the development and the production Clerk instances, delete the exposed key in the Clerk dashboard, set
+the new key in every environment (production, previews, CI, each developer's `.env.local`), and confirm in Clerk's logs that the old key is no longer
+used. Treat any data reachable with it as potentially read: review the Clerk audit log for API use you do not recognise.
+
+## Incident playbook
+
+The full procedure is in [SECURITY.md](SECURITY.md#incident-response). In short:
+
+1. **Declare.** Whoever notices opens the incident channel and pages the on-call engineer. One person leads; one keeps the timeline.
+2. **Contain** first, investigate second: a kill switch, a suspension (`POST /api/admin/actions`), revoking sessions in Clerk, rotating a credential,
+   rolling back the deploy (the previous build, with migrations only ever additive so the old code still runs).
+3. **Assess** whether personal data was involved. If it was, the 72-hour clock for the authority starts when we became aware: involve counsel at once.
+4. **Recover** (fix forward or restore, above), then **verify**: health check, the integration suite against production-like data, the audit log.
+5. **Communicate** to affected people and, where required, to the authorities ([SECURITY.md](SECURITY.md#incident-response)).
+6. **Review** within a week, blameless, with owners and dates for each follow-up.

@@ -159,6 +159,11 @@ them. Handlers import their module lazily, so the registry stays light.
 | `sparks/digest` | hourly (:35) | `src/lib/matching/spark-digest.ts`: once a local day from 09:00, "N people sparked you" (a count, no names) for plans that do not show who |
 | `drops/expire` | hourly (:20) | `src/lib/matching/drops.ts`: mark unanswered drops past their day EXPIRED |
 | `drops/second-look` | Mondays 07:15 | `src/lib/matching/second-look.ts`: one grown, previously passed candidate per person per week |
+| `integrity/collusion` | 02:30 daily | `src/lib/integrity/collusion-job.ts`: finds groups boosting each other over 30 days, writes fraud signals and lowers what they gave each other |
+| `integrity/risk` | 03:00 daily | `src/lib/integrity/risk-job.ts`: recomputes risk scores; level changes are audited |
+| `privacy/export` | event | `src/lib/privacy/export.ts`: builds one person's data export into the bucket and notifies them |
+| `privacy/retention` | 05:15 daily | `src/lib/privacy/retention.ts`: deletes what the retention rules say is old enough, in batches |
+| `media/scan` | event, 5 retries | `src/lib/media-assets.ts`: scans a held romance photo or avatar again after the scanner failed |
 
 To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
 test the handler through `runJob` or a `MemoryJobQueue`.
@@ -331,6 +336,32 @@ internal id, and props are reduced to plain values under safe names (names, emai
 URLs are dropped whoever passes them). `signup` counts a brand-new account only, not the linking of an old
 row; `onboarding_completed` is recorded once, the first time the profile has a headline and a skill.
 
+## The request gate, and trust and safety
+
+`withAuth` runs one more step after the session, the rate limit and the role check: the **request gate** (`src/lib/api/gate.ts`). It closes a banned
+or suspended account to everything but its own account, data and appeals, answers a feature under a **kill switch** (`src/lib/ops/kill-switches.ts`,
+feature flags named `kill.*`) or under a moderation **restriction** with its code, asks for **re-consent** on writes after a policy change, and adds a
+tighter write limit for a HIGH **risk** account. Which feature a request uses is decided from its method and path in one pure function
+(`src/lib/api/request-features.ts`), so no route can forget a switch. What it reads (restrictions, stale consents, the HIGH risk set, the flags) is
+cached in the Cache adapter for a minute or less and dropped by every change. Destructive staff actions also need a **recent sign-in**
+(`src/lib/api/recent-auth.ts`).
+
+The rest is in its own modules, each with its pure core unit-tested:
+
+| Area | Code | Doc |
+| --- | --- | --- |
+| Collusion, risk, reach gating | `src/lib/integrity` | [SAFETY.md](SAFETY.md#integrity-srclibintegrity) |
+| Reports, the queue, actions, restrictions, appeals | `src/lib/moderation` | [SAFETY.md](SAFETY.md#moderation-srclibmoderation) |
+| Content checks | `src/lib/safety`, `src/config/banned-terms.json` | [SAFETY.md](SAFETY.md#content-checks-srclibsafety) |
+| Sign-up abuse, reserved names, look-alikes | `src/lib/identity`, `src/config/*.json` | [SECURITY.md](SECURITY.md) |
+| Media scanning | `src/lib/infra/media-moderation.ts` (an adapter like the others: no-op, HTTP provider, or fail closed) | [SAFETY.md](SAFETY.md#media-safety-srclibinframedia-moderationts) |
+| Consent, privacy settings, export, deletion, retention, the data inventory | `src/lib/privacy` | [PRIVACY.md](PRIVACY.md) |
+| Security headers and the CSP | `src/lib/security`, `next.config.js`, `src/middleware.ts` | [SECURITY.md](SECURITY.md#headers) |
+| Route, schema and data-inventory audits | `src/lib/api/route-audit.ts`, `schema-audit.ts`, `src/lib/privacy/inventory.test.ts` | [SECURITY.md](SECURITY.md) |
+
+The Storage adapter gained `put` (the server writes an export file) and the in-memory stand-in a read route of its own (`/api/media/dev-download`, like
+`dev-upload`, present only while the stand-in is in use).
+
 ## API conventions
 
 All of these are built into `withAuth` (`src/lib/api/handler.ts`), so a route gets them by being a
@@ -422,6 +453,13 @@ a migrations check (replay the migrations into an empty database and diff agains
 and the integration suite against a Postgres service container.
 
 ## Known limitations and open items
+
+- The pages Next prerenders as static HTML (`/`, `/error`, `/onboarding`, not-found) get a CSP without a nonce (`'unsafe-inline'` scripts): a per-request
+  nonce cannot be in static HTML. Rendering them dynamically (a frontend change) lets them use the nonce policy.
+- The per-address sign-up limit applies to accounts first seen through the API. An account the Clerk webhook creates first is checked for the
+  kill switch and throwaway domains, but has no client address to count; Clerk's own bot protection on sign-up is the guard there.
+- Collusion detection looks at connected groups of reciprocal pairs involving weak accounts; a large ring of established accounts, or a ring hidden inside
+  a big group (over 50), is left for a person to find.
 
 - Nothing publishes realtime events.
 - Leaderboard boards are copies of the XP log in Redis. They are repaired nightly, so a failure to update one

@@ -1,0 +1,191 @@
+# Privacy
+
+How the platform handles personal data, written for the GDPR and India's Digital Personal Data Protection Act 2023 (DPDP), and where each rule lives in
+the code. The age rules are in [SAFETY.md](SAFETY.md#the-age-policy); security controls are in [SECURITY.md](SECURITY.md).
+
+> **Needs legal review before launch.** This document describes what the software does. Whether it is enough in each launch country (the lawful basis
+> of each processing activity, the records of processing, the retention periods, cross-border transfers, the Data Protection Officer or the DPDP
+> grievance officer, and the notices people are shown) is for counsel to confirm.
+
+## Rights and where they are served
+
+| Right | GDPR | DPDP Act | Endpoint |
+| --- | --- | --- | --- |
+| Access, portability | Art. 15, 20 | s.11 | `POST /api/users/me/export`, then `GET /api/users/me/export` for the signed link |
+| Erasure | Art. 17 | s.12 | `DELETE /api/users/me` (or deleting the Clerk account, through the webhook) |
+| Rectification | Art. 16 | s.12 | the profile and settings routes; a locked date of birth through the correction report ([SAFETY.md](SAFETY.md#correcting-a-locked-date)) |
+| Withdraw consent | Art. 7(3) | s.6(4) | `DELETE /api/users/me/consents/{ROMANCE_MODE|MARKETING}`; the terms and the privacy notice by deleting the account |
+| Object, restrict | Art. 18, 21 | | privacy settings: pause matching, invisible mode, leaderboards, recruiters, who can message |
+| Grievance redressal | | s.13 | the report flow and appeals (`POST /api/reports`, `POST /api/appeals`); a published grievance contact is a launch item |
+
+A suspended or banned person keeps every one of these: the request gate (`src/lib/api/gate.ts`) lets their export, deletion, consent and appeal routes
+through.
+
+## Consent (`src/lib/privacy/consent.ts`)
+
+`ConsentRecord` is append-only: `(userId, type, version, grantedAt, withdrawnAt, source)`. Types: `TERMS`, `PRIVACY`, `ROMANCE_MODE`, `MARKETING`. The
+version in force of each document is config, `src/config/legal-versions.json`.
+
+- **At onboarding.** `GET /api/users/me` returns `consentRequired` (the documents not yet accepted in their current version), and onboarding is
+  complete only with none left while `CONSENT_REQUIRED` is on (the default; like `BIRTH_DATE_REQUIRED` it exists so the backend can ship before the
+  onboarding screen asks). The client records each with `POST /api/users/me/consents { type, version, source: "onboarding" }`. Only the current version
+  can be accepted (`400 CONSENT_VERSION_UNKNOWN`).
+- **Re-consent.** Raising `TERMS` or `PRIVACY` in the config asks everybody who accepted an older version to accept again: their writes answer
+  `403 CONSENT_REQUIRED` (with `details.consents`) until they do. Reading, their own data, appeals and the consent route itself stay open.
+- **The romance mode** handles special-category data: gender and who someone is interested in reveal sexual orientation (GDPR Art. 9). Turning it on
+  (`PUT /api/romance/profile`) needs an explicit, current `ROMANCE_MODE` consent (`403 ROMANCE_CONSENT_REQUIRED` with the version to show). Withdrawing
+  it (`DELETE /api/users/me/consents/ROMANCE_MODE`) turns the mode off **and deletes** the profile, its private filters, the photos and their objects,
+  drops, pending sparks and the reveal state; open romance matches end silently (`src/lib/romance/consent.ts`). Kept: the consent record itself (proof
+  of the lawful basis for what happened while it was given) and what moderation or the law holds (reports, actions, the audit trail).
+- **Marketing** is off unless granted, and nothing sends marketing yet.
+
+## Privacy settings (`src/lib/privacy/settings.ts`)
+
+`GET /api/users/me/privacy` returns all of them and `PATCH` changes any subset (audited as `PRIVACY_SETTINGS_CHANGED`):
+
+| Setting | Effect |
+| --- | --- |
+| `fieldVisibility` | per passport field (`bio`, `headline`, `location`, `website`, `githubUsername`, `twitterUsername`, `linkedinUrl`, `availability`, `builderRole`, `timezone`): `PUBLIC`, `CONNECTIONS` (accepted connection, open match, shared crew or project) or `PRIVATE`; others get `null` for a field they may not see on `GET /api/users/{id}` |
+| `hideFromLeaderboards` | off every board and every rank others can see (the entries are moved by a job) |
+| `hideFromRecruiters` | out of any recruiter surface; none exists yet, and `recruiterVisible()` in `src/lib/age-policy.ts` is the one place a future one must ask |
+| `matchingPaused` | no daily drops, and not shown in anyone else's |
+| `invisibleMode` | left out of people search (`GET /api/users`) and discovery (`GET /api/discover`) |
+| `whoCanMessage` | `EVERYONE`, `CONNECTIONS` or `NOBODY` may start a direct conversation (`403 MESSAGING_NOT_ALLOWED`); rooms already shared stay open |
+| `showActivity` | whether others see the heatmap and the streak |
+
+## Export (`src/lib/privacy/export.ts`)
+
+`POST /api/users/me/export` makes a `DataExport` row and queues the job `privacy/export`; an export already being prepared is returned instead of a
+second one. The job reads every table in the inventory below through each column that points at the person, leaves out what the inventory redacts,
+writes `exports/<user>/<export>.json` to the bucket through the Storage adapter, marks the row `READY` and notifies the person. `GET
+/api/users/me/export` returns the latest export with a signed download link that lasts until the file expires, **24 hours** after it was made; after
+that it answers `410 EXPORT_EXPIRED` and the retention job deletes the file. In development and the integration suite the "bucket" is the in-memory
+stand-in, read back through `GET /api/media/dev-download/{key}` (owner only, and only while the stand-in is in use).
+
+What an export never contains: secrets (password hashes, OAuth tokens, sessions), **who reported, blocked, muted or sparked the person**, the drops in
+which they were shown to someone else, who wrote a peer review about them and its private note, internal scores (reliability, risk, the integrity
+weights), moderators' identities and notes, and the audit trail. Each table is capped at 10,000 rows per column; an export over it lists the table in
+`truncated`.
+
+## Deletion (`src/lib/privacy/delete.ts`, `tombstoneClerkUser` in `src/lib/user-sync.ts`)
+
+`DELETE /api/users/me` needs a session signed in within the last 10 minutes, deletes the Clerk account and then the local data at once; deleting the
+Clerk account elsewhere does the same through the webhook. The `User` row is kept, anonymised (`deleted_<id>` names, an `.invalid` address, every
+profile field and verification flag cleared, the **date of birth wiped**), because deleting it would cascade through work other people share. Every
+other table is handled by its rule in the inventory: private data is deleted, posts and comments are hidden and blanked, Props given are removed and the
+scores recomputed, the romance mode is purged, links are cleared, and what other people depend on is kept under the anonymised account.
+
+**The coverage test.** `src/lib/privacy/inventory.test.ts` reads the Prisma schema and fails when a model with a column pointing at `User`, or a column
+holding user ids, is missing from the inventory. A new table cannot ship without a decision about what deleting an account does to it and what an
+export gives.
+
+## Data inventory
+
+Generated from `DATA_INVENTORY` in `src/lib/privacy/inventory.ts` (the source of truth; this table is a copy of it). Deletion rules: DELETE (rows
+removed), SCRUB (hidden and blanked), KEEP (kept under the anonymised account, for the reason given), SET_NULL (link cleared), CUSTOM (a step of its
+own in `delete.ts`).
+
+| Table | Deleting the account (per column) | Export | What it is, and why |
+| --- | --- | --- | --- |
+| User | `id` CUSTOM | REDACTED (without `passwordHash`) | the account: anonymised and marked deleted; the date of birth is wiped |
+| Account | `userId` DELETE | REDACTED (without `access_token`, `refresh_token`, `id_token`, `session_state`) | legacy sign-in links (tokens are secrets, never exported) |
+| Session | `userId` DELETE | NONE | legacy sessions: secrets |
+| Profile | `userId` DELETE | FULL | the passport: bio, links, place, privacy settings |
+| UserSkill | `userId` DELETE | FULL | skills on the passport |
+| SkillEvidence | `userId` DELETE | FULL | evidence on the passport and the endorsements received on it (endorsements the person gave belong to the endorsed person) |
+| Project | `ownerId` KEEP | FULL | projects are shared work: other members and posts point at them |
+| ProjectMember | `userId` KEEP | FULL | membership of shared projects |
+| ProjectUpdate | `authorId` KEEP | FULL | updates on shared projects |
+| Team | `ownerId` KEEP | FULL | crews and squads are shared |
+| TeamMember | `userId` KEEP | FULL | membership of shared crews |
+| TeamApplication | `userId` DELETE, `invitedById` SET_NULL | FULL | applications and invitations |
+| TeamSlot | `filledById` KEEP | FULL | a squad slot the person filled: the squad keeps its shape |
+| Hackathon | `submittedById` SET_NULL | FULL | external hackathons the person submitted: public listings |
+| HackathonParticipant | `userId` KEEP | FULL | registrations: hackathon history and results |
+| HackathonTeamMember | `userId` KEEP | FULL | squad history: other members’ results depend on it |
+| ChallengeAttempt | `userId` DELETE | FULL | challenge attempts |
+| UserAchievement | `userId` DELETE | FULL | achievements |
+| UserCounter | `userId` DELETE | FULL | progress counters |
+| ProgressTick | `userId` DELETE | FULL | progress history |
+| UserCosmetic | `userId` DELETE | FULL | cosmetics owned |
+| XPEvent | `userId` KEEP | FULL | the XP log: leaderboards and season standings are rebuilt from it (a deleted account is left out of every board) |
+| SeasonStanding | `userId` KEEP | FULL | final standings of closed seasons: others’ ranks depend on them |
+| ReputationEvent | `userId` DELETE | FULL | reputation history |
+| Connection | `senderId` DELETE, `receiverId` DELETE | FULL | connections |
+| ConversationMember | `userId` KEEP | FULL | conversation membership: the other people keep the conversation |
+| Message | `senderId` KEEP | FULL | messages sent: part of the other people’s conversations, shown as from a deleted account (messages received are the senders’ data) |
+| MessageReaction | `userId` DELETE | FULL | reactions |
+| MessageRead | `userId` DELETE | FULL | read markers |
+| Notification | `userId` DELETE | FULL | notifications |
+| NotificationPreference | `userId` DELETE | FULL | notification switches |
+| Report | `reporterId` KEEP, `reportedId` KEEP | REDACTED (without `reporterId`, `metadata`, `priority`, `snapshot`) | moderation records: kept for safety and legal holds, deleted 2 years after they are resolved; who reported someone is never exported |
+| ModerationAction | `moderatorId` KEEP, `subjectUserId` KEEP, `reversedById` KEEP | REDACTED (without `moderatorId`, `reason`, `metadata`, `reversedById`) | moderation decisions: the person sees the category, the note to them and the dates; the moderator and their notes are not exported |
+| Appeal | `userId` KEEP, `decidedById` KEEP | REDACTED (without `decidedById`) | appeals: moderation records |
+| UserRestriction | `userId` KEEP | FULL | restrictions: moderation records |
+| Mute | `muterId` DELETE, `mutedId` DELETE | FULL; only through `muterId` | people the person muted (who muted them is not exported) |
+| AuditEvent | `userId` KEEP | NONE | the security audit trail: kept for incident response and legal duties; not part of the export because it names staff and other accounts |
+| Verification | `userId` DELETE | FULL | verification records |
+| CurrentBuild | `userId` DELETE | FULL | the current build on the passport |
+| UserQuest | `userId` DELETE | FULL | quests |
+| Activity | `userId` DELETE | FULL | the activity log |
+| Block | `blockerId` DELETE, `blockedId` DELETE | FULL; only through `blockerId` | people the person blocked (who blocked them is not exported) |
+| LeaderboardEntry | `userId` DELETE | FULL | leaderboard snapshots |
+| Subscription | `userId` KEEP | FULL | billing records: kept as tax and accounting law requires |
+| ProductEvent | `userId` SET_NULL | FULL | product analytics: the counts stay, the link to the person goes; deleted after 13 months anyway |
+| MatchingProfile | `userId` DELETE | FULL | matching preferences |
+| Drop | `userId` DELETE, `candidateId` DELETE | REDACTED (without `score`); only through `userId` | daily drops shown to the person (the people shown, and drops where the person was shown to someone, are other people’s) |
+| Spark | `fromId` DELETE, `toId` DELETE | REDACTED (without `openerHash`); only through `fromId` | sparks sent (sparks received are the senders’ data, shown in the app as the person’s plan allows) |
+| Match | `userAId` CUSTOM, `userBId` CUSTOM, `endedById` KEEP | FULL | matches: open ones are ended; the row stays for the other person’s history |
+| RevealRequest | `revokedById` KEEP | NONE | romance photo reveal state: removed with the romance data (CUSTOM via the match) |
+| BuildDate | `proposedById` KEEP | NONE | romance build dates (not in use yet): removed with the romance data |
+| MediaAsset | `ownerId` CUSTOM | REDACTED (without `key`) | uploads: rows and the objects in the bucket are deleted |
+| RomanceProfile | `userId` CUSTOM | FULL | the romance profile and private filters: deleted with photos, drops and reveal state (special-category data) |
+| RomanceDrop | `userId` CUSTOM, `candidateId` CUSTOM | REDACTED (without `score`); only through `userId` | romance drops: deleted with the romance data |
+| Duo | `userAId` CUSTOM, `userBId` CUSTOM, `requestedById` KEEP, `dissolvedById` KEEP | FULL | romance duos: dissolved with the romance data |
+| ShipPost | `authorId` SCRUB, `coAuthorIds` CUSTOM | FULL | posts: hidden and blanked (comments under them keep their thread); the person is taken off others’ posts as a co-author |
+| Prop | `userId` CUSTOM | FULL | Props given: deleted, and the posts’ scores recomputed |
+| Comment | `authorId` SCRUB | FULL | comments: hidden and blanked, so replies keep their thread |
+| Follow | `followerId` DELETE, `followeeId` DELETE | FULL | follows |
+| Watch | `userId` DELETE | FULL | watched projects |
+| SquadProposal | `requesterId` SET_NULL | FULL | squad builder proposals: shared with the proposed members |
+| SquadProposalMember | `userId` DELETE | FULL | seats in proposed squads |
+| LfgPost | `authorId` DELETE | FULL | looking-for-group posts |
+| TeamChecklistItem | `assigneeId` SET_NULL, `createdById` KEEP | FULL | a squad’s shared checklist |
+| TeamIdea | `authorId` KEEP | FULL | a squad’s shared idea board |
+| TeamIdeaVote | `userId` KEEP | FULL | votes on a squad’s ideas: the board’s counts stay right |
+| CommitmentPledge | `userId` DELETE | FULL | hackathon pledges |
+| PeerReview | `reviewerId` CUSTOM, `revieweeId` DELETE | REDACTED (without `reviewerId`, `note`, `integrityWeight`, `counted`) | reviews given stay (teammates’ reliability depends on them) with their private note blanked; reviews received are deleted; who wrote a review is never exported |
+| UserReliability | `userId` DELETE | NONE | an internal score, never shown as a number; deleted |
+| UserRisk | `userId` DELETE, `overrideById` KEEP | NONE | an internal safety score; deleted (the audit trail keeps its changes) |
+| DataExport | `userId` CUSTOM | NONE | export requests: the files and rows are deleted |
+| ConsentRecord | `userId` KEEP | FULL | proof of consent and of its withdrawal: kept as the legal record of the basis for past processing |
+| Report (resolvedBy) | `resolvedById` KEEP | NONE | the moderator who resolved a report (Report.resolvedById) |
+| FeatureFlag | `allowUserIds` CUSTOM, `updatedById` KEEP | NONE | early-access allowlists: the person is taken off every list |
+| IntegritySignal | `userId` SET_NULL | NONE | integrity signals: internal; the link to the person is cleared |
+| FraudSignal | `memberIds` KEEP, `reviewedById` KEEP | NONE | collusion findings: internal evidence, kept as ids of an anonymised account |
+
+## Retention (`src/lib/privacy/retention.ts`, job `privacy/retention`, nightly 05:15 UTC)
+
+| What | Kept for | How |
+| --- | --- | --- |
+| Product analytics events (`ProductEvent`) | 13 months | rows deleted in batches |
+| Idempotency keys | 24 hours | the expiry on the cache entry itself (`IDEMPOTENCY_TTL_MS`); nothing to sweep |
+| Expired drops (`Drop`, status `EXPIRED`) | 90 days after they expired | rows deleted |
+| Resolved reports (`RESOLVED` or `DISMISSED`) | 2 years after resolution | rows deleted, with their evidence snapshot |
+| Data export files | 24 hours after they were made | object deleted, row marked `EXPIRED` |
+| Blocked uploads | the hash, verdict and labels only; the object is deleted at once | needs legal review: some countries require keeping evidence of child sexual abuse material for the authorities for a set period |
+
+Everything else is kept while the account exists and handled by the deletion rules above when it is deleted. The audit trail, moderation records and
+consent records are kept as the security and legal record; their retention periods are a launch item for counsel.
+
+## What never leaves the platform
+
+Analytics carry no personal data (`src/lib/infra/analytics.ts`: our internal id, and props reduced to plain values under safe names). Logs carry ids,
+never names, e-mails or message text (`src/lib/log.ts` replaces sensitive-looking fields). The date of birth is returned to nobody but its owner
+([SAFETY.md](SAFETY.md#the-age-policy)). Romance data stays in its own tables ([SAFETY.md](SAFETY.md#the-romance-mode-gating-and-separation)).
+
+## Sub-processors
+
+Clerk (identity), the PostgreSQL host, Upstash (cache), Inngest (jobs), Ably (realtime), the S3-compatible bucket, PostHog and Sentry when configured,
+and the media moderation provider when configured. Each needs a data processing agreement and, for transfers out of the EU or India, a transfer
+mechanism: a launch item.

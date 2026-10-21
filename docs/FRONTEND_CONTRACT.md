@@ -782,6 +782,98 @@ it as a "Reliable teammate" badge. There is no number to show.
 - `GET /api/admin/hackathons/{id}/metrics` returns the squad numbers.
 - `GET /api/admin/hackathons/{id}/peer-reviews` returns the reviews with their notes.
 
+## Trust, safety and privacy pages: Report, Mute, Moderation notices and appeals, Privacy settings, Export, Consent, Delete account
+
+The design is in [SAFETY.md](SAFETY.md) and [PRIVACY.md](PRIVACY.md); the endpoints in [API.md](API.md#reports--moderation) and
+[API.md](API.md#privacy). Types are in `src/types/api.ts` (`ReportTargetType`, `ModerationHistoryResponse`, `PrivacySettings`, `DataExportResponse`,
+`ConsentState`, `QueueResponse` and the rest).
+
+### Report (a menu item on every surface)
+
+Every person, message, post, comment, received spark, romance profile, LFG post, idea and external hackathon gets a **Report** entry in its menu, next
+to **Mute** and **Block** where a person is involved. It opens a sheet with the reasons (`HARASSMENT`, `SPAM`, `IMPERSONATION`, `INAPPROPRIATE_CONTENT`,
+`MINOR_SAFETY`, `SCAM`, `FAKE_PROFILE`, `COPYRIGHT`, `OTHER`; label `MINOR_SAFETY` "A child may be at risk") and an optional description, then
+`POST /api/reports { targetType, targetId, reason, description? }` (**write**, `Idempotency-Key`). On `201` say "Thanks, a moderator will look at it";
+on `409 REPORT_ALREADY_PENDING` say it was already reported. Offer **Block** after a report about a person. Never tell the reported person anything.
+
+### Mute
+
+`POST /api/mutes { userId }` hides the person from the caller's feed, comments, lists and drops without blocking; `DELETE /api/mutes/{userId}` undoes it;
+`GET /api/mutes` lists them in settings. Copy: "You won't see their posts. They won't know."
+
+### Moderation notices and appeals (`/settings/account`)
+
+Moderation notices arrive as `SYSTEM` notifications with `metadata.kind = "MODERATION"` and link here. The page reads `GET /api/users/me/moderation`:
+show `state` at the top (suspended until, banned, which features are restricted until when), then each action with its `category`, `noteToUser`, end date
+and an **Appeal** button while `canAppeal`. The appeal form posts `POST /api/appeals { actionId, body }` (10 to 5000 characters). Show `GET /api/appeals`
+for their status and decision.
+
+A suspended or banned account gets `403 ACCOUNT_SUSPENDED` (`params.until`) or `ACCOUNT_BANNED` from nearly everything: route it to this page, which
+still works, together with the export, delete-account and consent pages. `403 FEATURE_RESTRICTED` (`params.feature`, `params.until`) means one feature is
+closed: show "You can't {post / message / use the romance mode} until {date}" where that feature's button is, and link here.
+
+### Privacy settings (`/settings/privacy`)
+
+One page over `GET/PATCH /api/users/me/privacy`: a visibility picker (Everyone / Connections / Only me) for each passport field in `fieldVisibility`;
+switches for `hideFromLeaderboards`, `hideFromRecruiters` ("Recruiters" may say "coming soon"), `matchingPaused`, `invisibleMode`, `showActivity`; and
+`whoCanMessage` (Everyone / People I'm connected with / Nobody). PATCH only what changed; the response is the whole state. Blocked and muted people are
+listed here too (`GET /api/blocks`, `GET /api/mutes`).
+
+On someone else's passport a field they keep to themselves (or to connections, when the viewer is not one) comes back `null`: hide its row.
+
+### Export my data (`/settings/privacy`, "Download my data")
+
+`POST /api/users/me/export` (**write**, `Idempotency-Key`) answers `202` with `status: "PENDING"`; say "We'll notify you when it's ready (usually a few
+minutes)". The notification (`metadata.kind = "DATA_EXPORT"`) links back here. `GET /api/users/me/export` shows the latest: while `PENDING` a spinner,
+when `READY` a **Download** button on `downloadUrl` (valid until `expiresAt`, 24 hours), `FAILED` "Try again", `404` nothing yet, `410 EXPORT_EXPIRED`
+"Expired: ask for a new one".
+
+### Consent (onboarding and after a policy change)
+
+Onboarding shows the terms and the privacy notice with an explicit checkbox each, and records each with `POST /api/users/me/consents { type: "TERMS" |
+"PRIVACY", version, source: "onboarding" }`, `version` from `GET /api/users/me/consents` (`currentVersion`). `GET /api/users/me` lists what is still
+needed in `consentRequired`; onboarding is not complete until it is empty.
+
+After a policy change any write can answer `403 CONSENT_REQUIRED` with `details.consents` (e.g. `["PRIVACY"]`): show a blocking "We've updated our
+{documents}" dialog with the document, record the acceptance the same way (`source: "settings"`), and retry.
+
+**The romance mode** asks for its own consent before the opt-in form is sent: a separate screen explaining that gender and who they are interested in are
+sensitive data, used only to find matches, never shown on the professional side, deleted if they withdraw; an unticked checkbox; then `POST
+/api/users/me/consents { type: "ROMANCE_MODE", version, source: "romance-optin" }`. `PUT /api/romance/profile` without it answers `403
+ROMANCE_CONSENT_REQUIRED` with the version in `details.consent`. Settings has **Withdraw consent and delete my romance data** (`DELETE
+/api/users/me/consents/ROMANCE_MODE`), with a confirmation that says what is deleted. Marketing is an optional switch (`MARKETING`).
+
+### Delete account (`/settings/account`)
+
+A danger-zone button with a typed confirmation, then `DELETE /api/users/me`. It needs a recent sign-in: on `403 REAUTH_REQUIRED` run Clerk's
+reverification (or sign-in) and retry. On `200` sign out and show "Your account was deleted". Say before they confirm what stays (messages in other
+people's conversations, shown as from a deleted account; shared projects and crews) and what goes (everything else).
+
+### Avatar upload
+
+Upload with `purpose: "AVATAR"` (`POST /api/media/uploads`, PUT, `POST /api/media/{id}/complete`). The confirm answers `status: "READY"` when the scan
+passed (then `PUT /api/users/me/avatar { mediaId }`), `IN_REVIEW` ("We're checking your photo, it'll show once approved"), `BLOCKED` ("This photo can't be
+used"), or `SCANNING` (poll `GET /api/media/{id}`). Romance photos follow the same states. `503 MEDIA_SCANNING_UNAVAILABLE`: "Photo uploads are
+unavailable right now".
+
+### Content refusals and gates on existing pages
+
+| Code | Where | Show |
+| --- | --- | --- |
+| `400 CONTENT_REJECTED` (`details.reasons`) | composer, comment box, chat input, LFG and idea forms | "This can't be posted as written" with a hint per reason (`LINK_NOT_ALLOWED` / `CONTACT_DETAILS`: "Share links and contact details once you've both written"; `REPEATED`: "You've sent this a few times already") and keep the text |
+| `403 EMAIL_VERIFICATION_REQUIRED` | composer (public), comments | "Verify your email to post publicly" with a link to Clerk's verification; followers-only posts still work |
+| `403 MESSAGING_NOT_ALLOWED` | "Message" button | "{name} isn't accepting messages" (hide the button when you can) |
+| `503 *_PAUSED` | the affected feature | "This is paused for a little while"; nothing to retry immediately |
+| `409 ROMANCE_PROFILE_HIDDEN` | romance profile "visible" switch | "Your profile is hidden while a moderator reviews it" |
+| `403 SIGNUP_EMAIL_REJECTED`, `429 SIGNUP_RATE_LIMITED`, `503 SIGNUPS_PAUSED` | first screen after sign-up | the message from the error, with sign-out |
+
+### Admin console (staff only)
+
+`/admin/queue` over `GET /api/admin/queue` (tabs for reports and appeals), a report page over `GET /api/admin/reports/{id}` with the action form (`POST
+/api/admin/actions`), appeal decisions (`POST /api/admin/appeals/{id}/decide`), people lookup (`GET /api/admin/users?q=`), fraud signals, and for admins
+the audit log, roles, verification marks, plans and the kill switches (`/api/admin/flags`). Destructive actions answer `403 REAUTH_REQUIRED` when the
+session is old: reverify and retry.
+
 ## Backend gaps closed for these pages
 
 | Gap | Fix |
