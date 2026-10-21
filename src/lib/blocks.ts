@@ -18,17 +18,32 @@ export type BlockRelation = 'BLOCKED_BY_ME' | 'BLOCKED_BY_THEM'
  * is a list or search surface; interactions use blockRelation / blockGuard.
  */
 export async function blockedUserIds(db: Db, userId: string): Promise<string[]> {
-  const [rows, deleted] = await Promise.all([
+  const [rows, deleted, muted] = await Promise.all([
     db.block.findMany({
       where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
       select: { blockerId: true, blockedId: true },
     }),
     db.user.findMany({ where: { deletedAt: { not: null } }, select: { id: true } }),
+    mutedUserIds(db, userId),
   ])
   const ids = new Set<string>()
   for (const row of rows) ids.add(row.blockerId === userId ? row.blockedId : row.blockerId)
   for (const row of deleted) ids.add(row.id)
+  // A mute hides the person from the muter's lists too (one way, and without telling them).
+  for (const id of muted) ids.add(id)
   return [...ids]
+}
+
+/** The people `userId` has muted: hidden from their lists and feed, but unlike a block they can still interact (src/app/api/mutes). */
+export async function mutedUserIds(db: Db, userId: string): Promise<string[]> {
+  const rows = await db.mute.findMany({ where: { muterId: userId }, select: { mutedId: true } })
+  return rows.map((row) => row.mutedId)
+}
+
+/** blockedPeerIds plus the people the viewer muted: who a list (the feed, comments, followers) leaves out for this viewer. */
+export async function hiddenPeerIds(db: Db, userId: string): Promise<string[]> {
+  const [blocked, muted] = await Promise.all([blockedPeerIds(db, userId), mutedUserIds(db, userId)])
+  return [...new Set([...blocked, ...muted])]
 }
 
 /**

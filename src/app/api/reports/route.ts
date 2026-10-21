@@ -3,31 +3,7 @@ import { withAuth, validateBody, validateQuery, createApiResponse, createApiErro
 import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { cursorParam, paginate } from '@/lib/api/pagination'
-
-const REPORT_REASONS = [
-  'SPAM',
-  'HARASSMENT',
-  'INAPPROPRIATE_CONTENT',
-  'FAKE_PROFILE',
-  'SCAM',
-  'COPYRIGHT',
-  'OTHER',
-  // A person asking for their own locked date of birth to be corrected. The report is filed against themselves; an admin decides (docs/SAFETY.md).
-  'BIRTHDATE_CORRECTION',
-] as const
-
-const createReportSchema = z
-  .object({
-    reportedId: z.string().min(1),
-    reason: z.enum(REPORT_REASONS),
-    description: z.string().max(5000).optional(),
-  })
-  .superRefine((value, ctx) => {
-    // The one report that needs the words: an admin has to know what is wrong and what it should be.
-    if (value.reason === 'BIRTHDATE_CORRECTION' && (value.description?.trim().length ?? 0) < 10) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['description'], message: 'Say what is wrong and what it should be (at least 10 characters)' })
-    }
-  })
+import { createReportSchema, fileReport } from '@/lib/moderation/reports'
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -38,63 +14,20 @@ const querySchema = z.object({
 
 const userSummarySelect = { id: true, name: true, username: true, image: true } as const
 
+// POST /api/reports: report a person or anything they made, from any surface (src/lib/moderation/reports.ts). Body: { targetType?, targetId?, reportedId?,
+// reason, description? }; `reportedId` alone is a report about a person, as before. You can only report what you can see.
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(createReportSchema)(request)
   if (bodyResult instanceof Response) return bodyResult
-  const { reportedId, reason, description } = bodyResult.data
-
-  // A correction request is about one's own account and nobody else's; every other report is about somebody else.
-  if (reason === 'BIRTHDATE_CORRECTION') {
-    if (reportedId !== user.id) return createApiError('BIRTHDATE_CORRECTION_SELF_ONLY')
-  } else if (reportedId === user.id) {
-    return createApiError('CANNOT_REPORT_SELF')
-  }
-
-  const reportedUser = await prisma.user.findUnique({ where: { id: reportedId }, select: { id: true } })
-  if (!reportedUser) {
-    return createApiError('REPORTED_USER_NOT_FOUND')
-  }
-
-  // Judgment call: dedupe on (reporterId, reportedId) while a prior report
-  // from this same reporter against this same user is still PENDING. Rather
-  // than silently creating a second PENDING row (which would just let one
-  // reporter spam a target's queue with duplicates) or silently returning
-  // the old row as if it were a fresh 201, we surface the conflict
-  // explicitly with 409 and hand back the existing report so the caller
-  // knows exactly what's already in flight.
-  const existingPending = await prisma.report.findFirst({
-    where: { reporterId: user.id, reportedId, status: 'PENDING' },
+  const result = await fileReport(prisma, user.id, bodyResult.data)
+  if (!result.ok) return createApiError(result.code, result.details !== undefined ? { details: result.details } : undefined)
+  const report = await prisma.report.findUniqueOrThrow({
+    where: { id: result.report.id },
+    include: { reporter: { select: userSummarySelect }, reported: { select: userSummarySelect } },
   })
-  if (existingPending) {
-    return createApiError('REPORT_ALREADY_PENDING', { details: {
-      existingReport: existingPending,
-    } })
-  }
-
-  const report = await prisma.report.create({
-    data: {
-      reporterId: user.id,
-      reportedId,
-      reason,
-      description,
-    },
-    include: {
-      reporter: { select: userSummarySelect },
-      reported: { select: userSummarySelect },
-    },
-  })
-
-  await prisma.auditEvent.create({
-    data: {
-      userId: user.id,
-      action: 'REPORT_CREATED',
-      targetType: 'REPORT',
-      targetId: report.id,
-      newValue: { reportedId, reason },
-    },
-  })
-
-  return createApiResponse(report, 201)
+  // The queue's internals (priority, the reporter's standing) are for staff.
+  const { priority: _priority, metadata: _metadata, ...visible } = report
+  return createApiResponse(visible, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 10, keyPrefix: 'reports:create' } })
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

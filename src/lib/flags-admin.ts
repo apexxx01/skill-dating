@@ -9,10 +9,10 @@ export const MAX_ALLOWLIST = 500
 
 const description = z.string().trim().max(300)
 const rolloutPercent = z.number().int().min(0).max(100)
-const allowUserIds = z.array(z.string().refine(isValidId, 'must be a user id')).max(MAX_ALLOWLIST)
+const allowUserIds = z.array(z.string().max(64).refine(isValidId, 'must be a user id')).max(MAX_ALLOWLIST)
 
 export const createFlagSchema = z.object({
-  key: z.string().regex(FLAG_KEY_PATTERN, 'must be 2 to 64 characters: lower-case letters, digits, "-", "_" or ".", starting with a letter'),
+  key: z.string().max(64).regex(FLAG_KEY_PATTERN, 'must be 2 to 64 characters: lower-case letters, digits, "-", "_" or ".", starting with a letter'),
   description: description.optional(),
   enabled: z.boolean().default(false),
   rolloutPercent: rolloutPercent.default(100),

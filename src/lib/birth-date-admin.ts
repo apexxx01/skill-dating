@@ -9,7 +9,7 @@ import { clearMinorLocation } from '@/lib/birth-date'
 
 export const correctBirthDateSchema = z
   .object({
-    birthDate: z.string().refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15'),
+    birthDate: z.string().max(32).refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15'),
     reason: z.string().trim().min(10, 'Say why, in at least 10 characters').max(1000),
   })
   .strict()
