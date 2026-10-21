@@ -1,6 +1,7 @@
 import { Inngest } from 'inngest'
 import { z } from 'zod'
 import { env } from '@/lib/env'
+import { log } from '@/lib/log'
 import { MemoryJobQueue } from './jobs.memory'
 
 // Background work. Every job is declared once in `jobs` below, with the schema
@@ -298,14 +299,24 @@ export function createJobQueue(): JobQueue {
   // Without credentials (development, preview deployments, tests) jobs run in
   // this process. They start on their own everywhere but tests, which decide
   // when with drain(); otherwise a preview would queue jobs that never run.
-  return new MemoryJobQueue(jobs, { autoRun: env.NODE_ENV !== 'test' })
+  return new MemoryJobQueue(jobs, {
+    autoRun: env.NODE_ENV !== 'test',
+    // A job that fails every attempt must not vanish without a trace (Inngest shows its failures; this queue only has the log).
+    onOutcome: (outcome) => {
+      if (!outcome.ok) log.error('job failed', { job: outcome.name, attempts: outcome.attempts, error: outcome.error })
+    },
+  })
 }
 
 const globalForJobs = globalThis as unknown as { __jobQueue?: JobQueue }
 
 export function getJobQueue(): JobQueue {
   if (!globalForJobs.__jobQueue) globalForJobs.__jobQueue = createJobQueue()
-  return globalForJobs.__jobQueue
+  const queue = globalForJobs.__jobQueue
+  // The in-process queue is shared by every route bundle; jobs queued from here run with this module's registry (see QueuedJob.definition in
+  // jobs.memory.ts). Checked by shape, not class: another bundle's MemoryJobQueue is another class.
+  const shared = queue as Partial<{ withRegistry(registry: JobRegistry): JobQueue }>
+  return typeof shared.withRegistry === 'function' ? shared.withRegistry(jobs) : queue
 }
 
 /** Replaces the process-wide queue (tests). */

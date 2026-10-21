@@ -128,7 +128,13 @@ name), a Zod payload schema, a retry count and a handler. Payloads are validated
 again when run. `inngestFunctions()` turns the registry into Inngest functions, and
 `/api/inngest` serves them; the handlers are built on first use, so a build needs no credentials.
 `MemoryJobQueue` validates, drops repeated ids and retries like the real queue, and runs on
-`drain()` in tests or automatically in development. It is not durable.
+`drain()` in tests or automatically in development. It is not durable. Two rules keep it honest inside a
+Next server, where every route is its own bundle with its own copy of the registry and the queue (on
+`globalThis`) is shared by all of them: a job runs with the definition from the registry of the code that
+queued it (`getJobQueue()` hands each module a view bound to its own registry), because a handler's lazy
+`import()` run through another route's bundle can find its module missing and fail every attempt ("Cannot
+read properties of undefined (reading 'call')"); and a job that fails every attempt is logged as
+`job failed`, never dropped silently.
 
 A job may declare a `schedule` (a UTC cron expression): Inngest then triggers it on that schedule as
 well as on its event. The in-process queue never schedules; any job can be run right away with

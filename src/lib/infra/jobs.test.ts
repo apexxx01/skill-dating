@@ -6,6 +6,8 @@ import {
   UnknownJobError,
   createJobQueue,
   defineJob,
+  getJobQueue,
+  setJobQueue,
   inngestFunctions,
   jobs,
   runJob,
@@ -198,3 +200,49 @@ describe('createJobQueue', () => {
     expect(createJobQueue().kind).toBe('inngest')
   })
 })
+
+// In a Next server every route bundle has its own copy of the job registry, and the in-process queue is shared by all of them. A job must run with the
+// registry of the code that queued it: run with the registry of whichever bundle created the queue, a handler's `import()` can point at a bundle that
+// does not have its module, and every attempt fails ("Cannot read properties of undefined (reading 'call')"). This is what made the squad refill
+// suggestion vanish in long dev-server runs.
+describe('a queue shared by several bundles', () => {
+  const echo = (tag: string): JobRegistry => ({ 'system/ping': defineJob({ schema: z.object({ note: z.string().optional() }), handler: async () => tag }) })
+
+  it('runs each job with the registry it was queued with, not the one the queue was made with', async () => {
+    const creator = echo('creator bundle')
+    const queue = new MemoryJobQueue(creator)
+    await queue.withRegistry(echo('queuing bundle')).enqueue('system/ping', {})
+    await queue.enqueue('system/ping', {})
+    expect((await queue.drain()).map((outcome) => outcome.result)).toEqual(['queuing bundle', 'creator bundle'])
+  })
+
+  it('validates against the queuing registry and keeps the shared state (dedupe ids, order)', async () => {
+    const queue = new MemoryJobQueue(echo('creator'))
+    const view = queue.withRegistry(echo('view'))
+    await view.enqueue('system/ping', {}, { id: 'once' })
+    await view.enqueue('system/ping', {}, { id: 'once' })
+    expect(queue.waiting).toBe(1)
+    await expect(view.enqueue('system/ping', { note: 42 } as never)).rejects.toThrow()
+  })
+
+  it('gives every caller of getJobQueue a view that queues with its own registry', async () => {
+    const shared = new MemoryJobQueue(echo('another bundle'))
+    setJobQueue(shared)
+    try {
+      await getJobQueue().enqueue('system/ping', { note: 'from here' })
+      expect((await shared.drain())[0].result).toEqual({ pong: true, note: 'from here' })
+    } finally {
+      setJobQueue(undefined)
+    }
+  })
+
+  it('reports a job that fails every attempt, so it is never lost silently', async () => {
+    const outcomes: unknown[] = []
+    const failing: JobRegistry = { 'system/ping': defineJob({ schema: z.object({}).passthrough(), retries: 1, handler: async () => { throw new Error("Cannot read properties of undefined (reading 'call')") } }) }
+    const queue = new MemoryJobQueue(failing, { onOutcome: (outcome) => outcomes.push(outcome) })
+    await queue.enqueue('system/ping', {})
+    await queue.drain()
+    expect(outcomes).toEqual([{ name: 'system/ping', ok: false, attempts: 2, error: "Cannot read properties of undefined (reading 'call')" }])
+  })
+})
+
