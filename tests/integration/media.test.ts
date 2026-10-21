@@ -33,7 +33,7 @@ describe('media uploads', () => {
     expect((await req(null, 'POST', '/api/media/uploads', {})).status).toBe(401)
     expect((await req(null, 'POST', '/api/media/x/complete', {})).status).toBe(401)
     expect((await req(null, 'GET', '/api/media/x')).status).toBe(401)
-    for (const body of [{}, declaration({ sha256: 'nope' }), declaration({ purpose: 'AVATAR' }), declaration({ bytes: -5 }), { ...declaration(), extra: 1 }]) {
+    for (const body of [{}, declaration({ sha256: 'nope' }), declaration({ purpose: 'BANNER' }), declaration({ bytes: -5 }), { ...declaration(), extra: 1 }]) {
       const res = await req(alice.jar, 'POST', '/api/media/uploads', body)
       expect(res.status, JSON.stringify(body)).toBe(400)
       expect(res.data.error.code).toBe('VALIDATION_FAILED')
