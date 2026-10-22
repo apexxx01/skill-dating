@@ -130,3 +130,22 @@ describe('helpers', () => {
     expect(row('k', 0.5, { a: 1 }, 'd')).toEqual([{ key: 'k', dimension: 'd', value: 0.5, detail: { a: 1 } }])
   })
 })
+
+describe('docs/METRICS.md', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const doc = fs.readFileSync(path.resolve(__dirname, '../../../docs/METRICS.md'), 'utf-8')
+
+  it('defines every metric the catalogue has, with the catalogue’s own words', () => {
+    for (const definition of METRIC_DEFINITIONS) {
+      expect(doc, `${definition.key} is missing from docs/METRICS.md`).toContain(`**\`${definition.key}\`** — ${definition.label}`)
+      expect(doc, `${definition.key} has a different definition in docs/METRICS.md`).toContain(definition.definition)
+    }
+  })
+
+  it('lists exactly the events and XP types that make a person active, and a real thing done', () => {
+    for (const name of ACTIVE_EVENTS) expect(doc, name).toContain(`\`${name}\``)
+    for (const name of MEANINGFUL_EVENTS) expect(doc, name).toContain(`\`${name}\``)
+    for (const type of OWN_ACTION_XP_TYPES) expect(doc, type).toContain(`\`${type}\``)
+  })
+})
