@@ -263,6 +263,15 @@ export const jobs = {
     concurrency: 1,
     handler: async () => (await import('@/lib/invites/invites')).runQualifyInvitesJob(),
   }),
+  // Measures the day that just ended (UTC) and writes the metrics rows (src/lib/kpi, docs/METRICS.md): first the people who were active, then every number the admin metrics show.
+  // Nightly, 01:20 UTC; safe to repeat. Pass `day` to measure another day, and `backfillDays` to fill the activity base further back.
+  'metrics/snapshot': defineJob({
+    schema: z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), backfillDays: z.number().int().min(1).max(400).optional() }).default({}),
+    schedule: '20 1 * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async ({ data }) => (await import('@/lib/kpi/snapshot')).runSnapshotJob(data),
+  }),
   // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
   'media/scan': defineJob({
     schema: z.object({ assetId: z.string().min(1).max(64) }),
