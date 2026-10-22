@@ -12,6 +12,7 @@ import { log } from '@/lib/log'
 //   expired drops               90 days after they expired     Drop rows (status EXPIRED) deleted
 //   resolved reports            2 years after resolution       Report rows (RESOLVED or DISMISSED) deleted, with their evidence snapshot
 //   data export files           24 hours after they were made  the object is deleted and the row marked EXPIRED
+//   email and push delivery log 90 days                        NotificationDelivery rows deleted (no content is in them)
 
 export const RETENTION = {
   productEventsMonths: 13,
@@ -19,6 +20,7 @@ export const RETENTION = {
   expiredDropsDays: 90,
   resolvedReportsYears: 2,
   exportFilesHours: 24,
+  deliveryLogDays: 90,
 } as const
 
 const BATCH = 1000
@@ -30,7 +32,13 @@ export function retentionCutoffs(now: Date) {
   months.setUTCMonth(months.getUTCMonth() - RETENTION.productEventsMonths)
   const years = new Date(now)
   years.setUTCFullYear(years.getUTCFullYear() - RETENTION.resolvedReportsYears)
-  return { productEvents: months, expiredDrops: new Date(now.getTime() - RETENTION.expiredDropsDays * DAY_MS), resolvedReports: years, exportFiles: now }
+  return {
+    productEvents: months,
+    expiredDrops: new Date(now.getTime() - RETENTION.expiredDropsDays * DAY_MS),
+    resolvedReports: years,
+    exportFiles: now,
+    deliveryLog: new Date(now.getTime() - RETENTION.deliveryLogDays * DAY_MS),
+  }
 }
 
 async function deleteInBatches(find: () => Promise<{ id: string }[]>, remove: (ids: string[]) => Promise<unknown>): Promise<number> {
@@ -58,6 +66,10 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
     () => db.report.findMany({ where: { status: { in: ['RESOLVED', 'DISMISSED'] }, OR: [{ resolvedAt: { lt: cut.resolvedReports } }, { resolvedAt: null, updatedAt: { lt: cut.resolvedReports } }] }, select: { id: true }, take: BATCH }),
     (ids) => db.report.deleteMany({ where: { id: { in: ids } } })
   )
+  const deliveryLog = await deleteInBatches(
+    () => db.notificationDelivery.findMany({ where: { createdAt: { lt: cut.deliveryLog } }, select: { id: true }, take: BATCH }),
+    (ids) => db.notificationDelivery.deleteMany({ where: { id: { in: ids } } })
+  )
   let exportFiles = 0
   const due = await db.dataExport.findMany({ where: { status: 'READY', expiresAt: { lte: cut.exportFiles } }, select: { id: true, storageKey: true }, take: BATCH })
   for (const row of due) {
@@ -69,7 +81,7 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
       log.warn('could not remove an expired export file', { error, exportId: row.id })
     }
   }
-  const result = { productEvents, expiredDrops, resolvedReports, exportFiles }
+  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog }
   log.info('retention finished', result)
   return result
 }
