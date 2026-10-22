@@ -549,6 +549,36 @@ Which kinds of notification the caller gets. **Response:** `{ preferences: [{ ki
 ### `PUT /api/notifications/preferences`
 **Body:** `{ preferences: { [kind]: boolean } }`: at least one known kind; the kinds left out keep what they were; unknown keys are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED`.
 
+### `GET /api/notifications/channels`
+How notifications reach the caller **outside the app**: email and web push (docs/NOTIFICATIONS.md). **Response:** `{ settings: { emailEnabled, pushEnabled, quietHours: { enabled, start, end }, dailyDigest, weeklyDigest }, kinds: [{ kind, label, class, email: { enabled, default, available }, push: { enabled, default, available } }], marketingConsent, push: { devices, configured }, email: { verified, undeliverable } }`. `start` and `end` are local times (`"22:00"`) in the caller's time zone. `kinds` lists every kind a person can switch (account and safety notices are not among them: they are always sent); a channel with `available: false` is never used for that kind (a digest by push). `class: "PROMOTIONAL"` (the two digests) needs `marketingConsent`. `email.undeliverable` is true when mail to the address bounced or was reported as spam.
+
+### `PUT /api/notifications/channels`
+**Body:** `{ settings?: { emailEnabled?, pushEnabled?, quietHours?: { enabled?, start?, end? }, dailyDigest?, weeklyDigest? }, kinds?: { [kind]: { email?: boolean, push?: boolean } } }`: at least one of `settings` and `kinds`; what is left out keeps what it was; unknown keys, kinds that are not switchable and channels a kind does not use are refused. **Response:** the same as `GET`. `400 VALIDATION_FAILED`. The in-app switches stay at `/api/notifications/preferences`.
+
+### `GET /api/notifications/push`
+The caller's web push devices. **Response:** `{ publicKey, configured, devices: [{ id, label, createdAt, lastUsedAt }], maxDevices }`. `publicKey` is the VAPID key to subscribe with (`applicationServerKey`); `configured: false` means pushes are recorded and not sent (development, preview). The endpoint and keys of a device are never returned.
+
+### `POST /api/notifications/push`
+Registers a browser. **Body:** `subscription.toJSON()`: `{ endpoint, keys: { p256dh, auth }, label? }` (unknown keys are refused; `label` is at most 80 characters). The same endpoint again refreshes it (`200`); a new one is `201 { device }`. An endpoint that belonged to another account moves to the caller (it is one browser). **Errors:** `400 VALIDATION_FAILED`, `400 PUSH_ENDPOINT_NOT_ALLOWED` (not https, has credentials or a port, points inside, or is not a push service's host when real push is configured), `409 PUSH_DEVICE_LIMIT` (`params.max`, 10).
+
+### `DELETE /api/notifications/push`
+The browser unsubscribing itself. **Body:** `{ endpoint }`. `404 PUSH_DEVICE_NOT_FOUND` if the caller has no such device.
+
+### `DELETE /api/notifications/push/[id]`
+Removes one of the caller's devices from the list in settings. `404 PUSH_DEVICE_NOT_FOUND` (also for someone else's).
+
+### `POST /api/notifications/deliveries/[id]/open`
+The service worker reporting a tap on a push (the payload's `deliveryId`), for the open rate. Only the person it was sent to; the first report counts. `404 DELIVERY_NOT_FOUND`.
+
+### `GET | POST /api/notifications/unsubscribe?t=…`  (public)
+The link in every optional email. No session: the signed token `t` is the credential and says who and what (one kind, all optional email, or the kinds that show only a neutral line). `POST` is what a mail client sends for the `List-Unsubscribe-Post` header (RFC 8058): **Response** `{ success: true, applied, kind }`. `GET` is the link in the body: it unsubscribes and answers a plain HTML confirmation page (`400` and an HTML page for a bad link; `400 UNSUBSCRIBE_LINK_INVALID` for `POST`). Account and safety notices are never switched off by it (`applied: false`). Rate limited by address.
+
+### `GET /api/notifications/open/[token]`  (public)
+Where the buttons and links in emails go: records the email as opened (the first time) and redirects (`302`) to the page it was about, which is signed into the token (so it can only be inside the app). A bad token redirects to the app's front door. Rate limited by address.
+
+### `POST /api/webhooks/email`  (public, signed)
+The email provider's events (Resend, signed with Svix: `svix-id`, `svix-timestamp`, `svix-signature`, secret `RESEND_WEBHOOK_SECRET`). A permanent bounce or a complaint suppresses the address; other events are acknowledged and ignored. `503 WEBHOOK_NOT_CONFIGURED` without the secret, `400 WEBHOOK_SIGNATURE_MISSING | WEBHOOK_SIGNATURE_INVALID`.
+
 ### `PATCH /api/notifications/[id]`
 Marks one read. **Auth:** the notification's own `userId` (a mismatch returns `404`, not `403`, so it can't be used to probe other users' notification IDs).
 
