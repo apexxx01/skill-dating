@@ -9,7 +9,7 @@ const now = new Date('2026-10-20T05:15:00Z')
 
 describe('retention', () => {
   it('keeps what the policy says: 13 months, 24 hours, 90 days, 2 years, 24 hours, and 90 days of the delivery log', () => {
-    expect(RETENTION).toEqual({ productEventsMonths: 13, idempotencyKeysMs: 86_400_000, expiredDropsDays: 90, resolvedReportsYears: 2, exportFilesHours: 24, deliveryLogDays: 90 })
+    expect(RETENTION).toEqual({ productEventsMonths: 13, idempotencyKeysMs: 86_400_000, expiredDropsDays: 90, resolvedReportsYears: 2, exportFilesHours: 24, deliveryLogDays: 90, activityDaysMonths: 25 })
   })
 
   it('computes the cutoffs', () => {
@@ -19,6 +19,7 @@ describe('retention', () => {
     expect(cut.resolvedReports.toISOString()).toBe('2024-10-20T05:15:00.000Z')
     expect(cut.exportFiles).toEqual(now)
     expect(cut.deliveryLog.toISOString()).toBe('2026-07-22T05:15:00.000Z')
+    expect(cut.activityDays.toISOString()).toBe('2024-09-20T05:15:00.000Z')
   })
 
   it('deletes in batches, removes export files and marks them expired', async () => {
@@ -30,11 +31,12 @@ describe('retention', () => {
       drop: { findMany: vi.fn(async () => []), deleteMany: vi.fn() },
       report: { findMany: vi.fn(async () => []), deleteMany: vi.fn() },
       notificationDelivery: { findMany: vi.fn(async () => []), deleteMany: vi.fn() },
+      activityDay: { deleteMany: vi.fn(async () => ({ count: 7 })) },
       campusVerification: { deleteMany: vi.fn(async () => ({ count: 2 })) },
       dataExport: { findMany: vi.fn(async () => [{ id: 'e1', storageKey: 'exports/u1/e1.json' }]), update: vi.fn(async () => ({})) },
     }
     const result = await runRetention(db as never, storage, now)
-    expect(result).toEqual({ productEvents: 2, expiredDrops: 0, resolvedReports: 0, exportFiles: 1, deliveryLog: 0, campusVerifications: 2 })
+    expect(result).toEqual({ productEvents: 2, expiredDrops: 0, resolvedReports: 0, exportFiles: 1, deliveryLog: 0, activityDays: 7, campusVerifications: 2 })
     expect(db.productEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { createdAt: { lt: retentionCutoffs(now).productEvents } } }))
     expect(storage.contents.has('exports/u1/e1.json')).toBe(false)
     expect(db.dataExport.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { status: 'EXPIRED', storageKey: null } })

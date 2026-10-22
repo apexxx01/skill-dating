@@ -420,6 +420,7 @@ model User {
   invitesMade         InviteRedemption[]       @relation("InviterOf")
   campusMembership    CampusMembership?
   campusVerification  CampusVerification?
+  activityDays        ActivityDay[]
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -2759,4 +2760,33 @@ model CampusVerification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
+}
+
+// --- Metrics (src/lib/kpi, docs/METRICS.md) ---------------------------------------------------------------------------------
+
+// A day (UTC) on which a person did something of their own (kpi/activity.ts ACTIVE_EVENTS and the XP of their own actions). Filled each night by the metrics job from the product events
+// and the XP log; it is what retention, daily, weekly and monthly actives are counted from, and it outlives the events it was made from (those are kept 13 months).
+model ActivityDay {
+  userId String
+  day    DateTime @db.Date
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@index([day])
+}
+
+// One number for one day: what the nightly job measured (key), for what (dimension: a cohort week, a channel, a place; empty when the number is one for everybody), and the counts
+// it was divided from (detail). Aggregates only: no row names a person. docs/METRICS.md defines every key.
+model MetricsSnapshot {
+  id         String   @id @default(cuid())
+  day        DateTime @db.Date
+  key        String
+  dimension  String   @default("")
+  value      Float
+  detail     Json?
+  computedAt DateTime @default(now())
+
+  @@unique([day, key, dimension])
+  @@index([key, day])
 }

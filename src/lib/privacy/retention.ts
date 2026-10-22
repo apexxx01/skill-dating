@@ -14,6 +14,7 @@ import { log } from '@/lib/log'
 //   resolved reports            2 years after resolution       Report rows (RESOLVED or DISMISSED) deleted, with their evidence snapshot
 //   data export files           24 hours after they were made  the object is deleted and the row marked EXPIRED
 //   email and push delivery log 90 days                        NotificationDelivery rows deleted (no content is in them)
+//   activity days               25 months                      ActivityDay rows deleted (the metrics are kept: they hold no person)
 //   campus verifications        1 hour after their code expired  the row, and with it the campus e-mail address it held, is deleted
 
 export const RETENTION = {
@@ -23,6 +24,7 @@ export const RETENTION = {
   resolvedReportsYears: 2,
   exportFilesHours: 24,
   deliveryLogDays: 90,
+  activityDaysMonths: 25,
 } as const
 
 const BATCH = 1000
@@ -32,6 +34,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 export function retentionCutoffs(now: Date) {
   const months = new Date(now)
   months.setUTCMonth(months.getUTCMonth() - RETENTION.productEventsMonths)
+  const months25 = new Date(now)
+  months25.setUTCMonth(months25.getUTCMonth() - RETENTION.activityDaysMonths)
   const years = new Date(now)
   years.setUTCFullYear(years.getUTCFullYear() - RETENTION.resolvedReportsYears)
   return {
@@ -40,6 +44,7 @@ export function retentionCutoffs(now: Date) {
     resolvedReports: years,
     exportFiles: now,
     deliveryLog: new Date(now.getTime() - RETENTION.deliveryLogDays * DAY_MS),
+    activityDays: months25,
   }
 }
 
@@ -83,8 +88,9 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
       log.warn('could not remove an expired export file', { error, exportId: row.id })
     }
   }
+  const activityDays = (await db.activityDay.deleteMany({ where: { day: { lt: cut.activityDays } } })).count
   const campusVerifications = await sweepVerifications(db, now)
-  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, campusVerifications }
+  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, activityDays, campusVerifications }
   log.info('retention finished', result)
   return result
 }
