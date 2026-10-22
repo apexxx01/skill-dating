@@ -155,15 +155,14 @@ describe('Sentry reporter', () => {
     const report = fresh()
     const error = new TypeError('bad thing')
     report(error, { requestId: 'req-1', projectId: 'p1', email: 'a@b.dev' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(sdk.captureException).toHaveBeenCalledWith(error)
+    // The SDK is imported on first use, which takes however long the machine takes.
+    await vi.waitFor(() => expect(sdk.captureException).toHaveBeenCalledWith(error))
     expect(scope.setTag).toHaveBeenCalledWith('requestId', 'req-1')
     expect(scope.setExtras).toHaveBeenCalledWith({ projectId: 'p1', email: REDACTED })
 
     // A thing that is not an Error still becomes one, with a message that does not quote the value.
     report('just a string', {})
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await vi.waitFor(() => expect(sdk.captureException).toHaveBeenCalledTimes(2))
     const sent = sdk.captureException.mock.calls[1][0] as Error
     expect(sent).toBeInstanceOf(Error)
 
@@ -173,7 +172,7 @@ describe('Sentry reporter', () => {
     vi.resetModules()
     const { createSentryReporter: broken } = await import('./log')
     expect(() => broken()(new Error('x'), {})).not.toThrow()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     vi.doUnmock('@sentry/nextjs')
   })
 })
