@@ -22,6 +22,8 @@ const en = {
   'email.footer.stopKind': 'Stop emails like this',
   'email.footer.stopAll': 'Unsubscribe from all optional email',
   'email.footer.manage': 'Manage notification settings',
+  // What the footer of a neutral email calls the kind: it must not say what it is about.
+  'email.footer.neutralLabel': 'message notifications',
   'email.footer.account': 'This is an account notice. It is sent whatever your notification settings say.',
   'email.preheader.neutral': 'Open the app to read it.',
   'email.skipToContent': 'Skip to the message',

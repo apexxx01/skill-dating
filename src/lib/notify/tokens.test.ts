@@ -8,6 +8,7 @@ describe('signed links', () => {
     const token = unsubscribeToken({ userId: 'u1', kind: 'COMMENT' }, secret)
     expect(readUnsubscribeToken(token, secret)).toEqual({ userId: 'u1', kind: 'COMMENT' })
     expect(readUnsubscribeToken(unsubscribeToken({ userId: 'u1', kind: 'ALL' }, secret), secret)).toEqual({ userId: 'u1', kind: 'ALL' })
+    expect(readUnsubscribeToken(unsubscribeToken({ userId: 'u1', kind: 'NEUTRAL' }, secret), secret)).toEqual({ userId: 'u1', kind: 'NEUTRAL' })
   })
 
   it('round-trips a delivery and where it goes', () => {

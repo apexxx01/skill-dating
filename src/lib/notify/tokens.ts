@@ -46,8 +46,11 @@ export function verifyToken(purpose: TokenPurpose, token: string, secret: string
 
 export interface UnsubscribeScope {
   userId: string
-  /** One kind, or every optional email. */
-  kind: DeliveryKind | 'ALL'
+  /**
+   * One kind, every optional email (ALL), or every email of the kinds that show only a neutral line (NEUTRAL). The token travels in a header and in the body of the email,
+   * where anyone who sees the email can read it, so a kind that must not be named outside the app is never named in it: NEUTRAL stands for all of them.
+   */
+  kind: DeliveryKind | 'ALL' | 'NEUTRAL'
 }
 
 export const unsubscribeToken = (scope: UnsubscribeScope, secret?: string) => signToken('unsubscribe', { u: scope.userId, k: scope.kind }, secret)
@@ -55,7 +58,7 @@ export const unsubscribeToken = (scope: UnsubscribeScope, secret?: string) => si
 export function readUnsubscribeToken(token: string, secret?: string): UnsubscribeScope | null {
   const payload = verifyToken('unsubscribe', token, secret)
   if (!payload?.u || !payload.k) return null
-  if (payload.k !== 'ALL' && !isDeliveryKind(payload.k)) return null
+  if (payload.k !== 'ALL' && payload.k !== 'NEUTRAL' && !isDeliveryKind(payload.k)) return null
   return { userId: payload.u, kind: payload.k as UnsubscribeScope['kind'] }
 }
 

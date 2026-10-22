@@ -144,9 +144,7 @@ const CREDENTIAL_PAIRS: [Setting, Setting][] = [
   ['STORAGE_ENDPOINT', 'STORAGE_ACCESS_KEY_ID'],
   ['STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'],
   ['MEDIA_MODERATION_URL', 'MEDIA_MODERATION_TOKEN'],
-  // Email needs a sender and the address of the app (for the links in it); web push needs the whole VAPID identity.
-  ['RESEND_API_KEY', 'EMAIL_FROM'],
-  ['RESEND_API_KEY', 'APP_URL'],
+  // Web push needs the whole VAPID identity. (Email needs a sender and the app's address, but those two are fine alone: see crossRuleProblems.)
   ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'],
   ['VAPID_PUBLIC_KEY', 'VAPID_SUBJECT'],
 ]
@@ -197,6 +195,8 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
       problems.set(missing, `is required when ${present(a) ? a : b} is set`)
     }
   }
+  // Email: a Resend key needs a sender and the address of the app (the links in the mail). EMAIL_FROM and APP_URL are fine without a key.
+  for (const name of ['EMAIL_FROM', 'APP_URL'] as const) if (present('RESEND_API_KEY') && !present(name)) problems.set(name, 'is required when RESEND_API_KEY is set')
   const testServer = source.INTEGRATION_TEST_SERVER === 'true'
   if (testServer && requiresProductionConfig(source)) {
     problems.set('INTEGRATION_TEST_SERVER', 'must not be set in production')

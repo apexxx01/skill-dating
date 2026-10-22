@@ -256,7 +256,7 @@ export async function sendDigest(db: PrismaClient, deps: DispatchDeps, kind: Dig
       // Every link goes through the click-through, so the digest's open rate is measured like any other email's.
       items: section.items.map((item) => (item.url ? { ...item, url: openUrl(deps, delivery.id, item.url.slice(deps.baseUrl.length)) } : item)),
     })),
-    footer: { ...footerFor(deps, ctx.id, kind), kindLabel: t(ctx.locale, kind === 'DIGEST_DAILY' ? 'digest.daily.name' : 'digest.weekly.name') },
+    footer: { ...footerFor(deps, ctx.id, kind, ctx.locale), kindLabel: t(ctx.locale, kind === 'DIGEST_DAILY' ? 'digest.daily.name' : 'digest.weekly.name') },
   })
   const outcome = await sendEmailFor(db, deps, delivery, ctx.email, rendered, unsubscribeHeaders(deps, ctx.id, kind), now, kind)
   if (outcome === 'SENT') {

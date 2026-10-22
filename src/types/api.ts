@@ -669,6 +669,76 @@ export interface NotificationsResponse {
   nextCursor: string | null
 }
 
+/** One channel of one kind in GET and PUT /api/notifications/channels. */
+export interface ChannelSwitch {
+  /** What is on now: the person's own choice, else the default. */
+  enabled: boolean
+  default: boolean
+  /** False where the kind is never sent on this channel (a digest by push): show no switch. */
+  available: boolean
+}
+
+export interface NotificationChannelKind {
+  /** A delivery kind (docs/NOTIFICATIONS.md): a notification kind, or DIGEST_DAILY / DIGEST_WEEKLY. */
+  kind: string
+  label: string
+  class: 'ACTIVITY' | 'PROMOTIONAL'
+  email: ChannelSwitch
+  push: ChannelSwitch
+}
+
+/** GET and PUT /api/notifications/channels */
+export interface NotificationChannelsResponse {
+  settings: {
+    emailEnabled: boolean
+    pushEnabled: boolean
+    quietHours: { enabled: boolean; /** "22:00": local time. */ start: string; end: string }
+    dailyDigest: boolean
+    weeklyDigest: boolean
+  }
+  kinds: NotificationChannelKind[]
+  /** Digests are promotional mail: they need this consent (POST /api/users/me/consents). */
+  marketingConsent: boolean
+  push: { devices: number; configured: boolean }
+  /** `undeliverable`: mail to the address bounced or was reported as spam, so no email is sent until it changes. */
+  email: { verified: boolean; undeliverable: boolean }
+}
+
+export interface PushDevice {
+  id: string
+  label: string | null
+  createdAt: IsoDate
+  lastUsedAt: IsoDate | null
+}
+
+/** GET /api/notifications/push */
+export interface PushDevicesResponse {
+  /** The VAPID public key: pass it to PushManager.subscribe() as applicationServerKey. */
+  publicKey: string
+  /** False in development and preview, where pushes are recorded and not sent. */
+  configured: boolean
+  devices: PushDevice[]
+  maxDevices: number
+}
+
+/** The body of POST /api/notifications/push: subscription.toJSON(), plus an optional label. */
+export interface PushSubscribeBody {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
+  label?: string
+}
+
+/** What a web push carries (service worker `push` event: event.data.json()). */
+export interface PushPayload {
+  title: string
+  body: string
+  /** A path in the app: open it on a tap. */
+  url: string
+  tag?: string
+  /** Report a tap with POST /api/notifications/deliveries/{deliveryId}/open. */
+  deliveryId?: string
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------

@@ -57,6 +57,9 @@ export const CHANNEL_LIMITS: Record<DeliveryChannel, RateLimit[]> = {
   ],
 }
 
+/** Browsers one account can register for push (a phone, a laptop, a desktop, and a few spare). */
+export const MAX_PUSH_DEVICES = 10
+
 /** A held notification older than this is dropped, not sent: nobody wants yesterday's "someone commented" at breakfast. */
 export const STALE_AFTER_MS = 18 * HOUR
 

@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server'
 import { POLICY } from './policy'
 import { escapeHtml } from './templates'
 import { t, type Locale } from './strings'
@@ -29,10 +30,18 @@ ${manage}
 }
 
 export function unsubscribedPage(locale: Locale, scope: UnsubscribeScope, settingsUrl: string): string {
-  const line = scope.kind === 'ALL' ? t(locale, 'unsubscribe.all') : t(locale, 'unsubscribe.kind', { kindLabel: POLICY[scope.kind].label })
+  const line =
+    scope.kind === 'ALL'
+      ? t(locale, 'unsubscribe.all')
+      : t(locale, 'unsubscribe.kind', { kindLabel: scope.kind === 'NEUTRAL' ? t(locale, 'email.footer.neutralLabel') : POLICY[scope.kind].label })
   return page(locale, t(locale, 'unsubscribe.title'), [line], settingsUrl)
 }
 
 export function invalidLinkPage(locale: Locale, settingsUrl: string): string {
   return page(locale, t(locale, 'unsubscribe.invalid.title'), [t(locale, 'unsubscribe.invalid.body')], settingsUrl)
 }
+
+const HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }
+
+/** The page as a response: HTML, never cached, and no referrer sent on from it. */
+export const htmlResponse = (html: string, status: number) => new NextResponse(html, { status, headers: HEADERS })

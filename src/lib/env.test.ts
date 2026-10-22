@@ -295,6 +295,9 @@ describe('email, web push and error reporting settings', () => {
   it('need the sender and the app address with the Resend key', () => {
     expect(() => parseEnv({ ...base, ...email })).not.toThrow()
     expect(problems({ ...base, RESEND_API_KEY: 're_abc' })).toEqual(expect.arrayContaining(['EMAIL_FROM: is required when RESEND_API_KEY is set', 'APP_URL: is required when RESEND_API_KEY is set']))
+    // Either alone is fine: share cards and links in the app use the address without any email, and an old EMAIL_FROM may be left over.
+    expect(() => parseEnv({ ...base, APP_URL: 'https://app.example.com' })).not.toThrow()
+    expect(() => parseEnv({ ...base, EMAIL_FROM: 'noreply@example.com' })).not.toThrow()
     expect(problems({ ...base, RESEND_API_KEY: 'abc', EMAIL_FROM: 'a@b.co', APP_URL: 'https://a.example' })).toEqual(['RESEND_API_KEY: must start with re_'])
   })
 

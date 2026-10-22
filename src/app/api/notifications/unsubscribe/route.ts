@@ -6,7 +6,7 @@ import { appBaseUrl } from '@/lib/notify/base-url'
 import { applyUnsubscribe } from '@/lib/notify/settings'
 import { DEFAULT_LOCALE } from '@/lib/notify/strings'
 import { readUnsubscribeToken } from '@/lib/notify/tokens'
-import { invalidLinkPage, unsubscribedPage } from '@/lib/notify/unsubscribe-page'
+import { htmlResponse, invalidLinkPage, unsubscribedPage } from '@/lib/notify/unsubscribe-page'
 
 // The unsubscribe link in every optional email (docs/NOTIFICATIONS.md, "Compliance"). Unauthenticated by design: the signed token in `t` is the credential, and
 // it says who and for what (one kind, or ALL). Two ways in:
@@ -19,15 +19,14 @@ export const dynamic = 'force-dynamic'
 
 const LIMIT = { windowMs: 60_000, maxRequests: 30, keyPrefix: 'notifications:unsubscribe' }
 const settingsUrl = () => `${appBaseUrl()}/settings/notifications`
-const HTML = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }
 
 export async function GET(request: NextRequest) {
   const limited = await enforceRateLimit(request, LIMIT)
   if (limited) return limited
   const scope = readUnsubscribeToken(new URL(request.url).searchParams.get('t') ?? '')
-  if (!scope) return new NextResponse(invalidLinkPage(DEFAULT_LOCALE, settingsUrl()), { status: 400, headers: HTML })
+  if (!scope) return htmlResponse(invalidLinkPage(DEFAULT_LOCALE, settingsUrl()), 400)
   await applyUnsubscribe(prisma, scope)
-  return new NextResponse(unsubscribedPage(DEFAULT_LOCALE, scope, settingsUrl()), { status: 200, headers: HTML })
+  return htmlResponse(unsubscribedPage(DEFAULT_LOCALE, scope, settingsUrl()), 200)
 }
 
 export async function POST(request: NextRequest) {

@@ -8,7 +8,7 @@ import { appBaseUrl } from './base-url'
 import { decideDelivery, RECORDED_SKIPS, type DeliveryFacts, type DeliverySettings, type RecentSend } from './decide'
 import { deliveryKindOf, isDeliveryKind, POLICY, RELEASE_INDIVIDUALLY, type DeliveryKind } from './policy'
 import { hasMarketingConsent, isSuppressed, loadChannelChoices, loadSettings, choiceKey } from './settings'
-import { localeFor, t, type Locale } from './strings'
+import { DEFAULT_LOCALE, localeFor, t, type Locale } from './strings'
 import { openToken, unsubscribeToken } from './tokens'
 import { renderNotificationEmail, renderPush, visibleContent, type FooterLinks, type RenderedEmail } from './templates'
 
@@ -133,18 +133,24 @@ export async function resolveKind(db: Pick<PrismaClient, 'conversation' | 'match
 
 const safePath = (link: string | null | undefined) => (link && link.startsWith('/') && !link.startsWith('//') ? link : '/notifications')
 
+/** Pushes with the same tag replace each other on the device. The tag is in the payload, so a kind that must not be named says nothing. */
+const pushTagOf = (kind: DeliveryKind) => (POLICY[kind].exposure === 'NEUTRAL' ? 'message' : POLICY[kind].exposure === 'ACCOUNT' ? 'account' : (POLICY[kind].group ?? kind).toLowerCase())
+
 /** Where a tap or a click on this goes: the notification's own link, or the notification list when the kind does not show what it is about. */
 export function destinationOf(kind: DeliveryKind, link: string | null | undefined): string {
   return (POLICY[kind].exposure ?? 'FULL') === 'FULL' ? safePath(link) : '/notifications'
 }
 
-export function footerFor(deps: Pick<DispatchDeps, 'baseUrl'>, userId: string, kind: DeliveryKind): FooterLinks {
+/** What an unsubscribe link for this kind names: the kind, except where the kind itself must not be written in an email (NEUTRAL). */
+const scopeKindOf = (kind: DeliveryKind): DeliveryKind | 'NEUTRAL' => (POLICY[kind].exposure === 'NEUTRAL' ? 'NEUTRAL' : kind)
+
+export function footerFor(deps: Pick<DispatchDeps, 'baseUrl'>, userId: string, kind: DeliveryKind, locale: Locale = DEFAULT_LOCALE): FooterLinks {
   const security = POLICY[kind].class === 'SECURITY'
-  const unsubscribe = (scope: DeliveryKind | 'ALL') => `${deps.baseUrl}/api/notifications/unsubscribe?t=${unsubscribeToken({ userId, kind: scope })}`
+  const unsubscribe = (scope: DeliveryKind | 'ALL' | 'NEUTRAL') => `${deps.baseUrl}/api/notifications/unsubscribe?t=${unsubscribeToken({ userId, kind: scope })}`
   return {
-    ...(security ? {} : { stopKindUrl: unsubscribe(kind), stopAllUrl: unsubscribe('ALL') }),
+    ...(security ? {} : { stopKindUrl: unsubscribe(scopeKindOf(kind)), stopAllUrl: unsubscribe('ALL') }),
     settingsUrl: `${deps.baseUrl}/settings/notifications`,
-    kindLabel: POLICY[kind].label,
+    kindLabel: POLICY[kind].exposure === 'NEUTRAL' ? t(locale, 'email.footer.neutralLabel') : POLICY[kind].label,
     account: security,
     digest: kind === 'DIGEST_DAILY' || kind === 'DIGEST_WEEKLY',
   }
@@ -154,7 +160,7 @@ export function footerFor(deps: Pick<DispatchDeps, 'baseUrl'>, userId: string, k
 export function unsubscribeHeaders(deps: Pick<DispatchDeps, 'baseUrl'>, userId: string, kind: DeliveryKind): Record<string, string> {
   if (POLICY[kind].class === 'SECURITY') return {}
   return {
-    'List-Unsubscribe': `<${deps.baseUrl}/api/notifications/unsubscribe?t=${unsubscribeToken({ userId, kind })}>`,
+    'List-Unsubscribe': `<${deps.baseUrl}/api/notifications/unsubscribe?t=${unsubscribeToken({ userId, kind: scopeKindOf(kind) })}>`,
     'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
   }
 }
@@ -174,7 +180,7 @@ function retryOrFail(attempts: number, now: Date): { status: 'DEFERRED'; sendAft
 export async function sendEmailFor(db: PrismaClient, deps: DispatchDeps, delivery: Pick<NotificationDelivery, 'id' | 'attempts' | 'userId'>, to: string, rendered: RenderedEmail, headers: Record<string, string>, now: Date, kind: DeliveryKind): Promise<SendOutcome> {
   const attempts = delivery.attempts + 1
   try {
-    const sent = await deps.email.send({ to, subject: rendered.subject, html: rendered.html, text: rendered.text, headers, tags: { kind, delivery: delivery.id }, idempotencyKey: `delivery:${delivery.id}` })
+    const sent = await deps.email.send({ to, subject: rendered.subject, html: rendered.html, text: rendered.text, headers, tags: { kind: POLICY[kind].exposure === 'NEUTRAL' ? 'neutral' : kind, delivery: delivery.id }, idempotencyKey: `delivery:${delivery.id}` })
     await db.notificationDelivery.update({ where: { id: delivery.id }, data: { status: 'SENT', reason: null, providerId: sent.id, attempts, sentAt: now, sendAfter: null } })
     return 'SENT'
   } catch (error) {
@@ -290,10 +296,10 @@ async function transmit(db: PrismaClient, deps: DispatchDeps, ctx: UserContext, 
       await db.notificationDelivery.update({ where: { id: delivery.id }, data: { status: 'FAILED', reason: 'NO_DESTINATION' } })
       return 'FAILED'
     }
-    const rendered = renderNotificationEmail({ locale: ctx.locale, name: ctx.name, visible, url: openUrl(deps, delivery.id, path), footer: footerFor(deps, ctx.id, kind), neutral: policy.exposure === 'NEUTRAL' })
+    const rendered = renderNotificationEmail({ locale: ctx.locale, name: ctx.name, visible, url: openUrl(deps, delivery.id, path), footer: footerFor(deps, ctx.id, kind, ctx.locale), neutral: policy.exposure === 'NEUTRAL' })
     outcome = await sendEmailFor(db, deps, delivery, ctx.email, rendered, unsubscribeHeaders(deps, ctx.id, kind), now, kind)
   } else {
-    outcome = await sendPushFor(db, deps, delivery, ctx.subscriptions, renderPush(visible, path, POLICY[kind].group ?? kind.toLowerCase()), policy.urgency, now, kind)
+    outcome = await sendPushFor(db, deps, delivery, ctx.subscriptions, renderPush(visible, path, pushTagOf(kind)), policy.urgency, now, kind)
   }
   if (outcome === 'SENT') ctx.recent[delivery.channel].push({ kind, sentAt: now })
   return outcome
@@ -465,7 +471,7 @@ async function sendSummary(db: PrismaClient, deps: DispatchDeps, ctx: UserContex
   const path = '/notifications'
   if (lead.channel === 'EMAIL') {
     if (!ctx.email) return 'FAILED'
-    const rendered = renderNotificationEmail({ locale: ctx.locale, name: ctx.name, visible, url: openUrl(deps, lead.id, path), footer: footerFor(deps, ctx.id, kind), neutral: true })
+    const rendered = renderNotificationEmail({ locale: ctx.locale, name: ctx.name, visible, url: openUrl(deps, lead.id, path), footer: footerFor(deps, ctx.id, kind, ctx.locale), neutral: true })
     return sendEmailFor(db, deps, lead, ctx.email, rendered, unsubscribeHeaders(deps, ctx.id, kind), now, kind)
   }
   return sendPushFor(db, deps, lead, ctx.subscriptions, renderPush(visible, path, 'summary'), 'low', now, kind)

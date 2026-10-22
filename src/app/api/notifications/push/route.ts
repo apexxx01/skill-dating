@@ -2,12 +2,10 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { getPush, isPushEndpoint } from '@/lib/infra/push'
+import { MAX_PUSH_DEVICES } from '@/lib/notify/policy'
 
 // Web push devices (docs/NOTIFICATIONS.md): the browsers that agreed to receive a push for this account. The body of POST is what PushManager.subscribe() gives,
 // as JSON (subscription.toJSON()). GET also hands out the public key to subscribe with, so the page needs no configuration of its own.
-
-/** Browsers one account can register (a phone, a laptop, a desktop, and a few spare). */
-export const MAX_PUSH_DEVICES = 10
 
 const base64url = z.string().min(8).max(200).regex(/^[A-Za-z0-9_-]+={0,2}$/, 'Base64url text')
 

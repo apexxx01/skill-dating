@@ -1,7 +1,7 @@
 import type { DeliveryChannel, Prisma, PrismaClient } from '@prisma/client'
 import { consentStates } from '@/lib/privacy/consent'
 import { DEFAULT_SETTINGS, type DeliverySettings } from './decide'
-import { channelPolicy, POLICY, switchableKinds, type DeliveryKind } from './policy'
+import { channelPolicy, DELIVERY_KINDS, POLICY, switchableKinds, type DeliveryKind } from './policy'
 import { formatMinutes } from './quiet'
 import type { UnsubscribeScope } from './tokens'
 
@@ -106,6 +106,10 @@ export async function applyUnsubscribe(db: Db, scope: UnsubscribeScope): Promise
   if (!user) return { applied: false }
   if (scope.kind === 'ALL') {
     await saveSettings(db, scope.userId, { emailEnabled: false, dailyDigest: false, weeklyDigest: false })
+    return { applied: true }
+  }
+  if (scope.kind === 'NEUTRAL') {
+    for (const kind of DELIVERY_KINDS) if (POLICY[kind].exposure === 'NEUTRAL' && !POLICY[kind].email.unavailable) await setChannelChoice(db, scope.userId, kind, 'EMAIL', false)
     return { applied: true }
   }
   if (POLICY[scope.kind].class === 'SECURITY') return { applied: false }
