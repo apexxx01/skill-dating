@@ -69,6 +69,12 @@ const MAY_NAME_THE_MODE: Record<string, string> = {
   'lib/integrity/reach-sql.ts': 'the ROMANCE restriction kind, so a person restricted from the mode leaves its pool',
   'lib/safety/content.ts': 'the stricter content rule for the first messages of a romance match',
   'types/api.ts': 'documents the storage key in the match types',
+  'lib/notify/policy.ts': 'the delivery policy of the mode’s notification kinds: they leave the app only as the neutral line "You have a new message"',
+  'lib/notify/dispatch.ts': 'recognises a message or a match that belongs to the mode, so it is sent as the neutral line',
+  'lib/notify/digest.ts': 'the daily digest counts no spark of the mode',
+  'lib/kpi/activity.ts': 'a comment: the metrics read no table of the mode',
+  'lib/kpi/compute-product.ts': 'leaves the mode’s sparks and matches out of every matching number',
+  'lib/kpi/definitions.ts': 'the definitions say the mode is in none of the numbers',
 }
 
 // Surfaces other people can see about a person, or that are public: none may name the mode, ever.
@@ -104,6 +110,22 @@ const PROFESSIONAL_SURFACES = [
   'app/api/quests/route.ts',
   'app/api/teams/route.ts',
   'app/api/projects/route.ts',
+  // Stage 1G: universal search and the public share cards.
+  'lib/search/index.ts',
+  'lib/search/postgres.ts',
+  'lib/search/query.ts',
+  'lib/search/types.ts',
+  'app/api/search/route.ts',
+  'lib/og/data.ts',
+  'lib/og/layout.ts',
+  'lib/og/models.ts',
+  'lib/og/render.ts',
+  'lib/og/text.ts',
+  'app/api/og/passport/[username]/route.ts',
+  'app/api/og/post/[id]/route.ts',
+  'app/api/og/squad/[id]/route.ts',
+  'app/api/og/achievement/[slug]/route.ts',
+  'lib/campus/campus.ts',
 ]
 
 describe('the romance mode stays apart', () => {

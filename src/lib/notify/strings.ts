@@ -1,7 +1,7 @@
 // Every word the platform puts in an email or a push, in one place, so a language is one more table and nothing in the templates or the pipeline has to change. The
 // frontend restyles the HTML later; the words stay here. Keys that end in .one / .other are the plural forms of one message (Intl.PluralRules picks).
 //
-// Nothing in a string may name the romance mode or say what happened in it: its only lines leave through `neutral.*`.
+// Nothing in a string may name the private mode or say what happened in it: its only lines leave through `neutral.*` (policy.ts says which kinds those are).
 
 export const LOCALES = ['en'] as const
 export type Locale = (typeof LOCALES)[number]

@@ -37,6 +37,10 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/integrity/risk.ts': 'the risk score adds points when no date of birth is on file; it is given a yes/no, never the date',
   'lib/integrity/risk-job.ts': 'reads only whether a date of birth is on file (birthDate !== null) for the risk score; returns no date',
   'types/api.ts': 'documents the owner’s own profile settings',
+  'lib/campus/campus.ts': 'the age gate for joining a campus (a minor shares a country only): reads it to decide, returns no date',
+  'lib/invites/invites.ts': 'the onboarding facts of an invitee: reads whether a date is on file, returns no date',
+  'lib/og/data.ts': 'decides what a public share card may show (a minor is a username only): reads it to decide, returns no date',
+  'lib/search/postgres.ts': 'leaves out accounts refused for their age (birthDateRefusedAt, a moment, not a date of birth)',
 }
 
 describe('the date of birth stays private', () => {

@@ -13,7 +13,7 @@ import type { AchievementCard, CardModel, PassportCard, PostCard, SquadCard } fr
 //                           or is hidden, removed or deleted; a squad whose hackathon is not public or has not ended;
 //   a minor, or an account with no date of birth yet   only the @username, level and counts: no name, headline, role, skills, or place;
 //   a passport field that is not PUBLIC  not shown (the headline and the builder role are the fields a card prints);
-//   never shown   e-mail, bio, links, location, the date of birth, and anything of the romance mode.
+//   never shown   e-mail, bio, links, location, the date of birth, and anything from a person's private modes: no such table is read here.
 // A person who is not in the cards can always be linked to by name inside the app; the cards are for sharing, and are generous with nothing.
 
 type Db = Pick<PrismaClient, 'user' | 'profile' | 'shipPost' | 'team' | 'achievement' | 'userAchievement' | 'project' | 'userRisk' | 'userRestriction' | 'userSkill' | 'hackathonTeam' | 'teamMember' | 'xPEvent'>
