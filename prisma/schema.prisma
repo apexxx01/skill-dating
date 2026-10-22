@@ -411,6 +411,10 @@ model User {
   romanceDropsShown   RomanceDrop[]            @relation("RomanceDropsShown")
   duosAsA             Duo[]                    @relation("DuoAsA")
   duosAsB             Duo[]                    @relation("DuoAsB")
+  pushSubs            PushSubscription[]
+  notifSettings       NotificationSettings?
+  channelPrefs        ChannelPreference[]
+  deliveries          NotificationDelivery[]
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -1243,11 +1247,17 @@ model Notification {
   // Notifications that stand for several events ("12 people gave Props to X") share a key within a time window; the row is updated, not repeated (src/lib/notifications.ts).
   coalesceKey String?
   count       Int              @default(1)
+  // When the delivery pipeline looked at it to decide what leaves the app (email, push: src/lib/notify). Null until then; every writer of a notification is covered
+  // by the sweep that sets it, so none of them has to know about delivery. Notifications from before delivery existed were stamped when it was introduced.
+  sweptAt     DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
 
   @@unique([userId, coalesceKey])
   @@index([userId, isRead])
+  // The sweep: notifications not yet looked at, oldest first.
+  @@index([sweptAt, createdAt])
 }
 
 // Which kinds of notification a person has switched off (src/lib/notifications.ts). No row means the kind is on; a row says what they chose.
@@ -2495,4 +2505,122 @@ model ConsentRecord {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type, grantedAt])
+}
+
+// --- Notification delivery (src/lib/notify, docs/NOTIFICATIONS.md) ---------------------------------------------------------
+
+enum DeliveryChannel {
+  EMAIL
+  PUSH
+}
+
+enum DeliveryStatus {
+  // Held until sendAfter: quiet hours, or a failed attempt that is worth another.
+  DEFERRED
+  SENT
+  // Not sent, on purpose: `reason` says why (a rate limit, a duplicate, an address that bounced, no consent).
+  SKIPPED
+  // Not sent, and will not be: the provider refused it.
+  FAILED
+}
+
+// A browser that agreed to receive web push (POST /api/notifications/push/subscriptions). The endpoint is the push service's address for that browser; p256dh and auth
+// are the keys the payload is encrypted to, so they are secrets and are never returned or exported.
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique @db.Text
+  p256dh     String
+  auth       String
+  // A short label for the device in settings ("Chrome on macOS"), from the User-Agent when it was registered.
+  label      String?
+  failures   Int       @default(0)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// How a person wants to be reached, apart from which kinds (ChannelPreference). One row per person, made by the first change. Everything defaults to on:
+// the rows that say otherwise are what people chose.
+model NotificationSettings {
+  userId             String    @id
+  // The global switches. Switching email off is also what "unsubscribe from all" does; only account and safety notices still come (src/lib/notify/policy.ts).
+  emailEnabled       Boolean   @default(true)
+  pushEnabled        Boolean   @default(true)
+  // Quiet hours in the person's own time zone: nothing is pushed or mailed then (except account and safety notices), it waits until they end.
+  quietEnabled       Boolean   @default(true)
+  // Minutes after local midnight: 1320 is 22:00, 480 is 08:00.
+  quietStart         Int       @default(1320)
+  quietEnd           Int       @default(480)
+  dailyDigest        Boolean   @default(true)
+  weeklyDigest       Boolean   @default(true)
+  // When the last digest of each kind was sent: the marker that makes a digest once a local day or week.
+  lastDailyDigestAt  DateTime?
+  lastWeeklyDigestAt DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// A person's choice for one kind on one channel, where it differs from the kind's default (src/lib/notify/policy.ts). No row: the default.
+model ChannelPreference {
+  id        String          @id @default(cuid())
+  userId    String
+  kind      String
+  channel   DeliveryChannel
+  enabled   Boolean
+  updatedAt DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, channel])
+}
+
+// What the pipeline did with one notification (or digest) on one channel. The unique key is what makes a retry or a repeated sweep harmless, and the rows are what the
+// rate limits count and the metrics read (docs/METRICS.md). `openedAt` is the click-through: a tap on the push or a click on a link in the email.
+model NotificationDelivery {
+  id             String          @id @default(cuid())
+  userId         String
+  // Null for a digest.
+  notificationId String?
+  // The delivery kind (src/lib/notify/policy.ts): a notification kind, or DIGEST_DAILY / DIGEST_WEEKLY.
+  kind           String
+  channel        DeliveryChannel
+  status         DeliveryStatus
+  reason         String?
+  // What this delivery is of: the notification's coalescing key or id, or the digest's period. Unique per person and channel.
+  dedupeKey      String
+  // The email provider's id of the message, which its bounce and complaint events refer to.
+  providerId     String?
+  attempts       Int             @default(0)
+  sendAfter      DateTime?
+  sentAt         DateTime?
+  openedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, channel, dedupeKey])
+  // Held deliveries that are due.
+  @@index([status, sendAfter])
+  // The rate limits: what was sent to this person on this channel lately.
+  @@index([userId, channel, sentAt])
+  @@index([providerId])
+  // Retention and the open-rate metrics.
+  @@index([createdAt])
+}
+
+// An address mail to which bounced or was complained about (POST /api/webhooks/email). Mail is never sent to it again. Kept by address, not by person: an account that
+// is deleted and a new one made on the same address must not start mailing a dead mailbox or somebody who reported us. Lower-cased.
+model EmailSuppression {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  // BOUNCE (the mailbox does not exist, or refuses us for good) or COMPLAINT (the person marked a message as spam).
+  reason    String
+  createdAt DateTime @default(now())
 }
