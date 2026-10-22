@@ -37,7 +37,8 @@ describe('profile settings: time zone, place and privacy', () => {
     expect(res.status).toBe(200)
     expect(res.data).toEqual({ timezone: 'Asia/Kolkata', countryCode: 'IN', city: 'Bengaluru', campus: 'IISc Bangalore', hideFromLeaderboards: true, showActivity: false, birthDate: null })
 
-    expect(await testPrisma.profile.findUnique({ where: { userId: u.userId } })).toMatchObject({ countryCode: 'IN', cityKey: 'bengaluru', campusKey: 'iisc-bangalore' })
+    // The campus text is only text to show: the key that puts a person on a campus board and in a campus feed comes from verifying a campus e-mail address.
+    expect(await testPrisma.profile.findUnique({ where: { userId: u.userId } })).toMatchObject({ countryCode: 'IN', cityKey: 'bengaluru', campus: 'IISc Bangalore', campusKey: null })
     expect((await testPrisma.user.findUniqueOrThrow({ where: { id: u.userId } })).timezone).toBe('Asia/Kolkata')
     expect((await req(u.jar, 'GET', '/api/users/me/profile')).data).toEqual(res.data)
   })

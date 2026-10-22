@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { req, registerAndLogin, reconcileLeaderboards, uniqueSuffix, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
+import { joinCampus, removeCampuses } from './campus-fixtures'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -10,7 +11,10 @@ describe('leaderboards v2', () => {
   const suffix = uniqueSuffix().toLowerCase()
   let n = 0
   let operator: TestUser
-  afterAll(() => cleanupTestUsers(suffix), 300_000)
+  afterAll(async () => {
+    await cleanupTestUsers(suffix)
+    await removeCampuses([`campus-${suffix}-a`, `first-${suffix}`, `second-${suffix}`, `shared-${suffix}`, `typed-${suffix}`])
+  }, 300_000)
   beforeAll(async () => {
     const name = `lbop${suffix}`
     operator = await registerAndLogin(`${name}@test.dev`, name)
@@ -254,8 +258,13 @@ describe('leaderboards v2', () => {
       expect(none.status).toBe(400)
       expect(none.data.error.details.scopeId[0]).toMatch(/campus/)
 
-      expect((await req(u.jar, 'PATCH', '/api/users/me/profile', { campus, countryCode: 'IN', city: `Pune ${suffix}` })).status).toBe(200)
-      await eventually(async () => ids(await board(u, '?scope=campus')).includes(u.userId), 'the person to appear on their campus board')
+      // Typing a campus is not enough to be on its board: a campus is verified (campus-fixtures.ts joins one the way verifying an e-mail address leaves a person).
+      expect((await req(u.jar, 'PATCH', '/api/users/me/profile', { campus: `Typed ${suffix}`, countryCode: 'IN', city: `Pune ${suffix}` })).status).toBe(200)
+      await eventually(async () => ids(await board(u, '?scope=city')).includes(u.userId), 'the person to appear on their city board')
+      expect((await board(u, '?scope=campus')).status).toBe(400)
+      expect(ids(await board(other, `?scope=campus&scopeId=typed-${suffix}`))).toEqual([])
+      await joinCampus(u.userId, campus)
+      await rebuild()
       const campusBoard = await board(u, '?scope=campus')
       expect(campusBoard.data.scope).toEqual({ type: 'campus', id: `campus-${suffix}-a` })
       expect(campusBoard.data.me).toMatchObject({ rank: 1, score: 75 })
@@ -286,18 +295,23 @@ describe('leaderboards v2', () => {
     it('moves a person off the old board and onto the new one when they change campus', async () => {
       const u = await user()
       await req(u.jar, 'POST', '/api/projects', { name: `Move ${suffix}${n++}` })
-      await req(u.jar, 'PATCH', '/api/users/me/profile', { campus: `First ${suffix}` })
-      await eventually(async () => ids(await board(u, `?scope=campus&scopeId=first-${suffix}`)).includes(u.userId), 'to appear on the first campus')
-      await req(u.jar, 'PATCH', '/api/users/me/profile', { campus: `Second ${suffix}` })
-      await eventually(async () => ids(await board(u, `?scope=campus&scopeId=second-${suffix}`)).includes(u.userId), 'to appear on the second campus')
+      await joinCampus(u.userId, `First ${suffix}`)
+      await rebuild()
+      expect(ids(await board(u, `?scope=campus&scopeId=first-${suffix}`))).toContain(u.userId)
+      // Leaving is the real route, which tells the boards where the person was so the old one is cleared.
+      expect((await req(u.jar, 'DELETE', '/api/campus/me')).status).toBe(200)
       await eventually(async () => !ids(await board(u, `?scope=campus&scopeId=first-${suffix}`)).includes(u.userId), 'to leave the first campus')
+      await joinCampus(u.userId, `Second ${suffix}`)
+      await rebuild()
+      expect(ids(await board(u, `?scope=campus&scopeId=second-${suffix}`))).toContain(u.userId)
+      expect(ids(await board(u, `?scope=campus&scopeId=first-${suffix}`))).not.toContain(u.userId)
     })
 
     it('gives a campus board the people of that campus only', async () => {
       const members = [await user(), await user()]
       const outsider = await user()
       for (const [index, member] of members.entries()) {
-        await req(member.jar, 'PATCH', '/api/users/me/profile', { campus: `Shared ${suffix}` })
+        await joinCampus(member.userId, `Shared ${suffix}`)
         await logXp(member.userId, 60_000_000 + index)
       }
       await logXp(outsider.userId, 99_000_000)
