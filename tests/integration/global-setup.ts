@@ -82,6 +82,10 @@ export default async function setup() {
   const webhookSecret = `whsec_${randomBytes(32).toString('base64')}`
   process.env.TEST_CLERK_REGISTRY = registry
   process.env.TEST_CLERK_WEBHOOK_SECRET = webhookSecret
+  // The same for the email provider's webhook, and the key the links in emails are signed with (the tests sign and read links with it too).
+  const resendWebhookSecret = `whsec_${randomBytes(32).toString('base64')}`
+  process.env.TEST_RESEND_WEBHOOK_SECRET = resendWebhookSecret
+  process.env.NOTIFICATION_SIGNING_SECRET = randomBytes(32).toString('hex')
 
   // Fail loudly if something already answers on the port. Otherwise the
   // readiness check below would happily succeed against someone else's server
@@ -123,7 +127,7 @@ export default async function setup() {
   //                   suite's parallel load it can drop connections and serve 500s from inside Next itself.
   // TEST_SKIP_BUILD=1 reuses the last production build (only safe when nothing under src/ changed since).
   const mode = readServerMode()
-  const baseEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
+  const baseEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, RESEND_WEBHOOK_SECRET: resendWebhookSecret, NOTIFICATION_SIGNING_SECRET: process.env.NOTIFICATION_SIGNING_SECRET, APP_URL: INTEGRATION_BASE_URL, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
 
   // TEST_SERVER_LOG=<file> keeps the server's output, for diagnosing a failing run.
   const logPath = process.env.TEST_SERVER_LOG
