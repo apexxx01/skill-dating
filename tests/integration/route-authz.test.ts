@@ -8,7 +8,7 @@ import { MAX_BODY_BYTES } from '../../src/lib/api/limits'
 
 // The authorization audit against the running server (the static half is src/lib/api/route-audit.test.ts): every API route, found from the file system,
 // refuses an anonymous caller unless it is on the public allowlist, and every admin route refuses a signed-in person who is not staff.
-const routes = auditAllRoutes().map((r) => ({ method: r.method, path: r.path.replace(/\[\[?\.\.\.[^\]]+\]?\]/g, 'x/y').replace(/\[[^\]]+\]/g, 'x') }))
+const routes = auditAllRoutes().map((r) => ({ method: r.method, template: r.path, path: r.path.replace(/\[\[?\.\.\.[^\]]+\]?\]/g, 'x/y').replace(/\[[^\]]+\]/g, 'x') }))
 
 async function call(method: string, path: string, token?: string, body = '{}') {
   const headers: Record<string, string> = { 'x-forwarded-for': syntheticIp(), 'content-type': 'application/json' }
@@ -31,7 +31,7 @@ describe('route authorization', () => {
   it('refuses an anonymous caller on every route but the public allowlist', async () => {
     const open: string[] = []
     for (const route of routes) {
-      if (PUBLIC_ROUTES.has(route.path)) continue
+      if (PUBLIC_ROUTES.has(route.template)) continue
       const res = await call(route.method, route.path)
       if (res.status !== 401) open.push(`${route.method} ${route.path} -> ${res.status}`)
     }

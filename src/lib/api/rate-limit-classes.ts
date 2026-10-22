@@ -19,8 +19,17 @@ export const RATE_LIMIT_CEILINGS: Record<Exclude<RouteClass, 'PUBLIC'>, number> 
   TOGGLE: 120,
 }
 
-/** Answer anybody: authenticated by request signature (the Clerk webhook, Inngest) or public by design (health, the session probe). */
-export const PUBLIC_ROUTES = new Set(['/api/auth/session', '/api/health', '/api/inngest', '/api/webhooks/clerk'])
+/** Answer anybody: authenticated by request signature (the webhooks, Inngest, the signed links in emails) or public by design (health, the session probe). */
+export const PUBLIC_ROUTES = new Set([
+  '/api/auth/session',
+  '/api/health',
+  '/api/inngest',
+  '/api/webhooks/clerk',
+  // Reach and retention (docs/NOTIFICATIONS.md). The email provider's bounces, signed; the links in emails, signed.
+  '/api/webhooks/email',
+  '/api/notifications/unsubscribe',
+  '/api/notifications/open/[token]',
+])
 
 /** Lists and searches over many people or things: the most expensive reads, and what a scraper would use. */
 export const SEARCH_ROUTES = new Set(['/api/users', '/api/discover', '/api/projects', '/api/teams', '/api/builds', '/api/hackathons', '/api/leaderboard'])

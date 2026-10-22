@@ -22,7 +22,15 @@ describe('route audit', () => {
   })
 
   it('keeps the public allowlist exactly as small as it is documented', () => {
-    expect([...PUBLIC_ROUTES].sort()).toEqual(['/api/auth/session', '/api/health', '/api/inngest', '/api/webhooks/clerk'])
+    expect([...PUBLIC_ROUTES].sort()).toEqual([
+      '/api/auth/session',
+      '/api/health',
+      '/api/inngest',
+      '/api/notifications/open/[token]',
+      '/api/notifications/unsubscribe',
+      '/api/webhooks/clerk',
+      '/api/webhooks/email',
+    ])
   })
 
   it('requires a staff role on every admin route', () => {

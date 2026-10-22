@@ -252,6 +252,13 @@ export const ERROR_CATALOG = {
   MEDIA_SCANNING_UNAVAILABLE: { status: 503, message: 'Photo uploads are not available right now' },
   MESSAGING_NOT_ALLOWED: { status: 403, message: 'This person does not accept messages from you' },
   ROMANCE_PROFILE_HIDDEN: { status: 409, message: 'Your profile was hidden by a moderator and cannot be shown until they review it' },
+
+  // --- Reach and retention (docs/NOTIFICATIONS.md) -----------------------------
+  PUSH_ENDPOINT_NOT_ALLOWED: { status: 400, message: 'This push endpoint is not accepted' },
+  PUSH_DEVICE_LIMIT: { status: 409, message: 'You can register at most {max} devices for push. Remove one first' },
+  PUSH_DEVICE_NOT_FOUND: { status: 404, message: 'Push device not found' },
+  DELIVERY_NOT_FOUND: { status: 404, message: 'Notification delivery not found' },
+  UNSUBSCRIBE_LINK_INVALID: { status: 400, message: 'This unsubscribe link is not valid' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

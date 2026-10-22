@@ -1284,6 +1284,11 @@ and a unit test fails if a code is missing here.
 | `MEDIA_SCANNING_UNAVAILABLE` | 503 | Photo uploads are not available right now |
 | `MESSAGING_NOT_ALLOWED` | 403 | This person does not accept messages from you |
 | `ROMANCE_PROFILE_HIDDEN` | 409 | Your profile was hidden by a moderator and cannot be shown until they review it |
+| `PUSH_ENDPOINT_NOT_ALLOWED` | 400 | This push endpoint is not accepted |
+| `PUSH_DEVICE_LIMIT` | 409 | You can register at most {max} devices for push. Remove one first |
+| `PUSH_DEVICE_NOT_FOUND` | 404 | Push device not found |
+| `DELIVERY_NOT_FOUND` | 404 | Notification delivery not found |
+| `UNSUBSCRIBE_LINK_INVALID` | 400 | This unsubscribe link is not valid |
 
 ---
 

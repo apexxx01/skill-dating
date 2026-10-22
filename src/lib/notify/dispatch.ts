@@ -1,10 +1,10 @@
 import { Prisma, type DeliveryChannel, type Notification, type NotificationDelivery, type PrismaClient, type PushSubscription } from '@prisma/client'
-import { env } from '@/lib/env'
 import { EmailSendError, getEmail, type EmailSender } from '@/lib/infra/email'
 import { getPush, type PushSender } from '@/lib/infra/push'
 import { log } from '@/lib/log'
 import { isKilled } from '@/lib/ops/kill-switches'
 import { utcTimestamp } from '@/lib/sql'
+import { appBaseUrl } from './base-url'
 import { decideDelivery, RECORDED_SKIPS, type DeliveryFacts, type DeliverySettings, type RecentSend } from './decide'
 import { deliveryKindOf, isDeliveryKind, POLICY, RELEASE_INDIVIDUALLY, type DeliveryKind } from './policy'
 import { hasMarketingConsent, isSuppressed, loadChannelChoices, loadSettings, choiceKey } from './settings'
@@ -29,10 +29,8 @@ export interface DispatchDeps {
   now?: Date
 }
 
-export const DEV_BASE_URL = 'http://localhost:3000'
-
 export function defaultDeps(): DispatchDeps {
-  return { email: getEmail(), push: getPush(), baseUrl: (env.APP_URL ?? DEV_BASE_URL).replace(/\/+$/, '') }
+  return { email: getEmail(), push: getPush(), baseUrl: appBaseUrl() }
 }
 
 const CHANNELS: DeliveryChannel[] = ['EMAIL', 'PUSH']
