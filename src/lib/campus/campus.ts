@@ -197,6 +197,12 @@ export async function leaveCampus(db: PrismaClient, userId: string): Promise<{ l
   return { left: membership !== null, previous }
 }
 
+/** Whether the person may join a campus at all: an adult. A minor, and an account that has not said how old it is, share a country and nothing finer. */
+export async function canJoinCampus(db: Pick<PrismaClient, 'user'>, userId: string, now: Date = new Date()): Promise<boolean> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { birthDate: true, deletedAt: true } })
+  return Boolean(user && !user.deletedAt && user.birthDate !== null && !isMinor(user.birthDate, now))
+}
+
 /** Erases the addresses of verifications that expired or were left: the address lives only as long as its code does. */
 export async function sweepVerifications(db: Pick<PrismaClient, 'campusVerification'>, now: Date = new Date()): Promise<number> {
   const removed = await db.campusVerification.deleteMany({ where: { expiresAt: { lt: new Date(now.getTime() - 60 * MINUTE_MS) } } })
