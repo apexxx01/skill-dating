@@ -87,8 +87,33 @@ const envSchema = z.object({
     POSTHOG_KEY: z.string().min(1).optional(),
     POSTHOG_HOST: z.string().url('must be a URL').default('https://us.i.posthog.com'),
 
-    // Error reporting (src/lib/log.ts). Without a DSN errors are only logged.
+    // Error reporting (the Sentry SDK, sentry.*.config.ts and src/lib/log.ts). Without a DSN errors are only logged.
     SENTRY_DSN: z.string().url('must be a URL').optional(),
+    // The share of requests that are traced, 0 to 1. Low on purpose: errors are always reported, traces are sampled.
+    SENTRY_TRACES_SAMPLE_RATE: z.coerce.number({ invalid_type_error: 'must be a number' }).min(0, 'must be between 0 and 1').max(1, 'must be between 0 and 1').default(0.05),
+    // Names the release errors belong to. Defaults to the commit Vercel built (VERCEL_GIT_COMMIT_SHA).
+    SENTRY_RELEASE: z.string().min(1).max(200).optional(),
+    VERCEL_GIT_COMMIT_SHA: z.string().min(1).optional(),
+
+    // The address the app is served at, without a trailing slash (https://app.example.com). Used for the absolute links in emails and share cards.
+    APP_URL: z.string().url('must be a URL').optional(),
+
+    // Email (src/lib/infra/email.ts). With a Resend key and a sender address, notifications and digests are sent by email; without them an in-memory
+    // outbox keeps what would have been sent (development and tests). EMAIL_FROM is "Name <address@domain>" or a bare address on a domain verified in Resend.
+    RESEND_API_KEY: z.string().startsWith('re_', 'must start with re_').optional(),
+    EMAIL_FROM: z.string().min(3).max(200).optional(),
+    // The signing secret of the endpoint created in Resend for /api/webhooks/email (bounces and complaints). Without it the webhook answers 503.
+    RESEND_WEBHOOK_SECRET: z.string().startsWith('whsec_', 'must start with whsec_').optional(),
+
+    // Web push (src/lib/infra/push.ts): a VAPID key pair (npx web-push generate-vapid-keys) and a contact, "mailto:ops@example.com" or an https URL.
+    // Without them an in-memory stand-in records what would have been sent.
+    VAPID_PUBLIC_KEY: z.string().min(40).max(200).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(20).max(200).optional(),
+    VAPID_SUBJECT: z.string().regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/, 'must be mailto:address or an https URL').optional(),
+
+    // Signs the links in emails (one-click unsubscribe). 32 or more random characters. Without it the key is derived from CLERK_SECRET_KEY, which is
+    // fine until that key is rotated: links in mail already sent stop working then, so set this explicitly where the mail is real.
+    NOTIFICATION_SIGNING_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
 
     // Minimum level written by the structured logger.
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
@@ -119,6 +144,11 @@ const CREDENTIAL_PAIRS: [Setting, Setting][] = [
   ['STORAGE_ENDPOINT', 'STORAGE_ACCESS_KEY_ID'],
   ['STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'],
   ['MEDIA_MODERATION_URL', 'MEDIA_MODERATION_TOKEN'],
+  // Email needs a sender and the address of the app (for the links in it); web push needs the whole VAPID identity.
+  ['RESEND_API_KEY', 'EMAIL_FROM'],
+  ['RESEND_API_KEY', 'APP_URL'],
+  ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'],
+  ['VAPID_PUBLIC_KEY', 'VAPID_SUBJECT'],
 ]
 
 // Services the in-memory stand-ins replace when they are not configured. Each

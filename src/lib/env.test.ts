@@ -280,3 +280,33 @@ describe('object storage settings', () => {
     expect(found).not.toContain('secret')
   })
 })
+
+describe('email, web push and error reporting settings', () => {
+  const email = { RESEND_API_KEY: 're_abc', EMAIL_FROM: 'App <hi@example.com>', APP_URL: 'https://app.example.com' }
+  const vapid = { VAPID_PUBLIC_KEY: 'B'.repeat(87), VAPID_PRIVATE_KEY: 'k'.repeat(43), VAPID_SUBJECT: 'mailto:ops@example.com' }
+
+  it('are all optional, in production too: without them mail is kept in memory and push is a stand-in', () => {
+    const env = parseEnv(production)
+    expect(env.RESEND_API_KEY).toBeUndefined()
+    expect(env.VAPID_PUBLIC_KEY).toBeUndefined()
+    expect(env.SENTRY_TRACES_SAMPLE_RATE).toBe(0.05)
+  })
+
+  it('need the sender and the app address with the Resend key', () => {
+    expect(() => parseEnv({ ...base, ...email })).not.toThrow()
+    expect(problems({ ...base, RESEND_API_KEY: 're_abc' })).toEqual(expect.arrayContaining(['EMAIL_FROM: is required when RESEND_API_KEY is set', 'APP_URL: is required when RESEND_API_KEY is set']))
+    expect(problems({ ...base, RESEND_API_KEY: 'abc', EMAIL_FROM: 'a@b.co', APP_URL: 'https://a.example' })).toEqual(['RESEND_API_KEY: must start with re_'])
+  })
+
+  it('need the whole VAPID identity, with a contact that is a mailto: or https address', () => {
+    expect(() => parseEnv({ ...base, ...vapid })).not.toThrow()
+    expect(problems({ ...base, VAPID_PUBLIC_KEY: vapid.VAPID_PUBLIC_KEY })).toEqual(expect.arrayContaining(['VAPID_PRIVATE_KEY: is required when VAPID_PUBLIC_KEY is set', 'VAPID_SUBJECT: is required when VAPID_PUBLIC_KEY is set']))
+    expect(problems({ ...base, ...vapid, VAPID_SUBJECT: 'ops@example.com' })).toEqual(['VAPID_SUBJECT: must be mailto:address or an https URL'])
+  })
+
+  it('keep the trace sample rate between 0 and 1, and the signing secret long', () => {
+    expect(parseEnv({ ...base, SENTRY_TRACES_SAMPLE_RATE: '0.25' }).SENTRY_TRACES_SAMPLE_RATE).toBe(0.25)
+    expect(problems({ ...base, SENTRY_TRACES_SAMPLE_RATE: '2' })).toEqual(['SENTRY_TRACES_SAMPLE_RATE: must be between 0 and 1'])
+    expect(problems({ ...base, NOTIFICATION_SIGNING_SECRET: 'short' })).toEqual(['NOTIFICATION_SIGNING_SECRET: must be at least 32 characters'])
+  })
+})
