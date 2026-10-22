@@ -6,7 +6,8 @@ import { isDeliveryKind, type DeliveryKind } from './policy'
 // secret does and cannot be forged or changed. Two purposes, never interchangeable (the purpose is part of what is signed):
 //   unsubscribe  who, and which kind (or ALL). Never expires: a link in an old email has to keep working (CAN-SPAM asks 30 days at least, and a person digging an old
 //                mail out of the archive is the one who most needs it).
-//   open         which delivery. The click-through that measures email opens, and sends the person on to the notification's link.
+//   open         which delivery, and where to send the person (a path inside the app, decided when the email was made). The click-through that measures email opens;
+//                since the destination is signed, it cannot be turned into a redirect to somewhere else.
 
 export type TokenPurpose = 'unsubscribe' | 'open'
 
@@ -58,8 +59,18 @@ export function readUnsubscribeToken(token: string, secret?: string): Unsubscrib
   return { userId: payload.u, kind: payload.k as UnsubscribeScope['kind'] }
 }
 
-export const openToken = (deliveryId: string, secret?: string) => signToken('open', { d: deliveryId }, secret)
+export const openToken = (deliveryId: string, path: string, secret?: string) => signToken('open', { d: deliveryId, p: path }, secret)
 
-export function readOpenToken(token: string, secret?: string): string | null {
-  return verifyToken('open', token, secret)?.d ?? null
+export interface OpenTarget {
+  deliveryId: string
+  /** A path inside the app, starting with a single slash. */
+  path: string
+}
+
+export function readOpenToken(token: string, secret?: string): OpenTarget | null {
+  const payload = verifyToken('open', token, secret)
+  if (!payload?.d || !payload.p) return null
+  // Only a path in this app: a signed value is trusted, but never to send anyone to another site.
+  if (!payload.p.startsWith('/') || payload.p.startsWith('//') || payload.p.includes('\\')) return null
+  return { deliveryId: payload.d, path: payload.p }
 }

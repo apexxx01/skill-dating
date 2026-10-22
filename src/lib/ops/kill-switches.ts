@@ -15,6 +15,7 @@ export const KILL_SWITCHES = {
   posting: { flag: 'kill.posting', code: 'POSTING_PAUSED', owner: 'Trust & Safety lead' },
   external_hackathons: { flag: 'kill.external-hackathons', code: 'EXTERNAL_HACKATHONS_PAUSED', owner: 'Squads product owner' },
   squad_autoform: { flag: 'kill.squad-autoform', code: null, owner: 'Squads product owner' },
+  notification_delivery: { flag: 'kill.notification-delivery', code: null, owner: 'Engineering on-call' },
 } as const satisfies Record<string, { flag: string; code: ErrorCode | null; owner: string }>
 
 export type KillSwitch = keyof typeof KILL_SWITCHES

@@ -14,6 +14,8 @@ export interface PushPayload {
   url: string
   /** Notifications with the same tag replace each other on the device. */
   tag?: string
+  /** The delivery this push is, so a tap can be reported back (POST /api/notifications/deliveries/{id}/open) for the open rate. */
+  deliveryId?: string
 }
 
 export interface PushOptions {

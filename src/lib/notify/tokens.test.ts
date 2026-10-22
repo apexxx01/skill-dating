@@ -10,8 +10,12 @@ describe('signed links', () => {
     expect(readUnsubscribeToken(unsubscribeToken({ userId: 'u1', kind: 'ALL' }, secret), secret)).toEqual({ userId: 'u1', kind: 'ALL' })
   })
 
-  it('round-trips a delivery id', () => {
-    expect(readOpenToken(openToken('del_1', secret), secret)).toBe('del_1')
+  it('round-trips a delivery and where it goes', () => {
+    expect(readOpenToken(openToken('del_1', '/drops', secret), secret)).toEqual({ deliveryId: 'del_1', path: '/drops' })
+  })
+
+  it('never sends anyone outside the app, even with a genuine signature', () => {
+    for (const path of ['https://evil.example.com', '//evil.example.com', 'drops', '/\\evil.example.com']) expect(readOpenToken(openToken('del_1', path, secret), secret), path).toBeNull()
   })
 
   it('refuses a token signed with another secret or changed after it was signed', () => {
@@ -25,7 +29,7 @@ describe('signed links', () => {
 
   it('does not let a token of one purpose stand in for another', () => {
     expect(readOpenToken(unsubscribeToken({ userId: 'u1', kind: 'ALL' }, secret), secret)).toBeNull()
-    expect(readUnsubscribeToken(openToken('del_1', secret), secret)).toBeNull()
+    expect(readUnsubscribeToken(openToken('del_1', '/drops', secret), secret)).toBeNull()
     expect(verifyToken('open', signToken('unsubscribe', { d: 'del_1' }, secret), secret)).toBeNull()
   })
 

@@ -228,6 +228,32 @@ export const jobs = {
     concurrency: 1,
     handler: async () => (await import('@/lib/privacy/retention')).runRetentionJob(),
   }),
+  // Decides what leaves the app for the notifications written since the last run, and sends it: email and web push, per kind and per person, with quiet hours, limits
+  // and de-duplication (src/lib/notify/dispatch.ts). Also sends what was held for quiet hours or a retry. Every few minutes; safe to repeat and to run twice at once.
+  'notifications/deliver': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '*/3 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/notify/dispatch')).runDeliveryJob(),
+  }),
+  // The daily digest email, once a local day an hour after each person's drop time, skipped when there is nothing worth sending (src/lib/notify/digest.ts). Hourly. A big
+  // population is taken in batches of 500 that continue themselves (`after`).
+  'digests/daily': defineJob({
+    schema: z.object({ after: z.string().min(1).max(64).optional() }).default({}),
+    schedule: '10 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async ({ data }) => (await import('@/lib/notify/digest')).runDigestJob('DIGEST_DAILY', data),
+  }),
+  // The weekly digest email, Monday from 09:00 local, with the Ship Day recap, the streak and the season standing (src/lib/notify/digest.ts). Hourly, like the daily one.
+  'digests/weekly': defineJob({
+    schema: z.object({ after: z.string().min(1).max(64).optional() }).default({}),
+    schedule: '20 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async ({ data }) => (await import('@/lib/notify/digest')).runDigestJob('DIGEST_WEEKLY', data),
+  }),
   // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
   'media/scan': defineJob({
     schema: z.object({ assetId: z.string().min(1).max(64) }),
