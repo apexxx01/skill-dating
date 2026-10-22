@@ -259,6 +259,7 @@ export const ERROR_CATALOG = {
   PUSH_DEVICE_NOT_FOUND: { status: 404, message: 'Push device not found' },
   DELIVERY_NOT_FOUND: { status: 404, message: 'Notification delivery not found' },
   UNSUBSCRIBE_LINK_INVALID: { status: 400, message: 'This unsubscribe link is not valid' },
+  CARD_NOT_FOUND: { status: 404, message: 'This share card does not exist' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

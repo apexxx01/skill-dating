@@ -28,6 +28,10 @@ describe('route audit', () => {
       '/api/inngest',
       '/api/notifications/open/[token]',
       '/api/notifications/unsubscribe',
+      '/api/og/achievement/[slug]',
+      '/api/og/passport/[username]',
+      '/api/og/post/[id]',
+      '/api/og/squad/[id]',
       '/api/webhooks/clerk',
       '/api/webhooks/email',
     ])

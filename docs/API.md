@@ -1336,6 +1336,7 @@ and a unit test fails if a code is missing here.
 | `PUSH_DEVICE_NOT_FOUND` | 404 | Push device not found |
 | `DELIVERY_NOT_FOUND` | 404 | Notification delivery not found |
 | `UNSUBSCRIBE_LINK_INVALID` | 400 | This unsubscribe link is not valid |
+| `CARD_NOT_FOUND` | 404 | This share card does not exist |
 
 ---
 

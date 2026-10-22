@@ -29,6 +29,11 @@ export const PUBLIC_ROUTES = new Set([
   '/api/webhooks/email',
   '/api/notifications/unsubscribe',
   '/api/notifications/open/[token]',
+  // Share cards: public images, rate limited by address and cached.
+  '/api/og/passport/[username]',
+  '/api/og/post/[id]',
+  '/api/og/squad/[id]',
+  '/api/og/achievement/[slug]',
 ])
 
 /** Lists and searches over many people or things: the most expensive reads, and what a scraper would use. */
