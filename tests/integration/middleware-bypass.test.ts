@@ -23,8 +23,20 @@ const BYPASS_HEADERS = [
 const PUBLIC_PAGES = new Set(['/', '/signin', '/signup', '/error'])
 // Answer anonymous callers on purpose; asserted individually below. The webhook
 // and the Inngest route authenticate by request signature instead of a session;
-// the health check answers anyone, and only says which services are up.
-const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest', '/api/health'])
+// the health check answers anyone, and only says which services are up. The email
+// provider's webhook is signed too; the links in emails carry a signed token; the
+// share cards are public images.
+const SIGNED_OR_PUBLIC_API_ROUTES = [
+  { method: 'POST', path: '/api/webhooks/email' },
+  { method: 'GET', path: '/api/notifications/unsubscribe' },
+  { method: 'POST', path: '/api/notifications/unsubscribe' },
+  { method: 'GET', path: '/api/notifications/open/x' },
+  { method: 'GET', path: '/api/og/passport/x' },
+  { method: 'GET', path: '/api/og/post/x' },
+  { method: 'GET', path: '/api/og/squad/x' },
+  { method: 'GET', path: '/api/og/achievement/x' },
+]
+const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest', '/api/health', ...SIGNED_OR_PUBLIC_API_ROUTES.map((route) => route.path)])
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
 function walk(dir: string): string[] {
@@ -196,6 +208,16 @@ describe('x-middleware-subrequest (CVE-2025-29927)', () => {
       for (const bypass of BYPASS_HEADERS) {
         const attempt = await call(method, '/api/inngest', bypass)
         expect(attempt.status, `${method} /api/inngest`).toBe(control.status)
+      }
+    }
+
+    // The signed and public ones answer the same with the header as without it (and are not a way past the session guard, since they hold nothing behind it).
+    for (const { method, path: routePath } of SIGNED_OR_PUBLIC_API_ROUTES) {
+      const control = await call(method, routePath)
+      expect(control.status, `${method} ${routePath}`).not.toBe(500)
+      for (const bypass of BYPASS_HEADERS) {
+        const attempt = await call(method, routePath, bypass)
+        expect(attempt.status, `${method} ${routePath}`).toBe(control.status)
       }
     }
   }, 60_000)
