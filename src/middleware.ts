@@ -54,6 +54,7 @@ function cspFor(request: NextRequest): { nonce: string; policy: string } {
     staticPage: STATIC_PAGES.has(request.nextUrl.pathname),
     clerkFrontendApi: clerkFrontendApi(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY),
     storageOrigins: [originOf(process.env.STORAGE_PUBLIC_BASE_URL), originOf(process.env.STORAGE_ENDPOINT)].filter((o): o is string => o !== null),
+    reportingOrigins: [originOf(process.env.NEXT_PUBLIC_SENTRY_DSN)].filter((o): o is string => o !== null),
     development: process.env.NODE_ENV === 'development',
   })
   return { nonce, policy }

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   createLogger,
-  createSentryReporter,
-  parseSentryDsn,
   redactFields,
   REDACTED,
   requestIdFrom,
@@ -148,35 +146,34 @@ describe('error reporting', () => {
 })
 
 describe('Sentry reporter', () => {
-  it('parses a DSN into the envelope endpoint and key', () => {
-    expect(parseSentryDsn('https://abc123@o1.ingest.sentry.io/4507')).toEqual({
-      endpoint: 'https://o1.ingest.sentry.io/api/4507/envelope/',
-      publicKey: 'abc123',
+  it('hands the error to the SDK with the request id as a tag and the extras redacted, and never throws', async () => {
+    const scope = { setTag: vi.fn(), setExtras: vi.fn() }
+    const sdk = { withScope: vi.fn((callback: (scope: unknown) => void) => callback(scope)), captureException: vi.fn() }
+    vi.doMock('@sentry/nextjs', () => sdk)
+    vi.resetModules()
+    const { createSentryReporter: fresh } = await import('./log')
+    const report = fresh()
+    const error = new TypeError('bad thing')
+    report(error, { requestId: 'req-1', projectId: 'p1', email: 'a@b.dev' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(sdk.captureException).toHaveBeenCalledWith(error)
+    expect(scope.setTag).toHaveBeenCalledWith('requestId', 'req-1')
+    expect(scope.setExtras).toHaveBeenCalledWith({ projectId: 'p1', email: REDACTED })
+
+    // A thing that is not an Error still becomes one, with a message that does not quote the value.
+    report('just a string', {})
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const sent = sdk.captureException.mock.calls[1][0] as Error
+    expect(sent).toBeInstanceOf(Error)
+
+    vi.doMock('@sentry/nextjs', () => {
+      throw new Error('not installed')
     })
-    expect(parseSentryDsn('https://abc@sentry.example.com/relay/9')?.endpoint).toBe('https://sentry.example.com/relay/api/9/envelope/')
-    expect(parseSentryDsn('https://no-key.example.com/1')).toBeNull()
-    expect(createSentryReporter('nonsense')).toBeNull()
-  })
-
-  it('posts an envelope with the error and redacted extras, and never throws on a failed send', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
-    const report = createSentryReporter('https://abc123@o1.ingest.sentry.io/4507', fetchImpl as unknown as typeof fetch, 'test')!
-    report(new TypeError('bad thing'), { requestId: 'req-1', projectId: 'p1', email: 'a@b.dev' })
+    vi.resetModules()
+    const { createSentryReporter: broken } = await import('./log')
+    expect(() => broken()(new Error('x'), {})).not.toThrow()
     await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('https://o1.ingest.sentry.io/api/4507/envelope/')
-    expect(init.headers['X-Sentry-Auth']).toContain('sentry_key=abc123')
-    const [header, itemHeader, event] = (init.body as string).split('\n').map((line) => JSON.parse(line))
-    expect(header.event_id).toMatch(/^[0-9a-f]{32}$/)
-    expect(itemHeader).toEqual({ type: 'event' })
-    expect(event.exception.values[0]).toEqual({ type: 'TypeError', value: 'bad thing' })
-    expect(event.tags).toEqual({ requestId: 'req-1' })
-    expect(event.extra).toEqual({ projectId: 'p1', email: REDACTED })
-
-    const failing = createSentryReporter('https://abc@o1.ingest.sentry.io/1', vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch)!
-    expect(() => failing(new Error('x'), {})).not.toThrow()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    vi.doUnmock('@sentry/nextjs')
   })
 })

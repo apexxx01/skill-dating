@@ -34,6 +34,13 @@ describe('pageCsp', () => {
     expect(directive(policy, 'default-src')).toBe("default-src 'self'")
   })
 
+  it('lets the browser send error reports to the Sentry host when reporting is on, and only then', () => {
+    expect(directive(pageCsp(base), 'connect-src')).not.toContain('sentry')
+    const policy = pageCsp({ ...base, reportingOrigins: ['https://o1.ingest.sentry.io'] })
+    expect(directive(policy, 'connect-src')).toContain('https://o1.ingest.sentry.io')
+    expect(directive(policy, 'script-src')).not.toContain('sentry')
+  })
+
   it('lets prerendered pages run their inline scripts without a nonce, and nothing else changes', () => {
     const policy = pageCsp({ ...base, staticPage: true })
     expect(directive(policy, 'script-src')).toContain("'unsafe-inline'")

@@ -5,8 +5,8 @@
 // static HTML (STATIC_PAGES, read from the build) cannot carry a per-request nonce, so for them scripts are allowed from this origin and inline instead,
 // with every other directive just as tight. Moving those pages to dynamic rendering lets them use the nonce policy too (an open item in SECURITY.md).
 //
-// Everything else names exactly what the product loads: Clerk (its Frontend API, images and Cloudflare's bot check), Ably (realtime), and the storage
-// bucket (uploads go straight to it; post media and avatars are served from it).
+// Everything else names exactly what the product loads: Clerk (its Frontend API, images and Cloudflare's bot check), Ably (realtime), the storage
+// bucket (uploads go straight to it; post media and avatars are served from it), and, when error reporting is on, the Sentry host the browser sends reports to.
 
 export const STATIC_PAGES = new Set(['/', '/error', '/onboarding', '/_not-found'])
 
@@ -41,12 +41,15 @@ export interface CspInput {
   clerkFrontendApi: string | null
   /** The bucket's origins: its public base URL and its endpoint (presigned uploads, signed reads). */
   storageOrigins: string[]
+  /** Where the browser may send error reports (the Sentry host in the DSN), if reporting is on. */
+  reportingOrigins?: string[]
   development: boolean
 }
 
 export function pageCsp(input: CspInput): string {
   const clerk = input.clerkFrontendApi ? [input.clerkFrontendApi] : []
   const storage = [...new Set(input.storageOrigins)]
+  const reporting = [...new Set(input.reportingOrigins ?? [])]
   const scripts = input.staticPage
     ? ["'self'", "'unsafe-inline'", ...clerk, CLERK_STATIC.challenges]
     : ["'self'", `'nonce-${input.nonce}'`, "'strict-dynamic'", ...clerk, CLERK_STATIC.challenges]
@@ -58,7 +61,7 @@ export function pageCsp(input: CspInput): string {
     ['img-src', ["'self'", 'data:', 'blob:', CLERK_STATIC.images, ...storage]],
     ['media-src', ["'self'", 'blob:', ...storage]],
     ['font-src', ["'self'", 'data:']],
-    ['connect-src', ["'self'", ...clerk, ...ABLY, ...storage, ...(input.development ? ['ws:'] : [])]],
+    ['connect-src', ["'self'", ...clerk, ...ABLY, ...storage, ...reporting, ...(input.development ? ['ws:'] : [])]],
     ['frame-src', [...clerk, CLERK_STATIC.challenges]],
     ['worker-src', ["'self'", 'blob:']],
     ['frame-ancestors', ["'none'"]],

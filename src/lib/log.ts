@@ -78,60 +78,28 @@ export type ErrorReporter = (error: unknown, fields: LogFields & { requestId?: s
 let reporter: ErrorReporter | undefined
 let reporterResolved = false
 
-/** Replaces the reporter (tests, or a Sentry SDK later). `undefined` goes back to the default. */
+/** Replaces the reporter (tests). `undefined` goes back to the default. */
 export function setErrorReporter(next: ErrorReporter | undefined) {
   reporter = next
   reporterResolved = next !== undefined
 }
 
-interface ParsedDsn {
-  endpoint: string
-  publicKey: string
-}
-
-export function parseSentryDsn(dsn: string): ParsedDsn | null {
-  try {
-    const url = new URL(dsn)
-    const segments = url.pathname.split('/').filter(Boolean)
-    const projectId = segments.pop()
-    if (!url.username || !projectId) return null
-    const prefix = segments.length ? `/${segments.join('/')}` : ''
-    return { endpoint: `${url.protocol}//${url.host}${prefix}/api/${projectId}/envelope/`, publicKey: url.username }
-  } catch {
-    return null
-  }
-}
-
-/** Reports to Sentry's envelope endpoint over fetch, so no SDK is needed. Never throws. */
-export function createSentryReporter(dsn: string, fetchImpl: typeof fetch = fetch, environment = 'unknown'): ErrorReporter | null {
-  const parsed = parseSentryDsn(dsn)
-  if (!parsed) return null
+/**
+ * Reports an error through the Sentry SDK, which is started by src/instrumentation.ts when SENTRY_DSN is set (so before that, or without a DSN, this does nothing). The SDK is
+ * imported on first use, so a process without a DSN never loads it. The extra fields are redacted by name here and scrubbed again by the SDK's own hooks
+ * (src/lib/observability/scrub.ts). Never throws.
+ */
+export function createSentryReporter(): ErrorReporter {
   return (error, fields) => {
     const { requestId, ...extra } = fields
-    const serialized = serializeError(error)
-    const eventId = randomUUID().replace(/-/g, '')
-    const event = {
-      event_id: eventId,
-      timestamp: Date.now() / 1000,
-      platform: 'node',
-      level: 'error',
-      environment,
-      exception: { values: [{ type: serialized.name, value: serialized.message }] },
-      tags: requestId ? { requestId } : undefined,
-      extra: redactFields(extra),
-    }
-    const body = [JSON.stringify({ event_id: eventId, sent_at: new Date().toISOString() }), JSON.stringify({ type: 'event' }), JSON.stringify(event)].join('\n')
-    void Promise.resolve()
-      .then(() =>
-        fetchImpl(parsed.endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-sentry-envelope',
-            'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${parsed.publicKey}, sentry_client=skill-dating/1`,
-          },
-          body,
+    void import('@sentry/nextjs')
+      .then((Sentry) => {
+        Sentry.withScope((scope) => {
+          if (requestId) scope.setTag('requestId', requestId)
+          scope.setExtras(redactFields(extra))
+          Sentry.captureException(error instanceof Error ? error : new Error(serializeError(error).message))
         })
-      )
+      })
       .catch(() => undefined)
   }
 }
@@ -140,7 +108,7 @@ function activeReporter(): ErrorReporter | undefined {
   if (!reporterResolved) {
     reporterResolved = true
     try {
-      if (env.SENTRY_DSN) reporter = createSentryReporter(env.SENTRY_DSN, fetch, env.VERCEL_ENV ?? env.NODE_ENV) ?? undefined
+      if (env.SENTRY_DSN) reporter = createSentryReporter()
     } catch {
       reporter = undefined
     }
