@@ -874,6 +874,86 @@ unavailable right now".
 the audit log, roles, verification marks, plans and the kill switches (`/api/admin/flags`). Destructive actions answer `403 REAUTH_REQUIRED` when the
 session is old: reverify and retry.
 
+## Reach and retention: notifications, search, share cards, invites
+
+Stage 1G is backend only. This is what the pages and the service worker need to build against. Types are in `src/types/api.ts`; the endpoints in [API.md](API.md).
+
+### Notification settings (`/settings/notifications`)
+
+One page over `GET /api/notifications/channels` (and `PUT`, which answers with the whole picture again):
+
+- **Two global switches** (`settings.emailEnabled`, `settings.pushEnabled`) and **quiet hours** (`settings.quietHours`: `enabled`, `start`, `end` as `"22:00"` local times; they may cross midnight).
+  Say which time zone they follow (the profile's, `GET /api/users/me/profile`).
+- **Per kind, two switches** (`kinds[].email`, `kinds[].push`): `enabled` is what is on now, `default` what it is until the person chooses, `available: false` means the kind is never sent on that channel (hide
+  the switch; the digests are email only). Group them by `class`: `ACTIVITY` (things people did to you or asked of you) and `PROMOTIONAL` (the two digests). Show **account and safety notices as a fixed
+  line** that cannot be switched ("We always tell you about your account and safety by email"): they are not in `kinds`.
+- **Digests** need the marketing consent: when `marketingConsent` is false, show the digest switches as off with the reason and a button that records the consent
+  (`POST /api/users/me/consents { type: "MARKETING", version, source: "settings" }`); `settings.dailyDigest` and `settings.weeklyDigest` are the person's own switches beside it.
+- **Undeliverable mail.** When `email.undeliverable` is true, show a banner: mail to the address bounced or was reported, nothing is sent (not even account notices) until the address changes. When
+  `email.verified` is false, say mail only goes to a verified address.
+- A kind's label is `label`. The romance mode's kinds are shown, labelled neutrally ("Activity in a private mode"), because the person turned the mode on; nothing about them is ever in an email or push.
+  The in-app switches are still `GET/PUT /api/notifications/preferences`.
+
+### Web push
+
+1. Register a service worker (`/sw.js`) that handles `push` and `notificationclick`.
+2. To enable: ask the browser (`Notification.requestPermission()`, from a click, never on load), `GET /api/notifications/push` for `publicKey`, `registration.pushManager.subscribe({ userVisibleOnly: true,
+   applicationServerKey: publicKey })`, then `POST /api/notifications/push` with `subscription.toJSON()` plus a `label` ("Chrome on macOS"). `409 PUSH_DEVICE_LIMIT` (10 devices): show the list so the person can remove
+   one. `400 PUSH_ENDPOINT_NOT_ALLOWED` should not happen from a real browser.
+3. List devices from the same `GET` (`devices[]`), remove with `DELETE /api/notifications/push/{id}`. When the person turns push off *in this browser*, `subscription.unsubscribe()` and
+   `DELETE /api/notifications/push { endpoint }`. When `configured` is false (development, preview) pushes are recorded and not sent: say so in the UI of those environments.
+4. **Payload** (`PushPayload`, `event.data.json()`): `{ title, body, url, tag?, deliveryId }`. Show it with `showNotification(title, { body, tag, data: { url, deliveryId } })`. On `notificationclick`:
+   open `url` (a path in the app), and report the tap: `POST /api/notifications/deliveries/{deliveryId}/open` (the push open rate; ignore the answer). Do not add anything to what the payload says: for the romance
+   mode and for account notices it is deliberately generic.
+5. On sign-out, `DELETE /api/notifications/push { endpoint }` for this browser so the next person to sign in on it does not get the previous person's pushes (a browser that signs in again as someone else
+   moves to that account automatically).
+
+### Unsubscribe
+
+Every optional email links to `GET /api/notifications/unsubscribe?t=…`, which already works and shows a plain page. To replace it with a page of your own, set the links to your route and have that route call
+`POST /api/notifications/unsubscribe?t=…` with the same token; show the result and a link to `/settings/notifications`. Nothing there needs a session.
+
+### Command palette search
+
+`GET /api/search?q=…` (two or more letters; fewer answers an empty list, so ask on every keystroke after a short debounce of 150 ms and cancel the request in flight). Results are one ranked list; render them
+grouped by `type` in the order they arrive, with the first result highlighted for Enter. Paths to build from a hit (the app's routes): `user` → `/profile/{id}`, `project` → `/projects/{id}`,
+`crew` → `/teams/{id}`, `hackathon` → `/hackathons/{id}`, `post` → `/posts/{id}`. `types=users` for a mention picker; `types=posts` for a feed search. "Show more" sends `nextCursor` back as `cursor`. A
+`user` hit has `headline` only when the person made it public: show nothing, not a placeholder, when it is `null`.
+
+### Share cards
+
+Put the card in the page's metadata so a pasted link previews:
+
+```html
+<meta property="og:image" content="https://app.example.com/api/og/post/{id}">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+```
+
+Passport `/api/og/passport/{username}`, post `/api/og/post/{id}`, squad recap `/api/og/squad/{teamId}` (after the hackathon has ended), achievement `/api/og/achievement/{slug}?user={username}`. A card that may not be shown
+is a `404`: do not set the tag for a private or hidden page. The card is a day old at worst; there is no way to purge one. The layout is deliberately plain: restyle it in `src/lib/og/layout.ts` (the data is
+`src/lib/og/models.ts`), bump `LAYOUT_VERSION` when you do.
+
+### Invites and campuses
+
+- **Sign-up.** Read `?invite=CODE` on `/signup`, keep it through the sign-up, and pass it to Clerk: `signUp.create({ ..., unsafeMetadata: { inviteCode: code } })`. The backend attributes the account the first time
+  it sees it. (For flows that cannot, `POST /api/invites/redeem { code }` in the first 14 days.) Never show an error for a bad code to someone who is signing up: they join anyway.
+- **Invite page** (`/settings/invites`): `GET /api/invites/me` gives `code`, `link`, how many `redeemed`, got started (`qualified`) and were `rewarded`, `xpPerInvite` and `rewardsLeft`. Say what earns it: "when a friend
+  finishes onboarding and does something real". Do not show who joined.
+- **Campus** (`/settings/campus`): `GET /api/campus/me`; if `canJoin` is false say campuses are for people 18 and over. Otherwise pick (`GET /api/campuses?q=`, showing `emailDomains`), ask for the campus address, `POST
+  /api/campus/verification` (`CAMPUS_EMAIL_INVALID` carries `params.domains`; `CAMPUS_EMAIL_IN_USE` means that mailbox is on another account), then a six-digit field and `POST /api/campus/verification/confirm`
+  (`params.remaining` tries; `CAMPUS_CODE_EXPIRED` means ask again). `pending` survives a reload. `suggested` is a campus an invite pointed at: offer it first. Leaving is `DELETE /api/campus/me`. The profile
+  `campus` text field becomes read-only while a campus is verified (`CAMPUS_IS_VERIFIED`), and a typed campus no longer joins a board: the campus leaderboard and campus feed tabs need a verified campus.
+
+### Admin: metrics, campuses, campaign codes
+
+- **Metrics** (`/admin/metrics`): `GET /api/admin/metrics` returns `definitions` (put them in a tooltip on every number) and `rows`. Lead with `weekly_active_shippers` (with `shippers_share_of_wau`) as a line over
+  the last 30 days; then retention as a cohort table from the latest day's `retention_d1/7/30` rows (dimension = signup week, `detail.cohort` is the size, grey out cells whose `detail.eligible` is small),
+  activation, the matching funnel (spark to match, match to message), squads, notifications by channel (the dimension), safety, growth by place and invites. `unit` says how to format (`ratio` as a percent,
+  `hours`, `per1k`). `computedThrough` is the last day measured: say "as of" it. Export with `/api/admin/metrics/export.csv`.
+- **Campuses** (`/admin/campuses`): list, create (name, domains, country, city), edit, close to new members. **Campaign codes** (`/admin/invites`): create (label, optional code, campus, limit, expiry), list with
+  `uses` and `qualified`, switch off.
+
 ## Backend gaps closed for these pages
 
 | Gap | Fix |
@@ -891,6 +971,7 @@ session is old: reverify and retry.
 | Streaks, quests, achievements, cosmetics, seasons, location leaderboards | Stage 1B: see Progress pages above |
 | Infinite scroll and retries | `cursor` / `nextCursor` on every list; `Idempotency-Key` on creating POSTs |
 | Showing work: posts, Props, comments, follows, the feed, Ship Day | Stage 1D: see Feed pages above |
+| Notifications that leave the app, search, share cards, metrics, invites and campuses | Stage 1G: see Reach and retention above |
 
 ## Still missing (no backend, needs a product decision)
 

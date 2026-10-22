@@ -14,7 +14,7 @@ of progress, and credit you if you wish. A `/.well-known/security.txt` with this
 | Threat | Where | Mitigation | Code |
 | --- | --- | --- | --- |
 | **Spoofing** a user | every API route | the Clerk session token is verified on every request (signature, expiry, authorized party, known signing key) before anything runs; middleware is never trusted | `src/lib/session.ts`, `src/lib/api/handler.ts` |
-| Spoofing a webhook or a job | `/api/webhooks/clerk`, `/api/inngest` | Svix signature with a per-environment secret; the Inngest signing key | `src/app/api/webhooks/clerk/route.ts`, `src/lib/infra/jobs.ts` |
+| Spoofing a webhook or a job | `/api/webhooks/clerk`, `/api/webhooks/email`, `/api/inngest` | Svix signature with a per-environment secret (Clerk's and Resend's); the Inngest signing key | `src/app/api/webhooks/clerk/route.ts`, `src/lib/infra/jobs.ts` |
 | Account takeover by a squatted e-mail | first sign-in | a legacy row is linked only on an e-mail Clerk says is verified; the old credentials are removed | `src/lib/user-sync.ts` |
 | Impersonation | usernames, display names | reserved names and look-alikes (homoglyphs, `rn`/`m`, digits) are refused; the verified-organisation mark only from an admin; impersonation reports go to the top of the queue | `src/lib/identity`, `src/app/api/admin/users/[id]/verification` |
 | **Tampering** with someone else's data | routes taking ids | ownership and membership checked in the handler; another person's thing is "not found" | `src/lib/api/permissions.ts` and each route |
@@ -34,7 +34,9 @@ of progress, and credit you if you wish. A `/.well-known/security.txt` with this
 ## Authorization model
 
 1. **Authenticated or public.** Every API handler is wrapped in `withAuth` except the explicit public allowlist: `/api/auth/session` (says whether a
-   session is valid), `/api/health`, `/api/webhooks/clerk` (signed), `/api/inngest` (signed). `src/lib/api/route-audit.test.ts` parses every route file
+   session is valid), `/api/health`, `/api/webhooks/clerk` and `/api/webhooks/email` (signed), `/api/inngest` (signed), the two signed links in emails
+   (`/api/notifications/unsubscribe`, `/api/notifications/open/{token}`: an HMAC token is the credential, rate limited by address) and the four share cards (`/api/og/...`: public images, rate
+   limited by address, with their privacy rules in `src/lib/og/data.ts`). `src/lib/api/route-audit.test.ts` parses every route file
    with the TypeScript compiler and fails on any other unwrapped handler; `tests/integration/route-authz.test.ts` calls every route anonymously against
    the running server and requires `401`.
 2. **Roles.** `UserRole` is `USER`, `MODERATOR`, `ADMIN`.

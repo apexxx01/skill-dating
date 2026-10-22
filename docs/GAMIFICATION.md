@@ -53,6 +53,7 @@ route ──emit──▶ domain event ──▶ payForEvent (src/lib/subscriber
 | `SQUAD_SLOT_FILLED` | someone fills an open slot on the user's squad (paid to the **owner**) | 15 | slot | 5 a day | no |
 | `SQUAD_SUBMITTED` | the user's squad submits its project to the hackathon (paid to **every member**) | 75 | hackathon | none | yes |
 | `SQUAD_JOIN_CONFIRMED` | a squad the user joined (not their own) submits | 30 | hackathon | none | no |
+| `INVITE_QUALIFIED` | someone who joined with the user's invite code finished onboarding and did a first real thing (paid to the **inviter**; at most 10 invitees ever, [INVITES.md](INVITES.md)) | 40 | invite | 3 a day | no |
 
 An **unverified external hackathon** (docs/SQUADS.md) pays nothing at all: not `HACKATHON_JOIN`, `TEAM_FORMED`, `HACKATHON_WIN`, the squad
 awards, nor the pool-squad and reunion counts. Anybody trusted can add one by its link, so it must not be a way to mint XP; once an admin
@@ -86,6 +87,7 @@ each other, so they all go through **one rule** (`src/lib/trust.ts`, applied by 
 | `PROPS_RECEIVED` | the author of the post | the giver (a Prop from an untrusted giver is recorded with weight 0 and pays nothing) |
 | `SQUAD_SLOT_FILLED` | the squad's owner | the person who filled the slot |
 | `SQUAD_JOIN_CONFIRMED` | the member who joined | the squad's owner |
+| `INVITE_QUALIFIED` | the inviter | the invitee (a week old, a verified email, no block between them) |
 
 When the counterparty is not trusted the subject gets **nothing from the event**: no XP, and nothing counted toward achievements
 and quests. The action itself still happens (the connection is made, the person is on the team, the message is sent, the

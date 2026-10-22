@@ -37,7 +37,7 @@ version in force of each document is config, `src/config/legal-versions.json`.
   it (`DELETE /api/users/me/consents/ROMANCE_MODE`) turns the mode off **and deletes** the profile, its private filters, the photos and their objects,
   drops, pending sparks and the reveal state; open romance matches end silently (`src/lib/romance/consent.ts`). Kept: the consent record itself (proof
   of the lawful basis for what happened while it was given) and what moderation or the law holds (reports, actions, the audit trail).
-- **Marketing** is off unless granted, and nothing sends marketing yet.
+- **Marketing** is off unless granted. It is what the two digest emails need (they are mail the platform starts itself to bring a person back: [NOTIFICATIONS.md](NOTIFICATIONS.md#classes)); nothing else is sent under it. Withdrawing it (`DELETE /api/users/me/consents/MARKETING`) stops the digests at the next run.
 
 ## Privacy settings (`src/lib/privacy/settings.ts`)
 
@@ -118,6 +118,16 @@ own in `delete.ts`).
 | MessageRead | `userId` DELETE | FULL | read markers |
 | Notification | `userId` DELETE | FULL | notifications |
 | NotificationPreference | `userId` DELETE | FULL | notification switches |
+| PushSubscription | `userId` DELETE | REDACTED (without `p256dh`, `auth`) | browsers registered for web push (the keys the pushes are encrypted to are secrets, never exported) |
+| NotificationSettings | `userId` DELETE | FULL | delivery settings: email and push switches, quiet hours, digests |
+| ChannelPreference | `userId` DELETE | FULL | which kinds of notification reach the person by email or push |
+| NotificationDelivery | `userId` DELETE | REDACTED (without `providerId`) | what was emailed or pushed and when (no content); deleted after 90 days anyway |
+| InviteCode | `ownerId` DELETE, `createdById` SET_NULL | FULL (through `ownerId`) | the person’s own invite code (campaign codes belong to the platform; the admin who made one is unlinked) |
+| InviteRedemption | `inviteeId` DELETE, `inviterId` SET_NULL | FULL (through `inviteeId`) | which invite code the person joined with (who joined with theirs is other people’s data); an inviter’s deletion unlinks them and keeps the attribution |
+| Campus | `createdById` SET_NULL | NONE | a college’s record, managed by admins: reference data, not about a person |
+| CampusMembership | `userId` DELETE | REDACTED (without `emailHash`) | the campus the person verified (the campus e-mail address itself is never kept, only a keyed hash that cannot be reversed) |
+| CampusVerification | `userId` DELETE | NONE | a campus verification in progress: holds the campus e-mail address until the code is confirmed or expires, then it is erased |
+| ActivityDay | `userId` DELETE | FULL | the days (UTC) the person did something of their own: what retention and active counts are made from, kept 25 months |
 | Report | `reporterId` KEEP, `reportedId` KEEP | REDACTED (without `reporterId`, `metadata`, `priority`, `snapshot`) | moderation records: kept for safety and legal holds, deleted 2 years after they are resolved; who reported someone is never exported |
 | ModerationAction | `moderatorId` KEEP, `subjectUserId` KEEP, `reversedById` KEEP | REDACTED (without `moderatorId`, `reason`, `metadata`, `reversedById`) | moderation decisions: the person sees the category, the note to them and the dates; the moderator and their notes are not exported |
 | Appeal | `userId` KEEP, `decidedById` KEEP | REDACTED (without `decidedById`) | appeals: moderation records |
@@ -173,19 +183,74 @@ own in `delete.ts`).
 | Expired drops (`Drop`, status `EXPIRED`) | 90 days after they expired | rows deleted |
 | Resolved reports (`RESOLVED` or `DISMISSED`) | 2 years after resolution | rows deleted, with their evidence snapshot |
 | Data export files | 24 hours after they were made | object deleted, row marked `EXPIRED` |
+| Email and push delivery log (`NotificationDelivery`) | 90 days | rows deleted in batches; no message content is in them |
+| Activity days (`ActivityDay`) | 25 months | rows deleted. The metrics built from them hold no person and are kept |
+| Campus verifications (`CampusVerification`) | an hour after the code expired | rows deleted, and the campus e-mail address in them with them |
 | Blocked uploads | the hash, verdict and labels only; the object is deleted at once | needs legal review: some countries require keeping evidence of child sexual abuse material for the authorities for a set period |
 
 Everything else is kept while the account exists and handled by the deletion rules above when it is deleted. The audit trail, moderation records and
 consent records are kept as the security and legal record; their retention periods are a launch item for counsel.
 
+## Email and push (Stage 1G)
+
+- **What is sent, to whom.** An email address is sent to Resend to send mail to it; a push goes to the push service of the person's browser, encrypted so only the browser can read it. Nothing
+  else about a person is sent: the mail provider also receives the subject and body of each message, which are the notification's own text (see "what leaves" below).
+- **What the romance mode sends: nothing but "You have a new message".** Every romance notification, and a message or match in a romance conversation, goes out (by push; by email only if the person
+  turned that on) as that one neutral line with the neutral link `/notifications`: no name, no kind of event, no mode name, no count. The unsubscribe link of such an email, its headers, its tags at the provider
+  and its footer say nothing about the mode either (`src/lib/notify/policy.ts`, tested). The daily digest counts only non-romance sparks.
+- **Account notices say only that there is one.** A moderation decision is emailed and pushed as "You have an account notice", not as what it says.
+- **Control.** Per kind and channel, globally, with quiet hours in the person's own zone (`GET/PUT /api/notifications/channels`); one-click unsubscribe in every optional email, per kind and for all, by signed links
+  and the `List-Unsubscribe` headers. Account notices cannot be switched off (they are the platform telling a person something about their account), and a bounced address stops them too.
+- **Digests need the MARKETING consent.** No consent, no digest, whatever else is switched on.
+- **Bounces.** An address that bounced for good or was reported as spam is suppressed by address (`EmailSuppression`), not by account, and kept after the account is deleted: forgetting a bounced address
+  would start mailing a dead mailbox, or a person who complained, again. It holds the address and the reason and nothing else; it is a legitimate-interest record and is the one place an address
+  outlives the account. It is not exported (it is not about the person's use of the product).
+- **Logs** carry the delivery id and the kind, never an address or the text.
+
+## Search (Stage 1G)
+
+Search shows what the rest of the app shows, to the same people. It leaves out anyone blocked or muted in either direction, deleted, suspended, banned, age-closed or in invisible mode, a person at a high risk
+level (unless found by exact username), anything hidden or removed, private projects and posts the viewer may not see; a passport field set to anything but `PUBLIC` is neither searched nor returned (so a
+search cannot be used to read a private headline), and no romance data is read. The rules are in the SQL of each query ([SEARCH.md](SEARCH.md)). The text a person types is not stored.
+
+## Share cards (Stage 1G)
+
+A share card (`/api/og/...`) is a public image: anyone with the link can fetch it, signed in or not, and it ends up in link previews. So it shows less than the app:
+
+- **Never**: e-mail, bio, links, location, the date of birth, the romance mode, anything of a private or hidden thing.
+- **A minor, or an account with no date of birth yet**: `@username`, level and counts only.
+- **Fields**: the headline and builder role only when they are `PUBLIC` (which in the app means "everyone signed in"); the name is shown only if the fonts can draw it, else the username.
+- **No card at all** (the same `404` as for a card that never existed) for an account that is deleted, age-closed, suspended, banned, in invisible mode or at a high risk level; for a post that is not public or
+  was hidden or removed; for a squad before its hackathon ends; for an achievement not earned.
+- **Squads** name only adults who can be found; the rest are counted.
+- **Caching.** Browsers and shared caches may keep a card for a day (and serve it a week more while a new one is made). A person who goes private is gone from a fresh request at once, but a copy a cache
+  already holds can live up to that long; a person cannot purge it. This is a trade-off for the cost of drawing, and an open question for a product decision below.
+
+**Open question (product decision):** the cards expose "signed-in public" fields to the open web. If that is not acceptable, the smallest change is one switch on the profile ("allow share cards", on by default or
+off by default) checked by `holderOf` in `src/lib/og/data.ts`; nothing else would change.
+
+## Invites and campuses (Stage 1G)
+
+- An **invite code** links two accounts (who joined with whose code). It is kept while both exist; the inviter's deletion unlinks them and keeps the attribution. An invite rejected as suspicious writes an integrity signal
+  (account ids, no content) for review.
+- A **campus e-mail address** is used once, to send a code, and erased when the code is confirmed or expires (a sweep removes what is left an hour after it expired). The platform keeps only a keyed hash of it,
+  which stops one mailbox from verifying two accounts and cannot be reversed. No route returns an address. Minors and accounts of unknown age cannot join a campus.
+
+## Metrics (Stage 1G)
+
+The admin metrics are aggregates (`MetricsSnapshot`: a day, a key, a number); no row names a person, and places with fewer than three people are not reported. They are built from `ActivityDay`
+(person and UTC day), which is deleted with the account and after 25 months. The romance mode is in none of them. Definitions: [METRICS.md](METRICS.md).
+
 ## What never leaves the platform
 
 Analytics carry no personal data (`src/lib/infra/analytics.ts`: our internal id, and props reduced to plain values under safe names). Logs carry ids,
-never names, e-mails or message text (`src/lib/log.ts` replaces sensitive-looking fields). The date of birth is returned to nobody but its owner
+never names, e-mails or message text (`src/lib/log.ts` replaces sensitive-looking fields). Error reports to Sentry are scrubbed before they leave the process: cookies, authorization headers, request bodies,
+query strings, IP addresses, e-mail addresses, phone numbers and token-looking strings are removed, and only our own opaque user id is kept (`src/lib/observability/scrub.ts`, tested). The date of birth is returned to nobody but its owner
 ([SAFETY.md](SAFETY.md#the-age-policy)). Romance data stays in its own tables ([SAFETY.md](SAFETY.md#the-romance-mode-gating-and-separation)).
 
 ## Sub-processors
 
-Clerk (identity), the PostgreSQL host, Upstash (cache), Inngest (jobs), Ably (realtime), the S3-compatible bucket, PostHog and Sentry when configured,
+Clerk (identity), the PostgreSQL host, Upstash (cache), Inngest (jobs), Ably (realtime), the S3-compatible bucket, Resend (email, when configured), the browsers' push services
+(Google, Mozilla, Apple, Microsoft: the encrypted payload and the device's push endpoint, when a person registers a browser), PostHog and Sentry when configured,
 and the media moderation provider when configured. Each needs a data processing agreement and, for transfers out of the EU or India, a transfer
 mechanism: a launch item.

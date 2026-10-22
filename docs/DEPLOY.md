@@ -101,9 +101,55 @@ event-driven `privacy/export` and `media/scan`. Its migrations are additive (new
 | `CONSENT_REQUIRED` | no (default `true`) | onboarding is complete only with the current terms and privacy notice accepted ([PRIVACY.md](PRIVACY.md#consent-srclibprivacyconsentts)) |
 | `INTEGRATION_TEST_SERVER` | never in production (refused) | set by the integration harness only, so its production build may use the in-memory stand-ins |
 
+## Settings added in Stage 1G
+
+| Setting | Required | What it does |
+| --- | --- | --- |
+| `APP_URL` | with `RESEND_API_KEY` | the address the app is served at, no trailing slash: the links in emails and share cards. Without it links point at `http://localhost:3000` |
+| `RESEND_API_KEY`, `EMAIL_FROM` | to send email | notifications and digests by email ([NOTIFICATIONS.md](NOTIFICATIONS.md)). Without them an in-memory outbox keeps what would have been sent: nothing leaves the server. `EMAIL_FROM` is `Name <address@domain>` on a domain verified in Resend |
+| `RESEND_WEBHOOK_SECRET` | to learn of bounces | the signing secret (`whsec_…`) of the Resend webhook endpoint for `/api/webhooks/email`. Without it the webhook answers `503` and bounced addresses keep being mailed |
+| `NOTIFICATION_SIGNING_SECRET` | recommended where mail is real | 32+ random characters (`openssl rand -base64 48`) that sign the unsubscribe and click-through links. Without it the key is derived from `CLERK_SECRET_KEY`; rotating either breaks the links in mail already sent, so set this one and never rotate it casually |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | to send web push | the VAPID identity (`npx web-push generate-vapid-keys`) and a contact (`mailto:ops@example.com` or an https URL). Set together. Without them an in-memory stand-in records pushes and nothing is sent |
+| `SENTRY_DSN` | to report errors | turns the Sentry SDK on for the server, the edge and the browser ([below](#error-reporting-with-sentry)) |
+| `SENTRY_TRACES_SAMPLE_RATE` | no (default `0.05`) | share of requests traced, 0 to 1 |
+| `SENTRY_RELEASE` | no | names the release; defaults to the commit Vercel built (`VERCEL_GIT_COMMIT_SHA`) |
+
+### Email with Resend
+
+1. Create a Resend account, add and verify the sending domain (SPF, DKIM and a DMARC record are what make the mail arrive), and create an API key with *sending access*.
+2. Set `RESEND_API_KEY`, `EMAIL_FROM` and `APP_URL`.
+3. In Resend, Webhooks, add an endpoint `https://<app>/api/webhooks/email` for the events `email.bounced` and `email.complained` (the others are acknowledged and ignored) and
+   copy its signing secret into `RESEND_WEBHOOK_SECRET`.
+4. Check it: sign in as a test account, give it the MARKETING consent, and trigger a notification that emails by default (a squad invitation); the mail should arrive with a
+   *Unsubscribe* button in the mail client (the `List-Unsubscribe` header). Then send the webhook test event from Resend and look for `200 {"handled":…}`.
+5. Mail is sent by the `notifications/deliver` job (every three minutes) and the digests by `digests/daily` and `digests/weekly` (hourly). All three need Inngest.
+6. To stop all email and push at once without a deploy, turn on `kill.notification-delivery` ([below](#kill-switches)).
+
+Send from a subdomain (`mail.example.com`) so a reputation problem there cannot reach the domain people sign in with. Watch the bounce rate: a rate above 2% or a complaint
+rate above 0.1% is how a sender gets blocked, and the metrics ([METRICS.md](METRICS.md)) report both.
+
+### Web push
+
+1. `npx web-push generate-vapid-keys`; set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` to a monitored address.
+2. Never change the keys once people have subscribed: every existing subscription is tied to the public key and stops working. If it must change, people subscribe again.
+3. The frontend registers a service worker that shows the payload and reports taps (`POST /api/notifications/deliveries/{deliveryId}/open`); the contract is in
+   [FRONTEND_CONTRACT.md](FRONTEND_CONTRACT.md#reach-and-retention-notifications-search-share-cards-invites).
+4. Web push needs https (except on localhost) and, on iPhones, the site added to the home screen.
+
+### Error reporting with Sentry
+
+With `SENTRY_DSN` set, the official Sentry SDK reports unhandled errors from the Node server, the edge runtime (middleware) and the browser, plus errors logged at error level
+(`log.error`). Without it nothing is sent and nothing is loaded. Every event is tagged with the release and the environment (`VERCEL_ENV`, else `NODE_ENV`) and carries the
+request id; personal data is removed before it leaves the process (cookies, authorization headers, IP addresses, e-mail addresses, tokens, query strings, user-written text:
+`src/lib/observability/scrub.ts`). Traces are sampled at `SENTRY_TRACES_SAMPLE_RATE` (5% by default), and session replay is off.
+
+Source maps: to get readable stack traces set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` **in the build environment**; the build then uploads them and removes them from
+the deployed files. Without them errors are reported with minified stacks. The browser SDK reads `NEXT_PUBLIC_SENTRY_DSN`, which `next.config.js` fills in from `SENTRY_DSN` at build
+time: changing the DSN needs a rebuild. The Content-Security-Policy allows the DSN's host for `connect-src` automatically.
+
 ## Kill switches
 
-Six feature flags, created OFF by the migration `20261021000600_kill_switches`. Turning one **ON** stops that feature for everyone within 30 seconds
+Seven feature flags, six created OFF by the migration `20261021000600_kill_switches` and one by `20261022000200_kill_notification_delivery`. Turning one **ON** stops that feature for everyone within 30 seconds
 (the flag cache's lifetime; on Redis every instance at once), with its own error code, until it is turned off. Nothing else changes and nothing is
 lost.
 
@@ -119,6 +165,7 @@ PATCH /api/admin/flags/kill.messaging  { "enabled": true }     (admin; audited)
 | `kill.posting` | Ship Feed posts and edits, comments, LFG posts, squad ideas and demos | `503 POSTING_PAUSED` | Trust & Safety lead |
 | `kill.external-hackathons` | adding hackathons from other sites | `503 EXTERNAL_HACKATHONS_PAUSED` | Squads product owner |
 | `kill.squad-autoform` | the solo pool's automatic squads (the job skips) | the job returns `paused: true` | Squads product owner |
+| `kill.notification-delivery` | all email and push (in-app notifications are unaffected); what was written meanwhile is not sent afterwards | the delivery and digest jobs skip | engineering on-call |
 
 The owner decides when to turn a switch on and off, says so in the incident channel, and writes down why (the flag change itself is in the audit log).
 Turning one on outside an incident needs the owner's or the on-call engineer's agreement.

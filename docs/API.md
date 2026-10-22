@@ -1,7 +1,8 @@
 # API Reference
 
 Generated from the actual route handlers in `src/app/api/`. Every route except
-`GET /api/auth/session`, `POST /api/webhooks/clerk` and `/api/inngest` requires an authenticated
+`GET /api/auth/session`, `GET /api/health`, `POST /api/webhooks/clerk`, `POST /api/webhooks/email`, `/api/inngest`, the signed links in emails (`/api/notifications/unsubscribe`,
+`/api/notifications/open/{token}`) and the share cards (`/api/og/...`) requires an authenticated
 Clerk session: a session token sent as `Authorization: Bearer <token>` or in the
 `__session` cookie that Clerk sets in browsers. The token is verified on every request
 (signature, expiry and, when configured, authorized party); tokens last about 60 seconds,
@@ -549,6 +550,92 @@ The command palette's search (docs/SEARCH.md): people, projects, crews, hackatho
 | `post` | `id, title, excerpt, kind, createdAt, author: { id, username, name }` |
 
 Never returned: anyone the caller blocked or muted, who blocked them, and what those people made; deleted, suspended, banned or age-closed accounts; people in invisible mode (as people); posts that are hidden, removed or not visible to the caller (`FOLLOWERS` and `CREW` posts follow the same rules as the feed); private projects the caller is not in; hackathons that are not public or were hidden; any passport field set to something other than `PUBLIC`; anything of the romance mode. Rate limited as a search route (60 a minute).
+
+---
+
+## Share cards
+
+Public images for sharing, drawn from a passport, a post, a squad or an achievement (1200 by 630 PNG, brand-neutral, Inter). No sign-in: they are fetched by link previews and crawlers. They show
+less than the app does and are private by default: see [PRIVACY.md](PRIVACY.md#share-cards). Cached for a day (`Cache-Control: public, max-age=86400, stale-while-revalidate=604800`), with an `ETag`
+(a request with `If-None-Match` gets `304` and nothing is drawn). Rate limited by address (60 a minute, `429 RATE_LIMITED`). Every card that may not be shown, or does not exist, answers the same
+`404 CARD_NOT_FOUND` (cached for a minute), so a card cannot be used to find out which.
+
+### `GET /api/og/passport/{username}`
+A person's passport: name, headline, builder role, top skills, level and tier, projects shipped and achievements. A minor, and an account with no date of birth yet, is shown as `@username`, level
+and counts only. A headline or builder role set to anything but `PUBLIC` is left out. No card for a deleted, suspended, banned, age-closed, invisible-mode or high-risk account.
+
+### `GET /api/og/post/{id}`
+A public post: title, the start of the body (Markdown reduced to words), author, Props and comments. No card for a post that is not `PUBLIC` or was hidden, removed or deleted.
+
+### `GET /api/og/squad/{teamId}`
+The recap of a squad after its hackathon has ended: squad, hackathon, rank, project, how many builders, and up to five `@username`s. Minors, people in invisible mode and accounts that may not be shown
+are counted, not named. No card before the hackathon ends, or for one that is not public.
+
+### `GET /api/og/achievement/{slug}?user={username}`
+An achievement the person earned: its name, description, XP, how rare it is and when it was earned. No card for one they have not earned.
+
+---
+
+## Invites
+
+### `GET /api/invites/me`
+The caller's personal invite code (made on first use) and how it is doing. **Response:** `{ code, link, redeemed, qualified, rewarded, rewardCap, rewardsLeft, xpPerInvite }`.
+
+### `POST /api/invites/redeem`
+**Body:** `{ code }` (any case, hyphens and spaces allowed). Joins with a code, once, in the first 14 days of the account. **Response:** `{ redeemed: true, campusId }`. A sign-up that carries the code
+in the Clerk user's `unsafeMetadata.inviteCode` is attributed without this call. **Errors:** `404 INVITE_CODE_INVALID` (never existed, switched off, used up or expired: one answer for all),
+`400 INVITE_OWN_CODE`, `409 INVITE_ALREADY_REDEEMED`, `409 INVITE_WINDOW_CLOSED` (`params.days`), `400 VALIDATION_FAILED`. The answer does not say whether the invite will count.
+
+### `GET /api/admin/invites`
+**Admin.** Campaign codes (or `?kind=PERSONAL`), with `uses`, `qualified` and `rejected`. Cursor paging (`limit`, `cursor`): `{ codes, nextCursor }`.
+
+### `POST /api/admin/invites`
+**Admin.** **Body:** `{ label, code?, campusId?, maxUses?, expiresAt? }`. Makes a campaign code (a random one unless `code` is given: 4 to 32 letters and digits). `201 { code }`. `409
+INVITE_CODE_TAKEN`, `404 CAMPUS_NOT_FOUND`.
+
+### `PATCH /api/admin/invites/{id}`
+**Admin.** **Body:** any of `label`, `maxUses` (or `null`), `expiresAt` (or `null`), `disabled`. A personal code can only be switched (`disabled`). `404 INVITE_NOT_FOUND`.
+
+---
+
+## Campuses
+
+A campus board and a campus feed are for people who verified a campus e-mail address. See [INVITES.md](INVITES.md#campuses).
+
+### `GET /api/campuses`
+**Query:** `q` (every word must be in the name, slug or city), `countryCode`, `limit` (≤50). **Response:** `{ campuses: [{ id, slug, name, city, countryCode, emailDomains }] }`: the campuses that take members.
+
+### `GET /api/campus/me`
+**Response:** `{ campus, verifiedAt, pending, suggested, canJoin }`. `campus` is the verified one (`{ id, slug, name, city, countryCode }`) or `null`; `pending` is a verification in progress
+(`{ campusId, domain, expiresAt }`: the domain, never the address); `suggested` is the campus an invite code suggested; `canJoin` is false for a minor or an account with no date of birth.
+
+### `POST /api/campus/verification`
+**Body:** `{ campusId, email }`. Mails a six-digit code (good for 15 minutes and 5 tries). **Response:** `{ sent: true, domain, expiresAt, expiresInMinutes }`. At most 5 a hour. **Errors:** `404
+CAMPUS_NOT_FOUND`, `409 CAMPUS_CLOSED`, `400 MINOR_LOCATION_LIMITED`, `400 CAMPUS_EMAIL_INVALID` (`params.domains`: the domains that work), `409 CAMPUS_EMAIL_IN_USE`, `429 RATE_LIMITED`.
+
+### `POST /api/campus/verification/confirm`
+**Body:** `{ code }` (six digits). **Response:** `{ campus: { id, slug, name } }`. The person is on the campus board and in its feed. **Errors:** `404 CAMPUS_VERIFICATION_NOT_FOUND`, `400
+CAMPUS_CODE_INVALID` (`params.remaining`), `410 CAMPUS_CODE_EXPIRED` (also after the fifth wrong try), `409 CAMPUS_EMAIL_IN_USE`.
+
+### `DELETE /api/campus/me`
+Leaves the campus. **Response:** `{ success: true, left }`. (While verified, `PATCH /api/users/me/profile` with a `campus` text answers `409 CAMPUS_IS_VERIFIED`; the text no longer places anyone on a board.)
+
+### `GET /api/admin/campuses`, `POST /api/admin/campuses`, `PATCH /api/admin/campuses/{id}`
+**Admin.** List (with `members`; `q`, `includeDisabled`, `limit`, `cursor`), create (`{ name, slug?, emailDomains[], city?, countryCode? }`; `409 CAMPUS_SLUG_TAKEN`), and change (`{ name?,
+emailDomains?, city?, countryCode?, disabled? }`; the slug never changes; `404 CAMPUS_NOT_FOUND`).
+
+---
+
+## Metrics
+
+Admin only. What every number means is in [METRICS.md](METRICS.md).
+
+### `GET /api/admin/metrics`
+**Query:** `from`, `to` (`YYYY-MM-DD`, UTC; default the last 30 days that are over; at most 366 days), `keys` (comma separated; unknown keys are `400`). **Response:** `{ from, to, computedThrough,
+truncated, definitions: [{ key, label, group, unit, dimension?, definition }], rows: [{ day, key, dimension, value, detail }] }`. At most 50,000 rows.
+
+### `GET /api/admin/metrics/export.csv`
+The same query; **Response:** a CSV file `day,key,dimension,value,detail`.
 
 ---
 

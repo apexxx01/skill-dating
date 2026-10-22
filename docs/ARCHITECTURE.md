@@ -98,6 +98,9 @@ implements the interface and changing one factory. Nothing else moves.
 | Jobs | `JobQueue` in `jobs.ts` | `InngestJobQueue` | `MemoryJobQueue` (`jobs.memory.ts`) | `INNGEST_EVENT_KEY` and `_SIGNING_KEY` set |
 | Realtime | `Realtime` in `realtime.ts` | `AblyRealtime` | `MemoryRealtime` (`realtime.memory.ts`) | `ABLY_API_KEY` set |
 | Storage | `Storage` in `storage.ts` | `S3Storage` (any S3-compatible store, signed with `sigv4.ts`) | `MemoryStorage` (`storage.memory.ts`); in production without a bucket `UnavailableStorage`, which refuses | `STORAGE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID` and `_SECRET_ACCESS_KEY` set |
+| Email | `EmailSender` in `email.contract.ts` | `ResendEmail` (`email.ts`, over `fetch`; retryable and final failures told apart) | `MemoryEmail` (`email.memory.ts`): an outbox a test can read | `RESEND_API_KEY` and `EMAIL_FROM` set (and `APP_URL`) |
+| Web push | `PushSender` in `push.contract.ts` | `WebPushSender` (`push.ts`, the `web-push` library, VAPID) | `MemoryPush` (`push.memory.ts`) | `VAPID_PUBLIC_KEY`, `_PRIVATE_KEY` and `VAPID_SUBJECT` set |
+| Search | `SearchProvider` in `src/lib/search/types.ts` | `PostgresSearch` (full text and `pg_trgm`) | none needed: it is the database | always PostgreSQL today; `setSearch()` swaps it |
 
 Each getter is process-wide and survives dev-server reloads; `setCache`, `setJobQueue` and
 `setRealtime` replace it in tests.
@@ -164,6 +167,11 @@ them. Handlers import their module lazily, so the registry stays light.
 | `privacy/export` | event | `src/lib/privacy/export.ts`: builds one person's data export into the bucket and notifies them |
 | `privacy/retention` | 05:15 daily | `src/lib/privacy/retention.ts`: deletes what the retention rules say is old enough, in batches |
 | `media/scan` | event, 5 retries | `src/lib/media-assets.ts`: scans a held romance photo or avatar again after the scanner failed |
+| `notifications/deliver` | every 3 minutes | `src/lib/notify/dispatch.ts`: decides what leaves the app for the notifications written since the last run and sends it by email and web push; sends what was held for quiet hours or a retry ([NOTIFICATIONS.md](NOTIFICATIONS.md)) |
+| `digests/daily` | hourly (:10) | `src/lib/notify/digest.ts`: the daily digest email, once a local day an hour after each person's drop time; skipped when there is nothing worth sending; continues itself in batches of 500 |
+| `digests/weekly` | hourly (:20) | the weekly digest email, Monday from 09:00 local |
+| `invites/qualify` | hourly (:45) | `src/lib/invites/invites.ts`: moves open invites forward, and pays an inviter through the rewards engine when the checks pass ([INVITES.md](INVITES.md)) |
+| `metrics/snapshot` | 01:20 daily | `src/lib/kpi/snapshot.ts`: records who was active, measures every metric for the day that ended, writes the rows ([METRICS.md](METRICS.md)) |
 
 To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
 test the handler through `runJob` or a `MemoryJobQueue`.
@@ -452,6 +460,20 @@ Type-check, backend lint (blocking), whole-repo lint (report only), production b
 a migrations check (replay the migrations into an empty database and diff against the schema),
 and the integration suite against a Postgres service container.
 
+## Reach and retention
+
+Stage 1G adds what brings people back and what tells you whether it works. Each part is an adapter or a pure function with a thin database layer, in the same shape as the rest.
+
+- **Notification delivery** (`src/lib/notify`, [NOTIFICATIONS.md](NOTIFICATIONS.md)). Nothing that writes a notification knows about email or push: `Notification.sweptAt` is null until the delivery job has
+  looked at it. `policy.ts` is the table (class, defaults, limits, exposure per kind), `decide.ts` the pure decision (eleven rules, first wins), `dispatch.ts` the sweep and the release of held
+  deliveries, `digest.ts` the two digests, `templates.ts` and `strings.ts` the words, `tokens.ts` the signed links. `NotificationDelivery` is both the log and the lock (a unique key per person,
+  channel and thing), so a repeat is harmless and the metrics read it. The romance mode's kinds have a `NEUTRAL` exposure: only "You have a new message" leaves the app.
+- **Search** (`src/lib/search`, [SEARCH.md](SEARCH.md)). A `SearchProvider` interface, PostgreSQL behind it, and every permission rule inside the query.
+- **Share cards** (`src/lib/og`, `src/app/api/og`). `data.ts` makes plain models under the privacy rules; `layout.ts` draws a model; `render.ts` is the route wrapper (rate limit, ETag, cache).
+- **Error reporting** (`src/lib/observability`, `sentry.*.config.ts`, `src/instrumentation*.ts`). The Sentry SDK when `SENTRY_DSN` is set, with personal data scrubbed before anything leaves; nothing loaded without it.
+- **Metrics** (`src/lib/kpi`, [METRICS.md](METRICS.md)). `ActivityDay` as the base, one function per group of numbers, a catalogue of definitions the API and the document both use.
+- **Invites and campuses** (`src/lib/invites`, `src/lib/campus`, [INVITES.md](INVITES.md)). XP only through `grant()` (the event `INVITE_QUALIFIED`), under the trusted counterparty rule.
+
 ## Known limitations and open items
 
 - The pages Next prerenders as static HTML (`/`, `/error`, `/onboarding`, not-found) get a CSP without a nonce (`'unsafe-inline'` scripts): a per-request
@@ -462,6 +484,13 @@ and the integration suite against a Postgres service container.
   a big group (over 50), is left for a person to find.
 
 - Nothing publishes realtime events.
+- Delivery is swept every three minutes, so an email or a push follows its in-app notification by up to that long (and, held for quiet hours, by up to the night). Email opens are click-throughs, not
+  pixel loads; a mail scanner that follows links counts as an open.
+- Search ranks with PostgreSQL's full-text and trigram scores. It does not segment Chinese, Japanese or Thai, and it ranks without learning from clicks; both are reasons to move to a search engine (the
+  interface is there), not to tune the SQL further.
+- Share cards are public images: a passport card shows what a person left `PUBLIC` (which means "everyone signed in" in the app). There is no separate "allow share cards" setting yet; see the open
+  questions in [PRIVACY.md](PRIVACY.md#share-cards).
+- The metrics are measured in UTC days and cohorts by ISO week; `ActivityDay` grows by a row per active person per day (see [METRICS.md](METRICS.md#operating-it) for when to partition it).
 - Leaderboard boards are copies of the XP log in Redis. They are repaired nightly, so a failure to update one
   can show a stale score for up to a day. XP that arrives during a rebuild is counted exactly once (see
   [GAMIFICATION.md](GAMIFICATION.md#leaderboards)); an award committing between the last replay pass and the
