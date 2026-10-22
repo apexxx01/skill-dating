@@ -415,6 +415,11 @@ model User {
   notifSettings       NotificationSettings?
   channelPrefs        ChannelPreference[]
   deliveries          NotificationDelivery[]
+  inviteCode          InviteCode?              @relation("InviteOwner")
+  inviteeOf           InviteRedemption?        @relation("InviteeOf")
+  invitesMade         InviteRedemption[]       @relation("InviterOf")
+  campusMembership    CampusMembership?
+  campusVerification  CampusVerification?
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -2623,4 +2628,135 @@ model EmailSuppression {
   // BOUNCE (the mailbox does not exist, or refuses us for good) or COMPLAINT (the person marked a message as spam).
   reason    String
   createdAt DateTime @default(now())
+}
+
+// --- Invites and campuses (src/lib/invites, src/lib/campus, docs/INVITES.md) ----------------------------------------------
+
+enum InviteKind {
+  // One per person, theirs to share: redeeming it can earn them XP.
+  PERSONAL
+  // Made by an admin for a launch waitlist or a partner college: attribution only, no XP.
+  CAMPAIGN
+}
+
+enum InviteStatus {
+  // The code was redeemed; the invitee has not yet finished onboarding and done something real.
+  PENDING
+  // Onboarding and a first real action are done. For a campaign code that is the end. For a personal one the inviter's XP is paid next, when the checks pass.
+  QUALIFIED
+  // The inviter was paid.
+  REWARDED
+  // Not counted, and `reason` says why (the same person, the same mailbox, a high risk account...).
+  REJECTED
+  // The invitee never qualified within 30 days.
+  EXPIRED
+}
+
+model InviteCode {
+  id          String     @id @default(cuid())
+  // Eight characters from an alphabet without the ones that look alike (no 0 O 1 I L), upper case.
+  code        String     @unique
+  kind        InviteKind
+  // PERSONAL only: whose code it is. One each.
+  ownerId     String?    @unique
+  // CAMPAIGN only: what it is for ("Waitlist wave 1", "IISc"), shown to admins.
+  label       String?
+  // A campus this code suggests to the people who join with it (they still verify it with a campus e-mail).
+  campusId    String?
+  // Null: unlimited.
+  maxUses     Int?
+  uses        Int        @default(0)
+  expiresAt   DateTime?
+  disabledAt  DateTime?
+  // The admin who made a campaign code.
+  createdById String?
+  createdAt   DateTime   @default(now())
+
+  owner       User?              @relation("InviteOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  campus      Campus?            @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  redemptions InviteRedemption[]
+
+  @@index([kind, createdAt])
+  @@index([campusId])
+}
+
+// Who joined with which code: one row per invitee, ever (an account has one attribution).
+model InviteRedemption {
+  id          String       @id @default(cuid())
+  codeId      String
+  inviteeId   String       @unique
+  // PERSONAL: the owner of the code. Null for a campaign code, and once that person's account is deleted.
+  inviterId   String?
+  status      InviteStatus @default(PENDING)
+  // Why REJECTED, or why a QUALIFIED one is waiting (WAITING_TRUST, CAP).
+  reason      String?
+  redeemedAt  DateTime     @default(now())
+  qualifiedAt DateTime?
+  rewardedAt  DateTime?
+
+  code    InviteCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  invitee User       @relation("InviteeOf", fields: [inviteeId], references: [id], onDelete: Cascade)
+  inviter User?      @relation("InviterOf", fields: [inviterId], references: [id], onDelete: SetNull)
+
+  @@index([codeId])
+  @@index([inviterId, status])
+  // The qualification job: what is still open, oldest first.
+  @@index([status, redeemedAt])
+}
+
+// A college or university, managed by admins. A person is on its leaderboard and its feed once they verify a campus e-mail address of it.
+model Campus {
+  id           String    @id @default(cuid())
+  // The comparable key: what Profile.campusKey holds and what the campus leaderboard is called (lower case letters, digits and hyphens).
+  slug         String    @unique
+  name         String
+  // The domains its e-mail addresses are on ("iisc.ac.in"); a subdomain of one counts.
+  emailDomains String[]  @default([])
+  city         String?
+  cityKey      String?
+  // ISO 3166-1 alpha-2.
+  countryCode  String?
+  // A disabled campus takes no new members; the ones it has keep their place.
+  disabledAt   DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships CampusMembership[]
+  invites     InviteCode[]
+
+  @@index([emailDomains], type: Gin)
+  @@index([countryCode])
+}
+
+// Who verified which campus. PRIVATE: the e-mail address is not kept, only a keyed hash of it, which is enough to stop one campus mailbox from verifying two accounts
+// and cannot be turned back into the address. Never shown to anyone, other people's views of a profile included.
+model CampusMembership {
+  userId     String   @id
+  campusId   String
+  emailHash  String   @unique
+  verifiedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campus Campus @relation(fields: [campusId], references: [id], onDelete: Cascade)
+
+  @@index([campusId])
+}
+
+// A campus e-mail verification in progress: the code that was sent. The address is kept here only until the code is confirmed or expires, then it is erased. One per person.
+model CampusVerification {
+  userId    String   @id
+  campusId  String
+  // PRIVATE. Cleared when verified or after it expires.
+  email     String?
+  emailHash String
+  // A keyed hash of the six-digit code.
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }

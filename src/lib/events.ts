@@ -76,6 +76,11 @@ export interface DomainEvents {
   AUTO_SQUAD_FORMED: { userId: string; teamId: string; hackathonId: string; proposalId: string }
   /** The person's squad shares two or more people with a squad of theirs from an earlier hackathon. Pays no XP; counts toward reunite. */
   SQUAD_REUNITED: { userId: string; teamId: string; hackathonId: string }
+  /**
+   * Somebody who joined with `userId`'s invite code finished onboarding and did a first real thing. `userId` is the inviter, who may be rewarded; `otherUserId` is the invitee, the
+   * counterparty (src/lib/trust.ts): an invitee who is not a trusted account pays nothing. Emitted by the invite job (src/lib/invites), once per invitee.
+   */
+  INVITE_QUALIFIED: { userId: string; otherUserId: string; redemptionId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -107,6 +112,7 @@ export const DOMAIN_EVENT_NAMES = [
   'SQUAD_JOIN_CONFIRMED',
   'AUTO_SQUAD_FORMED',
   'SQUAD_REUNITED',
+  'INVITE_QUALIFIED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient

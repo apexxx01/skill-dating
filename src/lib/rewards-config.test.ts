@@ -111,6 +111,7 @@ describe('EVENT_REWARDS', () => {
         'SQUAD_SLOT_FILLED',
         'SQUAD_SUBMITTED',
         'SQUAD_JOIN_CONFIRMED',
+        'INVITE_QUALIFIED',
       ].sort()
     )
   })

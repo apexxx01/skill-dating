@@ -53,6 +53,7 @@ describe('event names', () => {
         'SQUAD_JOIN_CONFIRMED',
         'AUTO_SQUAD_FORMED',
         'SQUAD_REUNITED',
+        'INVITE_QUALIFIED',
       ].sort()
     )
   })

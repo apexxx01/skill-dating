@@ -43,6 +43,10 @@ export const ANALYTICS_EVENTS = [
   'solo_pool_joined',
   'auto_squad_formed',
   'squad_submitted',
+  // Reach and retention (docs/INVITES.md).
+  'campus_verified',
+  'invite_redeemed',
+  'invite_qualified',
 ] as const
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]

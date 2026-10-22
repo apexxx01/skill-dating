@@ -23,6 +23,7 @@ export type RewardAction =
   | 'SQUAD_SLOT_FILLED'
   | 'SQUAD_SUBMITTED'
   | 'SQUAD_JOIN_CONFIRMED'
+  | 'INVITE_QUALIFIED'
 
 /** What an award is attached to. Together with the action it decides what counts as "the same award". */
 export type RewardSourceType =
@@ -39,6 +40,7 @@ export type RewardSourceType =
   | 'QUEST'
   | 'PROP'
   | 'TEAM_SLOT'
+  | 'INVITE'
 
 export interface RewardRule {
   /** XP per award. Null when the source carries it (an achievement defines its own xpReward). */
@@ -99,6 +101,9 @@ export const REWARD_RULES: Record<RewardAction, RewardRule> = {
   SQUAD_SUBMITTED: { amount: 75, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: true },
   // Joining someone else's squad that later submitted, once per hackathon, when the squad's owner is a trusted counterparty.
   SQUAD_JOIN_CONFIRMED: { amount: 30, sourceType: 'HACKATHON', oncePer: 'source', dailyCap: null, streak: false },
+  // Paid to the inviter, once per invitee, when the invitee has finished onboarding and done a first real thing (src/lib/invites), at most 3 a day, and only while the invitee is a trusted
+  // counterparty (src/lib/trust.ts). The lifetime cap (INVITE_REWARD_CAP) is enforced by the invite job before it asks.
+  INVITE_QUALIFIED: { amount: 40, sourceType: 'INVITE', oncePer: 'source', dailyCap: 3, streak: false },
 }
 
 export const REWARD_ACTIONS = Object.keys(REWARD_RULES) as RewardAction[]
@@ -259,6 +264,13 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   // Pay nothing; they count toward the squad achievements.
   AUTO_SQUAD_FORMED: {},
   SQUAD_REUNITED: {},
+  INVITE_QUALIFIED: {
+    xp: {
+      action: 'INVITE_QUALIFIED',
+      source: (p) => ({ sourceType: 'INVITE', sourceId: p.redemptionId }),
+      description: () => 'Someone you invited got started',
+    },
+  },
 }
 
 /**
