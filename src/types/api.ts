@@ -740,6 +740,29 @@ export interface PushPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export type SearchTypeName = 'users' | 'projects' | 'crews' | 'hackathons' | 'posts'
+
+export type SearchHit =
+  | { type: 'user'; id: string; username: string; name: string | null; /** Only when the person made it public. */ headline: string | null; image: string | null }
+  | { type: 'project'; id: string; slug: string; name: string; summary: string | null; status: string; isPublic: boolean }
+  | { type: 'crew'; id: string; slug: string; name: string; summary: string | null; isRecruiting: boolean; memberCount: number }
+  | { type: 'hackathon'; id: string; slug: string; name: string; summary: string | null; status: string; startsAt: IsoDate; /** False for an external hackathon nobody has verified. */ verified: boolean }
+  | { type: 'post'; id: string; title: string; excerpt: string; kind: string; createdAt: IsoDate; author: { id: string; username: string; name: string | null } }
+
+/** GET /api/search?q=&types=&limit=&cursor= */
+export interface SearchResponse {
+  /** The query as it was searched: lower case, no accents or punctuation. */
+  query: string
+  types: SearchTypeName[]
+  /** One list in rank order, best first. */
+  results: SearchHit[]
+  nextCursor: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 

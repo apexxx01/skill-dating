@@ -535,6 +535,23 @@ Creates a conversation (`DIRECT` requires exactly 1 `participantIds` entry, retu
 
 ---
 
+## Search
+
+### `GET /api/search`
+The command palette's search (docs/SEARCH.md): people, projects, crews, hackathons and posts in one ranked list, with prefix, full-text and typo-tolerant matching. **Query:** `q` (what to look for; fewer than two letters or digits answers an empty list), `types` (any of `users,projects,crews,hackathons,posts`, comma separated; default all; an unknown name is `400 VALIDATION_FAILED`), `limit` (1 to 25, default 10, for the whole list), `cursor` (`nextCursor` of the previous page; `400 INVALID_CURSOR` for a bad one). **Response:** `{ query, types, results, nextCursor }`; `query` is the text as it was searched (lower case, no accents or punctuation). Each result has a `type` and the fields of that type:
+
+| `type` | fields |
+| --- | --- |
+| `user` | `id, username, name, headline, image` (`headline` only when the person made it public) |
+| `project` | `id, slug, name, summary, status, isPublic` |
+| `crew` | `id, slug, name, summary, isRecruiting, memberCount` |
+| `hackathon` | `id, slug, name, summary, status, startsAt, verified` |
+| `post` | `id, title, excerpt, kind, createdAt, author: { id, username, name }` |
+
+Never returned: anyone the caller blocked or muted, who blocked them, and what those people made; deleted, suspended, banned or age-closed accounts; people in invisible mode (as people); posts that are hidden, removed or not visible to the caller (`FOLLOWERS` and `CREW` posts follow the same rules as the feed); private projects the caller is not in; hackathons that are not public or were hidden; any passport field set to something other than `PUBLIC`; anything of the romance mode. Rate limited as a search route (60 a minute).
+
+---
+
 ## Notifications
 
 ### `GET /api/notifications`
