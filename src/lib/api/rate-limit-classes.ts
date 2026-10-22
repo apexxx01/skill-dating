@@ -32,7 +32,7 @@ export const PUBLIC_ROUTES = new Set([
 ])
 
 /** Lists and searches over many people or things: the most expensive reads, and what a scraper would use. */
-export const SEARCH_ROUTES = new Set(['/api/users', '/api/discover', '/api/projects', '/api/teams', '/api/builds', '/api/hackathons', '/api/leaderboard'])
+export const SEARCH_ROUTES = new Set(['/api/users', '/api/discover', '/api/projects', '/api/teams', '/api/builds', '/api/hackathons', '/api/leaderboard', '/api/search'])
 
 /** Small writes a person makes many times in a row while using a screen (marking a conversation read, ticking a checklist, voting on an idea). */
 export const TOGGLE_ROUTES = new Set([
