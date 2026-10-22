@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { getStorage, type Storage } from '@/lib/infra/storage'
 import { IDEMPOTENCY_TTL_MS } from '@/lib/api/idempotency'
+import { sweepVerifications } from '@/lib/campus/campus'
 import { log } from '@/lib/log'
 
 // Data retention (docs/PRIVACY.md, "Retention"). How long each kind of record is kept after it stops being needed, and the nightly job
@@ -13,6 +14,7 @@ import { log } from '@/lib/log'
 //   resolved reports            2 years after resolution       Report rows (RESOLVED or DISMISSED) deleted, with their evidence snapshot
 //   data export files           24 hours after they were made  the object is deleted and the row marked EXPIRED
 //   email and push delivery log 90 days                        NotificationDelivery rows deleted (no content is in them)
+//   campus verifications        1 hour after their code expired  the row, and with it the campus e-mail address it held, is deleted
 
 export const RETENTION = {
   productEventsMonths: 13,
@@ -81,7 +83,8 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
       log.warn('could not remove an expired export file', { error, exportId: row.id })
     }
   }
-  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog }
+  const campusVerifications = await sweepVerifications(db, now)
+  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, campusVerifications }
   log.info('retention finished', result)
   return result
 }

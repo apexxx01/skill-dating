@@ -260,6 +260,21 @@ export const ERROR_CATALOG = {
   DELIVERY_NOT_FOUND: { status: 404, message: 'Notification delivery not found' },
   UNSUBSCRIBE_LINK_INVALID: { status: 400, message: 'This unsubscribe link is not valid' },
   CARD_NOT_FOUND: { status: 404, message: 'This share card does not exist' },
+  INVITE_CODE_INVALID: { status: 404, message: 'This invite code does not exist or can no longer be used' },
+  INVITE_ALREADY_REDEEMED: { status: 409, message: 'This account already joined with an invite code' },
+  INVITE_OWN_CODE: { status: 400, message: 'You cannot use your own invite code' },
+  INVITE_WINDOW_CLOSED: { status: 409, message: 'An invite code can only be used in the first {days} days of an account' },
+  INVITE_CODE_TAKEN: { status: 409, message: 'An invite code with this text already exists' },
+  INVITE_NOT_FOUND: { status: 404, message: 'Invite code not found' },
+  CAMPUS_NOT_FOUND: { status: 404, message: 'Campus not found' },
+  CAMPUS_SLUG_TAKEN: { status: 409, message: 'A campus with this name already exists' },
+  CAMPUS_EMAIL_INVALID: { status: 400, message: 'Use an e-mail address on one of these domains: {domains}' },
+  CAMPUS_EMAIL_IN_USE: { status: 409, message: 'This campus e-mail address is already verified on another account' },
+  CAMPUS_CODE_INVALID: { status: 400, message: 'That code is not right. {remaining} tries left' },
+  CAMPUS_CODE_EXPIRED: { status: 410, message: 'That code has expired. Ask for a new one' },
+  CAMPUS_VERIFICATION_NOT_FOUND: { status: 404, message: 'There is no campus verification in progress' },
+  CAMPUS_IS_VERIFIED: { status: 409, message: 'Your campus is verified. Leave it before changing it' },
+  CAMPUS_CLOSED: { status: 409, message: 'This campus is not taking new members' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG

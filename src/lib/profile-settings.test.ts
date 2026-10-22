@@ -33,13 +33,13 @@ describe('profileSettingsSchema', () => {
 })
 
 describe('profileColumns', () => {
-  it('stores tidied text with its comparable key, and an upper-case country', () => {
+  it('stores tidied text with its comparable key for a city, and an upper-case country; a campus is text only, never a key', () => {
+    expect(profileColumns({ countryCode: ' in ', city: '  Bengaluru  ', campus: 'IISc   Bangalore' })).not.toHaveProperty('campusKey')
     expect(profileColumns({ countryCode: ' in ', city: '  Bengaluru  ', campus: 'IISc   Bangalore' })).toEqual({
       countryCode: 'IN',
       city: 'Bengaluru',
       cityKey: 'bengaluru',
       campus: 'IISc Bangalore',
-      campusKey: 'iisc-bangalore',
     })
   })
 
@@ -49,7 +49,6 @@ describe('profileColumns', () => {
       city: null,
       cityKey: null,
       campus: null,
-      campusKey: null,
     })
   })
 

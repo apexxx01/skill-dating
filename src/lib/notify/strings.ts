@@ -69,6 +69,12 @@ const en = {
   'digest.weekly.season.cta': 'See the leaderboard',
   'digest.weekly.nothingToShow': 'A quiet week.',
 
+  // The one-time code mailed to verify a campus address (src/lib/campus). A message the person asked for: no unsubscribe, and no mention of anything but the code.
+  'campus.subject': 'Your verification code: {code}',
+  'campus.title': 'Verify your campus e-mail',
+  'campus.body': 'Enter this code in the app to verify your campus. It works for {minutes} minutes.',
+  'campus.ignore': 'If you did not ask for this, ignore this message: nothing happens unless the code is entered.',
+
   // The page the unsubscribe link opens.
   'unsubscribe.title': 'You are unsubscribed',
   'unsubscribe.kind': 'You will no longer get “{kindLabel}” by email.',

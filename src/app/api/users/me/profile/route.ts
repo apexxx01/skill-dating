@@ -44,6 +44,8 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   // A minor may share a country and nothing finer.
   const stored = await prisma.user.findUnique({ where: { id: user.id }, select: { birthDate: true } })
   if (isMinor(stored?.birthDate) && (columns.city || columns.campus)) return createApiError('MINOR_LOCATION_LIMITED')
+  // A verified campus is shown as itself; the text is changed by leaving the campus first (DELETE /api/campus/me).
+  if (columns.campus !== undefined && (await prisma.campusMembership.findUnique({ where: { userId: user.id }, select: { userId: true } }))) return createApiError('CAMPUS_IS_VERIFIED')
 
   await prisma.$transaction(async (tx) => {
     if (body.data.timezone !== undefined) {

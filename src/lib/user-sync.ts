@@ -235,6 +235,16 @@ async function updateExisting(tx: Tx, existing: { id: string; username: string }
   await tx.user.update({ where: { id: existing.id }, data })
 }
 
+async function redeemSignupInvite(db: PrismaClient, userId: string, metadata: unknown): Promise<void> {
+  const code = metadata && typeof metadata === 'object' ? (metadata as { inviteCode?: unknown }).inviteCode : undefined
+  if (typeof code !== 'string' || code.length === 0 || code.length > 64) return
+  try {
+    await (await import('@/lib/invites/invites')).redeemInvite(db, userId, code)
+  } catch (error) {
+    log.warn('could not redeem the invite code of a sign-up', { error, userId })
+  }
+}
+
 /** Written outside the sync transaction, which the conflict rolls back. Never blocks the answer. */
 async function recordConflict(db: PrismaClient, clerkId: string): Promise<void> {
   try {
@@ -258,7 +268,11 @@ export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma, op
     try {
       const { user, signedUp } = await db.$transaction((tx) => syncInTransaction(tx, facts, options), { timeout: 15_000 })
       // Counted after the commit, and only for a brand new account (linking an old row is not a signup).
-      if (signedUp) await track(user.id, 'signup')
+      if (signedUp) {
+        await track(user.id, 'signup')
+        // A code carried by the sign-up (the page sets it as the Clerk user's unsafeMetadata.inviteCode) is the attribution of this account. Best effort: a bad code never stops a sign-up.
+        await redeemSignupInvite(db, user.id, cu.unsafeMetadata)
+      }
       return user
     } catch (error) {
       if (attempt < attempts && isUniqueViolation(error)) continue

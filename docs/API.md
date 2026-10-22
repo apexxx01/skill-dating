@@ -1337,6 +1337,21 @@ and a unit test fails if a code is missing here.
 | `DELIVERY_NOT_FOUND` | 404 | Notification delivery not found |
 | `UNSUBSCRIBE_LINK_INVALID` | 400 | This unsubscribe link is not valid |
 | `CARD_NOT_FOUND` | 404 | This share card does not exist |
+| `INVITE_CODE_INVALID` | 404 | This invite code does not exist or can no longer be used |
+| `INVITE_ALREADY_REDEEMED` | 409 | This account already joined with an invite code |
+| `INVITE_OWN_CODE` | 400 | You cannot use your own invite code |
+| `INVITE_WINDOW_CLOSED` | 409 | An invite code can only be used in the first {days} days of an account |
+| `INVITE_CODE_TAKEN` | 409 | An invite code with this text already exists |
+| `INVITE_NOT_FOUND` | 404 | Invite code not found |
+| `CAMPUS_NOT_FOUND` | 404 | Campus not found |
+| `CAMPUS_SLUG_TAKEN` | 409 | A campus with this name already exists |
+| `CAMPUS_EMAIL_INVALID` | 400 | Use an e-mail address on one of these domains: {domains} |
+| `CAMPUS_EMAIL_IN_USE` | 409 | This campus e-mail address is already verified on another account |
+| `CAMPUS_CODE_INVALID` | 400 | That code is not right. {remaining} tries left |
+| `CAMPUS_CODE_EXPIRED` | 410 | That code has expired. Ask for a new one |
+| `CAMPUS_VERIFICATION_NOT_FOUND` | 404 | There is no campus verification in progress |
+| `CAMPUS_IS_VERIFIED` | 409 | Your campus is verified. Leave it before changing it |
+| `CAMPUS_CLOSED` | 409 | This campus is not taking new members |
 
 ---
 

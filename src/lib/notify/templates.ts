@@ -139,6 +139,42 @@ export function renderNotificationEmail(input: NotificationEmailInput): Rendered
   return { subject: visible.title, html, text }
 }
 
+export interface CodeEmailInput {
+  locale: Locale
+  code: string
+  minutes: number
+}
+
+/** The email that carries a one-time code: a message the person just asked for, so no unsubscribe and no footer of links. */
+export function renderCodeEmail(input: CodeEmailInput): RenderedEmail {
+  const { locale, code } = input
+  const title = t(locale, 'campus.title')
+  const body = t(locale, 'campus.body', { minutes: input.minutes })
+  const ignore = t(locale, 'campus.ignore')
+  const html = `<!doctype html>
+<html lang="${locale}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>${escapeHtml(title)}</title>
+<style>${STYLE}.code{font:700 32px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:6px;margin:0 0 16px}</style>
+</head>
+<body>
+<div class="wrap" role="article" aria-roledescription="email" lang="${locale}">
+<div class="card">
+<h1>${escapeHtml(title)}</h1>
+<p>${escapeHtml(body)}</p>
+<p class="code" aria-label="${escapeHtml(code.split('').join(' '))}">${escapeHtml(code)}</p>
+</div>
+<div class="footer"><p>${escapeHtml(ignore)}</p></div>
+</div>
+</body>
+</html>`
+  const text = [title, '', body, '', code, '', ignore].join('\n')
+  return { subject: t(locale, 'campus.subject', { code }), html, text }
+}
+
 export interface DigestItem {
   text: string
   /** Where the item goes, absolute. */

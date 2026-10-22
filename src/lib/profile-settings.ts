@@ -5,7 +5,7 @@ import { parseBirthDate } from '@/lib/matching/dating'
 
 // The profile fields that decide where a person appears and what others can see:
 // their time zone (which days, quests and caps follow), where they are (for the
-// country, city and campus leaderboards) and two privacy switches. One schema and
+// country and city leaderboards; a campus board takes a verified campus, not this text) and two privacy switches. One schema and
 // one mapping from the request to the rows, shared by the route and its tests.
 
 export const profileSettingsSchema = z
@@ -64,7 +64,6 @@ export function profileColumns(input: ProfileSettingsInput) {
     city?: string | null
     cityKey?: string | null
     campus?: string | null
-    campusKey?: string | null
     hideFromLeaderboards?: boolean
     showActivity?: boolean
   } = {}
@@ -73,10 +72,8 @@ export function profileColumns(input: ProfileSettingsInput) {
     data.city = normalizePlace(input.city)
     data.cityKey = placeKey(input.city)
   }
-  if (input.campus !== undefined) {
-    data.campus = normalizePlace(input.campus)
-    data.campusKey = placeKey(input.campus)
-  }
+  // The campus a person types is only text to show. The key leaderboards and the feed group by is set by verifying a campus e-mail address (src/lib/campus), never by this.
+  if (input.campus !== undefined) data.campus = normalizePlace(input.campus)
   if (input.hideFromLeaderboards !== undefined) data.hideFromLeaderboards = input.hideFromLeaderboards
   if (input.showActivity !== undefined) data.showActivity = input.showActivity
   return data

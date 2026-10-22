@@ -254,6 +254,15 @@ export const jobs = {
     concurrency: 1,
     handler: async ({ data }) => (await import('@/lib/notify/digest')).runDigestJob('DIGEST_WEEKLY', data),
   }),
+  // Moves open invites forward: an invitee who finished onboarding and did a first real thing makes the invite QUALIFIED, and a personal code's owner is paid through the rewards
+  // engine when the checks pass; the ones that wait too long are let go (src/lib/invites). Hourly; safe to repeat.
+  'invites/qualify': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '45 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/invites/invites')).runQualifyInvitesJob(),
+  }),
   // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
   'media/scan': defineJob({
     schema: z.object({ assetId: z.string().min(1).max(64) }),
