@@ -168,6 +168,7 @@ them. Handlers import their module lazily, so the registry stays light.
 | `privacy/retention` | 05:15 daily | `src/lib/privacy/retention.ts`: deletes what the retention rules say is old enough, in batches |
 | `media/scan` | event, 5 retries | `src/lib/media-assets.ts`: scans a held romance photo or avatar again after the scanner failed |
 | `notifications/deliver` | every 3 minutes | `src/lib/notify/dispatch.ts`: decides what leaves the app for the notifications written since the last run and sends it by email and web push; sends what was held for quiet hours or a retry ([NOTIFICATIONS.md](NOTIFICATIONS.md)) |
+| `notifications/deliver-now` | event | `src/lib/notify/dispatch.ts` `deliverNow`: delivers named notifications the moment they are written, for the kinds the policy marks `immediate` (a spark someone may see, a match, a squad invitation, the last squad reminder, an account notice); queued after the write commits; the sweep is the fallback ([NOTIFICATIONS.md](NOTIFICATIONS.md#immediate-dispatch)) |
 | `digests/daily` | hourly (:10) | `src/lib/notify/digest.ts`: the daily digest email, once a local day an hour after each person's drop time; skipped when there is nothing worth sending; continues itself in batches of 500 |
 | `digests/weekly` | hourly (:20) | the weekly digest email, Monday from 09:00 local |
 | `invites/qualify` | hourly (:45) | `src/lib/invites/invites.ts`: moves open invites forward, and pays an inviter through the rewards engine when the checks pass ([INVITES.md](INVITES.md)) |
@@ -484,7 +485,7 @@ Stage 1G adds what brings people back and what tells you whether it works. Each 
   a big group (over 50), is left for a person to find.
 
 - Nothing publishes realtime events.
-- Delivery is swept every three minutes, so an email or a push follows its in-app notification by up to that long (and, held for quiet hours, by up to the night). Email opens are click-throughs, not
+- Delivery is swept every three minutes, so an email or a push follows its in-app notification by up to that long (and, held for quiet hours, by up to the night); the time-critical kinds (a match, a squad invitation, an account notice) are dispatched as soon as they are written. Email opens are click-throughs, not
   pixel loads; a mail scanner that follows links counts as an open.
 - Search ranks with PostgreSQL's full-text and trigram scores. It does not segment Chinese, Japanese or Thai, and it ranks without learning from clicks; both are reasons to move to a search engine (the
   interface is there), not to tune the SQL further.

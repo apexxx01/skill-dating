@@ -18,9 +18,12 @@ writers (40 places)  ->  Notification row (sweptAt NULL)
                              -> decideDelivery (decide.ts, pure) per channel: SEND | DEFER | SKIP
                              -> NotificationDelivery row (the log and the lock: unique per person, channel and thing)
         releaseDeferred      sends what was held (quiet hours ended, or a failed attempt is due again)
+
+time-critical kinds (below), the moment they are written:
+writer, once its write has committed -> job notifications/deliver-now { ids } -> deliverNow   the same claim, the same rules, one notification
 ```
 
-Two consequences worth knowing. A notification reaches the pipeline up to three minutes after it is written (fast enough for an email, and it keeps delivery out of
+Two consequences worth knowing. A notification reaches the pipeline up to three minutes after it is written, unless its kind is time-critical (fast enough for an email, and it keeps delivery out of
 every request). And a notification switched off in-app (`NotificationPreference`) is never written, so it never leaves the app either.
 
 Notifications from before delivery existed were stamped `sweptAt = createdAt` by the migration, so turning this on mails nobody their history.
@@ -53,6 +56,28 @@ directly), and a unit test fails when one is missing. Each kind has:
 **Defaults** are conservative: email on for things a person would want to know about the same day (invitations, matches, messages, squad changes, hackathon
 reminders), off for the noisy ones (Props, follows, watched projects, endorsements); push on for the same plus comments and Props, off for follows and watched
 posts. Progress notices (level ups, achievements, quests, cosmetics) stay in the app. `GET /api/notifications/channels` returns every switch with its default.
+
+## Immediate dispatch
+
+Most notifications can wait for the next sweep. A few cannot, and their policy says `immediate` (`src/lib/notify/policy.ts`, `src/lib/notify/immediate.ts`): the moment one is written, and
+once the transaction that wrote it has committed, a job `notifications/deliver-now` is queued with the ids and delivers them.
+
+| kind | immediate |
+|---|---|
+| `SPARK` | a spark someone is entitled to see who sent (a plan that sees who sparked; for the others the daily count is the notification) |
+| `MATCH_CREATED`, `MATCH` and the neutral `ROMANCE_MATCH` | a match, in either mode (the romance one leaves the app only as the neutral line) |
+| `SQUAD_INVITE` | an invitation to a squad |
+| `SQUAD_REMINDER`, only `stage: "T24H"` | the reminder a day before squad registration closes; the ones a week and two days before wait for the sweep |
+| `MODERATION` | an account notice from a moderator, an appeal decision, a reversal |
+
+Everything else, and the digests, stay batched. What "immediately" does and does not mean:
+
+- It means **no waiting for the sweep**. It changes nothing the pipeline decides: the person's switches, quiet hours, de-duplication and limits apply as to any notification (a match at 02:00 is held for
+  the morning like any other; an account notice ignores quiet hours as always).
+- A notification is **claimed** by whoever sets `sweptAt` first, the sweep or this job, so it is delivered once however the two race, and a job that is queued twice does nothing the second time.
+- It is **best effort by design**. A failure to queue (or a transaction that was not opened with `transactWithEvents`, whose commit cannot be known) is logged and changes nothing for the person: the
+  notification is still unswept, and the sweep delivers it within three minutes.
+- The kill switch `kill.notification-delivery` stops it like the sweep.
 
 ## Order of the rules
 

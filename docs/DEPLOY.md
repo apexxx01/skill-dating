@@ -122,7 +122,7 @@ event-driven `privacy/export` and `media/scan`. Its migrations are additive (new
    copy its signing secret into `RESEND_WEBHOOK_SECRET`.
 4. Check it: sign in as a test account, trigger a notification that emails by default (a squad invitation); the mail should arrive with a
    *Unsubscribe* button in the mail client (the `List-Unsubscribe` header). Then send the webhook test event from Resend and look for `200 {"handled":…}`.
-5. Mail is sent by the `notifications/deliver` job (every three minutes) and the digests by `digests/daily` and `digests/weekly` (hourly). All three need Inngest.
+5. Mail is sent by the `notifications/deliver` job (every three minutes), by `notifications/deliver-now` for the time-critical kinds (queued the moment they are written), and the digests by `digests/daily` and `digests/weekly` (hourly). All of them need Inngest.
 6. To stop all email and push at once without a deploy, turn on `kill.notification-delivery` ([below](#kill-switches)).
 
 Send from a subdomain (`mail.example.com`) so a reputation problem there cannot reach the domain people sign in with. Watch the bounce rate: a rate above 2% or a complaint
