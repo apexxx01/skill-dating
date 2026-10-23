@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { req, registerAndLogin, uniqueSuffix, type TestUser } from './helpers'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
 import { INTEGRATION_DATABASE_URL, INTEGRATION_BASE_URL } from './config'
+import { bornYearsAgo } from './matching-fixtures'
 import versions from '../../src/config/legal-versions.json'
 
 // Privacy (docs/PRIVACY.md): settings in one place, passport field visibility, invisible mode, the data export with its signed link, consent records and
@@ -31,6 +32,35 @@ describe('privacy', () => {
     const saved = await req(ada.jar, 'PATCH', '/api/users/me/privacy', { fieldVisibility: { bio: 'PRIVATE', location: 'CONNECTIONS' }, hideFromRecruiters: true })
     expect(saved.data).toMatchObject({ hideFromRecruiters: true, fieldVisibility: { bio: 'PRIVATE', location: 'CONNECTIONS', website: 'PUBLIC' } })
     expect((await req(ada.jar, 'PATCH', '/api/users/me/privacy', { fieldVisibility: { email: 'PUBLIC' } })).status).toBe(400)
+  })
+
+  it('has a "show my cards on the web" switch: on for an adult, never on for a minor or an account with no date of birth', async () => {
+    const name = `pvc${suffix}`
+    const person = await registerAndLogin(`${name}@test.dev`, name)
+    const username = (await testPrisma.user.findUniqueOrThrow({ where: { id: person.userId } })).username
+    const setBirth = (years: number | null) => testPrisma.user.update({ where: { id: person.userId }, data: { birthDate: years === null ? null : new Date(`${bornYearsAgo(years, 40)}T00:00:00Z`) } })
+    const card = async () => (await fetch(`${INTEGRATION_BASE_URL}/api/og/passport/${username}`, { headers: { 'x-forwarded-for': person.jar.ip } })).status
+
+    // No date of birth, then a minor: it reads off, cannot be turned on, can always be turned off, and no card is drawn.
+    for (const years of [null, 16, 17]) {
+      await setBirth(years)
+      expect((await req(person.jar, 'GET', '/api/users/me/privacy')).data, String(years)).toMatchObject({ showCardsOnWeb: false, cardsAvailable: false })
+      const refused = await req(person.jar, 'PATCH', '/api/users/me/privacy', { showCardsOnWeb: true })
+      expect(refused.status).toBe(400)
+      expect(refused.data.error.code).toBe('CARDS_NOT_AVAILABLE')
+      expect((await req(person.jar, 'PATCH', '/api/users/me/privacy', { showCardsOnWeb: false })).data).toMatchObject({ showCardsOnWeb: false, cardsAvailable: false })
+      expect(await card()).toBe(404)
+    }
+
+    // An adult: on by default, and theirs to switch.
+    await setBirth(30)
+    await testPrisma.profile.update({ where: { userId: person.userId }, data: { showCardsOnWeb: true } })
+    expect((await req(person.jar, 'GET', '/api/users/me/privacy')).data).toMatchObject({ showCardsOnWeb: true, cardsAvailable: true })
+    expect(await card()).toBe(200)
+    expect((await req(person.jar, 'PATCH', '/api/users/me/privacy', { showCardsOnWeb: false })).data).toMatchObject({ showCardsOnWeb: false, cardsAvailable: true })
+    expect(await card()).toBe(404)
+    expect((await req(person.jar, 'PATCH', '/api/users/me/privacy', { showCardsOnWeb: true })).data).toMatchObject({ showCardsOnWeb: true })
+    expect(await card()).toBe(200)
   })
 
   it('applies field visibility on the passport: private to everyone else, connection-only to strangers', async () => {

@@ -561,14 +561,14 @@ less than the app does and are private by default: see [PRIVACY.md](PRIVACY.md#s
 `404 CARD_NOT_FOUND` (cached for a minute), so a card cannot be used to find out which.
 
 ### `GET /api/og/passport/{username}`
-A person's passport: name, headline, builder role, top skills, level and tier, projects shipped and achievements. A minor, and an account with no date of birth yet, is shown as `@username`, level
-and counts only. A headline or builder role set to anything but `PUBLIC` is left out. No card for a deleted, suspended, banned, age-closed, invisible-mode or high-risk account.
+A person's passport: name, headline, builder role, top skills, level and tier, projects shipped and achievements. A headline or builder role set to anything but `PUBLIC` is left out. No card for a minor
+(16 or 17), an account with no date of birth yet, someone who turned "show my cards on the web" off (`showCardsOnWeb`), or a deleted, suspended, banned, age-closed, invisible-mode or high-risk account.
 
 ### `GET /api/og/post/{id}`
-A public post: title, the start of the body (Markdown reduced to words), author, Props and comments. No card for a post that is not `PUBLIC` or was hidden, removed or deleted.
+A public post: title, the start of the body (Markdown reduced to words), author, Props and comments. No card for a post that is not `PUBLIC` or was hidden, removed or deleted, or whose author has no cards (as for the passport).
 
 ### `GET /api/og/squad/{teamId}`
-The recap of a squad after its hackathon has ended: squad, hackathon, rank, project, how many builders, and up to five `@username`s. Minors, people in invisible mode and accounts that may not be shown
+The recap of a squad after its hackathon has ended: squad, hackathon, rank, project, how many builders, and up to five `@username`s. People who have no cards (minors, people who turned cards off, invisible mode, accounts that may not be shown)
 are counted, not named. No card before the hackathon ends, or for one that is not public.
 
 ### `GET /api/og/achievement/{slug}?user={username}`
@@ -801,8 +801,9 @@ The design is in [PRIVACY.md](PRIVACY.md).
 
 ### `GET /api/users/me/privacy` and `PATCH /api/users/me/privacy`
 `{ fieldVisibility: { bio|headline|location|website|githubUsername|twitterUsername|linkedinUrl|availability|builderRole|timezone: PUBLIC|CONNECTIONS|PRIVATE },
-hideFromLeaderboards, hideFromRecruiters, matchingPaused, invisibleMode, whoCanMessage: EVERYONE|CONNECTIONS|NOBODY, showActivity }`. PATCH takes any
-subset (unknown keys refused) and returns all of them. Audited.
+hideFromLeaderboards, hideFromRecruiters, matchingPaused, invisibleMode, whoCanMessage: EVERYONE|CONNECTIONS|NOBODY, showActivity, showCardsOnWeb, cardsAvailable }`. PATCH takes any
+subset (unknown keys refused; `cardsAvailable` is read-only) and returns all of them. Audited. `showCardsOnWeb` ("Show my cards on the web") is whether the public share images may be drawn for the caller:
+on by default for an adult. `cardsAvailable` is false for a minor (16 or 17) and for an account with no date of birth yet; their `showCardsOnWeb` reads `false`, and turning it on is `400 CARDS_NOT_AVAILABLE` (turning it off is always fine).
 
 ### `POST /api/users/me/export` and `GET /api/users/me/export`
 POST honours `Idempotency-Key`; 5 a day. Starts building an export of everything held about the caller; **`202`** `{ export }` (an export already being
@@ -1329,6 +1330,7 @@ and a unit test fails if a code is missing here.
 | `AGE_BELOW_MINIMUM` | 403 | You need to be at least {minAge} to use Skill Dating |
 | `BIRTH_DATE_REQUIRED` | 400 | Your date of birth is required |
 | `MINOR_LOCATION_LIMITED` | 400 | Accounts for people under 18 can share a country, not a city, campus or place |
+| `CARDS_NOT_AVAILABLE` | 400 | Share cards on the web are for accounts that are 18 or older with a date of birth on file |
 | `BIRTHDATE_CORRECTION_SELF_ONLY` | 400 | A date of birth correction is a request about your own account |
 | `STORAGE_UNAVAILABLE` | 503 | Uploads are not available right now |
 | `MEDIA_NOT_FOUND` | 404 | Media not found |

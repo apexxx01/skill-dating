@@ -815,7 +815,8 @@ closed: show "You can't {post / message / use the romance mode} until {date}" wh
 ### Privacy settings (`/settings/privacy`)
 
 One page over `GET/PATCH /api/users/me/privacy`: a visibility picker (Everyone / Connections / Only me) for each passport field in `fieldVisibility`;
-switches for `hideFromLeaderboards`, `hideFromRecruiters` ("Recruiters" may say "coming soon"), `matchingPaused`, `invisibleMode`, `showActivity`; and
+switches for `hideFromLeaderboards`, `hideFromRecruiters` ("Recruiters" may say "coming soon"), `matchingPaused`, `invisibleMode`, `showActivity`, and **"Show my cards on the web"** (`showCardsOnWeb`:
+the public share images; when `cardsAvailable` is false, which is every minor and every account with no date of birth yet, show it off and disabled with "Share cards are for accounts 18 and older", because turning it on is `400 CARDS_NOT_AVAILABLE`); and
 `whoCanMessage` (Everyone / People I'm connected with / Nobody). PATCH only what changed; the response is the whole state. Blocked and muted people are
 listed here too (`GET /api/blocks`, `GET /api/mutes`).
 
@@ -931,7 +932,7 @@ Put the card in the page's metadata so a pasted link previews:
 ```
 
 Passport `/api/og/passport/{username}`, post `/api/og/post/{id}`, squad recap `/api/og/squad/{teamId}` (after the hackathon has ended), achievement `/api/og/achievement/{slug}?user={username}`. A card that may not be shown
-is a `404`: do not set the tag for a private or hidden page. The card is a day old at worst; there is no way to purge one. The layout is deliberately plain: restyle it in `src/lib/og/layout.ts` (the data is
+is a `404`: do not set the tag for a private or hidden page, or for a person with `showCardsOnWeb` off or who is a minor (a page for a minor's profile has no card). The card is a day old at worst; there is no way to purge one. The layout is deliberately plain: restyle it in `src/lib/og/layout.ts` (the data is
 `src/lib/og/models.ts`), bump `LAYOUT_VERSION` when you do.
 
 ### Invites and campuses

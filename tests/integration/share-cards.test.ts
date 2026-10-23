@@ -87,17 +87,29 @@ describe('share cards', () => {
       expect(await isPng(fallback)).toBe(true)
     })
 
-    it('shows a minor, or a person with no date of birth yet, as a username with a level, and nothing else', async () => {
-      const skill = await testPrisma.skill.upsert({ where: { slug: `og-${tag}` }, update: {}, create: { name: `Skill ${tag}`, slug: `og-${tag}`, category: 'Test' } })
+    it('has no card for a minor (16 or 17), or for a person with no date of birth yet, whatever their settings say', async () => {
       for (const birthDate of [bornYearsAgo(16, 40), bornYearsAgo(17, 100), null]) {
         const kid = await person({ name: 'Young Person', headline: 'Learning', role: 'Student', birthDate })
-        await testPrisma.userSkill.create({ data: { userId: kid.id, skillId: skill.id, level: 3 } })
-        const card = (await passportCard(testPrisma, kid.username))!
-        expect(card).toMatchObject({ username: kid.username, name: null, headline: null, role: null, skills: [] })
-        expect(JSON.stringify(card)).not.toMatch(/Young Person|Learning|Student|Skill /)
+        expect(await passportCard(testPrisma, kid.username)).toBeNull()
+        // Even a stored "on" (which the switch itself refuses for them) draws nothing.
+        await testPrisma.profile.upsert({ where: { userId: kid.id }, create: { userId: kid.id, showCardsOnWeb: true }, update: { showCardsOnWeb: true } })
+        expect(await passportCard(testPrisma, kid.username)).toBeNull()
+        const res = await get(`/api/og/passport/${kid.username}`)
+        expect(res.status).toBe(404)
+        expect((await res.json()).error.code).toBe('CARD_NOT_FOUND')
       }
-      await testPrisma.userSkill.deleteMany({ where: { skillId: skill.id } })
-      await testPrisma.skill.delete({ where: { id: skill.id } })
+    })
+
+    it('has no card for an adult who turned "show my cards on the web" off, and has one again when they turn it back on', async () => {
+      const a = await person({ name: 'Private Adult' })
+      expect((await get(`/api/og/passport/${a.username}`)).status).toBe(200)
+      await testPrisma.profile.upsert({ where: { userId: a.id }, create: { userId: a.id, showCardsOnWeb: false }, update: { showCardsOnWeb: false } })
+      const res = await get(`/api/og/passport/${a.username}`)
+      expect(res.status).toBe(404)
+      expect((await res.json()).error.code).toBe('CARD_NOT_FOUND')
+      expect(await passportCard(testPrisma, a.username)).toBeNull()
+      await testPrisma.profile.update({ where: { userId: a.id }, data: { showCardsOnWeb: true } })
+      expect((await get(`/api/og/passport/${a.username}`)).status).toBe(200)
     })
 
     it('shows an adult’s name, headline, role and top skills, but only the fields they left public', async () => {
@@ -160,10 +172,20 @@ describe('share cards', () => {
       expect(await postCard(testPrisma, row.id)).toMatchObject({ title: 'My first ship', excerpt: 'It works. See the repo.', author: `Ada Lovelace (@${a.username})`, propsCount: 5, commentCount: 2, postKind: 'SHIP' })
     })
 
-    it('names only the username when the author is a minor', async () => {
+    it('has no card for a post whose author turned their cards off', async () => {
+      const a = await person({ name: 'Private Author' })
+      const row = await makePost(a.id)
+      expect((await get(`/api/og/post/${row.id}`)).status).toBe(200)
+      await testPrisma.profile.upsert({ where: { userId: a.id }, create: { userId: a.id, showCardsOnWeb: false }, update: { showCardsOnWeb: false } })
+      expect(await postCard(testPrisma, row.id)).toBeNull()
+      expect((await get(`/api/og/post/${row.id}`)).status).toBe(404)
+    })
+
+    it('has no card for a post whose author is a minor', async () => {
       const kid = await person({ name: 'Young Person', birthDate: bornYearsAgo(16, 40) })
       const row = await makePost(kid.id)
-      expect((await postCard(testPrisma, row.id))!.author).toBe(`@${kid.username}`)
+      expect(await postCard(testPrisma, row.id)).toBeNull()
+      expect((await get(`/api/og/post/${row.id}`)).status).toBe(404)
     })
 
     it('has no card for a post that is not public, or was hidden, removed or deleted, or whose author may not be shown', async () => {
@@ -191,6 +213,8 @@ describe('share cards', () => {
       const kid = await person({ name: 'Young Member', birthDate: bornYearsAgo(16, 40) })
       const invisible = await person({ name: 'Hidden Member' })
       await testPrisma.profile.create({ data: { userId: invisible.id, invisibleMode: true } })
+      const cardsOff = await person({ name: 'Private Member' })
+      await testPrisma.profile.create({ data: { userId: cardsOff.id, showCardsOnWeb: false } })
       const hackathon = await testPrisma.hackathon.create({
         data: { name: `Hack ${tag}`, slug: `hack-${tag}-${Math.random().toString(36).slice(2, 7)}`, description: 'x', startDate: new Date(Date.now() - 3 * 86_400_000), endDate: new Date(Date.now() - 86_400_000), status: 'ENDED', ...over.hackathon },
       })
@@ -199,22 +223,23 @@ describe('share cards', () => {
       created.projects.push(project.id)
       const team = await testPrisma.team.create({ data: { name: `Team ${tag}`, slug: `team-${Math.random().toString(36).slice(2)}`, ownerId: owner.id, hackathonId: hackathon.id, projectId: project.id } })
       created.teams.push(team.id)
-      for (const m of [owner, adult, kid, invisible]) await testPrisma.teamMember.create({ data: { teamId: team.id, userId: m.id, role: m.id === owner.id ? 'OWNER' : 'MEMBER' } })
+      for (const m of [owner, adult, kid, invisible, cardsOff]) await testPrisma.teamMember.create({ data: { teamId: team.id, userId: m.id, role: m.id === owner.id ? 'OWNER' : 'MEMBER' } })
       await testPrisma.hackathonTeam.create({ data: { hackathonId: hackathon.id, teamId: team.id, name: `Squad ${tag}`, rank: 3 } })
-      return { team, owner, adult, kid, invisible }
+      return { team, owner, adult, kid, invisible, cardsOff }
     }
 
     it('recaps a squad after its hackathon, naming adults who can be found and only counting the rest', async () => {
-      const { team, owner, adult, kid, invisible } = await squad()
+      const { team, owner, adult, kid, invisible, cardsOff } = await squad()
       const res = await get(`/api/og/squad/${team.id}`)
       expect(res.status).toBe(200)
       expect(await isPng(res)).toBe(true)
       const card = (await squadCard(testPrisma, team.id))!
-      expect(card).toMatchObject({ squad: `Squad ${tag}`, hackathon: `Hack ${tag}`, rank: 3, project: `Built ${tag}`, memberCount: 4, unnamed: 2 })
+      expect(card).toMatchObject({ squad: `Squad ${tag}`, hackathon: `Hack ${tag}`, rank: 3, project: `Built ${tag}`, memberCount: 5, unnamed: 3 })
       expect(card.members.sort()).toEqual([`@${owner.username}`, `@${adult.username}`].sort())
       expect(JSON.stringify(card)).not.toContain(kid.username)
       expect(JSON.stringify(card)).not.toContain(invisible.username)
-      expect(JSON.stringify(card)).not.toMatch(/Young Member|Hidden Member/)
+      expect(JSON.stringify(card)).not.toContain(cardsOff.username)
+      expect(JSON.stringify(card)).not.toMatch(/Young Member|Hidden Member|Private Member/)
     })
 
     it('has no recap before the hackathon is over, or for one that is not public or was hidden', async () => {
@@ -265,11 +290,21 @@ describe('share cards', () => {
       }
     })
 
-    it('shows a minor only as their username', async () => {
+    it('has no card for someone who turned their cards off', async () => {
+      const a = await person({ name: 'Private Holder' })
+      const ach = await achievement()
+      await testPrisma.userAchievement.create({ data: { userId: a.id, achievementId: ach.id } })
+      expect(await achievementCard(testPrisma, ach.slug, a.username)).not.toBeNull()
+      await testPrisma.profile.upsert({ where: { userId: a.id }, create: { userId: a.id, showCardsOnWeb: false }, update: { showCardsOnWeb: false } })
+      expect(await achievementCard(testPrisma, ach.slug, a.username)).toBeNull()
+      expect((await get(`/api/og/achievement/${ach.slug}?user=${a.username}`)).status).toBe(404)
+    })
+
+    it('has no card for a minor', async () => {
       const kid = await person({ name: 'Young Person', birthDate: bornYearsAgo(16, 40) })
       const ach = await achievement()
       await testPrisma.userAchievement.create({ data: { userId: kid.id, achievementId: ach.id } })
-      expect((await achievementCard(testPrisma, ach.slug, kid.username))!.holder).toBe(`@${kid.username}`)
+      expect(await achievementCard(testPrisma, ach.slug, kid.username)).toBeNull()
     })
   })
 

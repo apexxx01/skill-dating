@@ -52,6 +52,7 @@ version in force of each document is config, `src/config/legal-versions.json`.
 | `invisibleMode` | left out of people search (`GET /api/users`) and discovery (`GET /api/discover`) |
 | `whoCanMessage` | `EVERYONE`, `CONNECTIONS` or `NOBODY` may start a direct conversation (`403 MESSAGING_NOT_ALLOWED`); rooms already shared stay open |
 | `showActivity` | whether others see the heatmap and the streak |
+| `showCardsOnWeb` | "Show my cards on the web": whether the public share images may be drawn for the person. On by default for an adult; never in force for a minor (16 or 17) or an account with no date of birth yet, who cannot turn it on (`400 CARDS_NOT_AVAILABLE`) |
 
 ## Export (`src/lib/privacy/export.ts`)
 
@@ -218,16 +219,16 @@ search cannot be used to read a private headline), and no romance data is read. 
 A share card (`/api/og/...`) is a public image: anyone with the link can fetch it, signed in or not, and it ends up in link previews. So it shows less than the app:
 
 - **Never**: e-mail, bio, links, location, the date of birth, the romance mode, anything of a private or hidden thing.
-- **A minor, or an account with no date of birth yet**: `@username`, level and counts only.
+- **The switch.** "Show my cards on the web" (`showCardsOnWeb`, `PATCH /api/users/me/privacy`) is on by default for an adult, and turning it off removes every card of the person (passport, their posts, their achievements, and their name on a squad recap) from a fresh request.
+- **A minor (16 or 17), or an account with no date of birth yet, has no cards at all**, whatever the switch says; they cannot turn it on. (`cardsAllowed` in `src/lib/age-policy.ts`: the switch is checked in `holderOf`, `src/lib/og/data.ts`.) The switch is not changed on someone's 18th birthday: if they never turned it off, their cards begin then, as for any adult.
 - **Fields**: the headline and builder role only when they are `PUBLIC` (which in the app means "everyone signed in"); the name is shown only if the fonts can draw it, else the username.
 - **No card at all** (the same `404` as for a card that never existed) for an account that is deleted, age-closed, suspended, banned, in invisible mode or at a high risk level; for a post that is not public or
   was hidden or removed; for a squad before its hackathon ends; for an achievement not earned.
-- **Squads** name only adults who can be found; the rest are counted.
+- **Squads** name only people who have cards; the rest (minors, people who turned cards off, invisible mode) are counted.
 - **Caching.** Browsers and shared caches may keep a card for a day (and serve it a week more while a new one is made). A person who goes private is gone from a fresh request at once, but a copy a cache
   already holds can live up to that long; a person cannot purge it. This is a trade-off for the cost of drawing, and an open question for a product decision below.
 
-**Open question (product decision):** the cards expose "signed-in public" fields to the open web. If that is not acceptable, the smallest change is one switch on the profile ("allow share cards", on by default or
-off by default) checked by `holderOf` in `src/lib/og/data.ts`; nothing else would change.
+The cards show "signed-in public" fields to the open web, so the person decides: the switch above, on by default for adults and forced off for minors. *Confirm the default in legal review.*
 
 ## Invites and campuses (Stage 1G)
 
