@@ -85,6 +85,7 @@ export const EXTRA_KINDS = [
   'QUEST_COMPLETED',
   'SKILL_EVIDENCE_ENDORSED',
   'MATCH_CREATED',
+  'CARDS_ADULT',
   // Resolved from NotificationType when a notification names no kind.
   'NEW_MESSAGE',
   'TEAM_INVITATION',
@@ -170,6 +171,7 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   // --- Account and safety ---
   MODERATION: { label: 'Account and safety notices', class: 'SECURITY', exposure: 'ACCOUNT', email: { default: true, limit: perDay(10) }, push: { default: true, limit: perDay(10) }, urgency: 'high', immediate: true },
   DATA_EXPORT: { label: 'Your data export', class: 'SECURITY', email: { default: true, limit: perDay(10) }, push: none, urgency: 'normal' },
+  CARDS_ADULT: { label: 'The note on your 18th birthday about your share cards', class: 'ACTIVITY', email: none, push: { default: true, limit: perDay(1) }, urgency: 'low' },
   SYSTEM: { label: 'Other notices from the platform', class: 'ACTIVITY', email: none, push: none, urgency: 'low' },
 
   // --- Digests: account mail the platform starts itself; on by default, one-click unsubscribe per kind and for all ---
