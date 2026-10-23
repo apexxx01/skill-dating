@@ -15,6 +15,8 @@
     "db:baseline": "prisma migrate resolve --applied 20261014000000_baseline",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "seed": "tsx prisma/seed.ts",
+    "seed:demo": "tsx prisma/seed-demo.ts",
     "db:seed:clerk": "tsx prisma/seed-clerk.ts",
     "sim:progression": "tsx scripts/simulate-progression.ts",
     "bench:matching": "tsx scripts/bench-matching.ts",
