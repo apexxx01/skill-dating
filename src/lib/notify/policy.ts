@@ -9,7 +9,8 @@ import { NOTIFICATION_KINDS, type NotificationKind } from '@/lib/notification-ki
 //                from all" and ignore quiet hours; a bounced address still stops them.
 //   ACTIVITY     something somebody did to the person, or asked of them (a message, an invitation, a spark, Props). Opt-out per kind and channel; an unsubscribe link
 //                in every email.
-//   PROMOTIONAL  mail the platform starts on its own to bring a person back: digests. Needs the MARKETING consent, as well as everything an activity email needs.
+//   PROMOTIONAL  mail whose purpose is to sell or announce something. Needs the MARKETING consent, as well as everything an activity email needs. Nothing is promotional
+//                today: the digests are account mail (ACTIVITY), on by default, with an unsubscribe link per kind and for all.
 // A kind the policy gives the NEUTRAL exposure is a romance-mode kind: only "You have a new message" ever leaves the app, never who or what (src/lib/notify/templates.ts).
 
 export type DeliveryClass = 'SECURITY' | 'ACTIVITY' | 'PROMOTIONAL'
@@ -46,6 +47,8 @@ export interface KindPolicy {
   /** Kinds that share one limit count together (all the romance kinds are one). Default: the kind alone. */
   group?: string
   urgency: 'low' | 'normal' | 'high'
+  /** Sent on a schedule of its own (a digest: once a local day or week), so neither held to nor counted in the channel-wide limits. */
+  ownCadence?: boolean
 }
 
 /** Across every kind but SECURITY: no more than this on a channel. */
@@ -162,9 +165,9 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   DATA_EXPORT: { label: 'Your data export', class: 'SECURITY', email: { default: true, limit: perDay(10) }, push: none, urgency: 'normal' },
   SYSTEM: { label: 'Other notices from the platform', class: 'ACTIVITY', email: none, push: none, urgency: 'low' },
 
-  // --- Digests: mail the platform starts itself ---
-  DIGEST_DAILY: { label: 'The daily digest', class: 'PROMOTIONAL', email: { default: true }, push: never, urgency: 'low' },
-  DIGEST_WEEKLY: { label: 'The weekly digest', class: 'PROMOTIONAL', email: { default: true }, push: never, urgency: 'low' },
+  // --- Digests: account mail the platform starts itself; on by default, one-click unsubscribe per kind and for all ---
+  DIGEST_DAILY: { label: 'The daily digest', class: 'ACTIVITY', email: { default: true }, push: never, urgency: 'low', ownCadence: true },
+  DIGEST_WEEKLY: { label: 'The weekly digest', class: 'ACTIVITY', email: { default: true }, push: never, urgency: 'low', ownCadence: true },
 }
 
 export const isDeliveryKind = (value: unknown): value is DeliveryKind => typeof value === 'string' && (DELIVERY_KINDS as readonly string[]).includes(value)

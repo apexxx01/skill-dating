@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { decideDelivery, DEFAULT_SETTINGS, type DeliveryFacts, type RecentSend } from './decide'
+import { POLICY } from './policy'
 
 const NOON = new Date('2026-10-22T12:00:00Z')
 const base: DeliveryFacts = {
@@ -46,10 +47,21 @@ describe('decideDelivery', () => {
     expect(decide({ kind: 'MODERATION', channel: 'EMAIL', suppressed: true })).toEqual({ action: 'SKIP', reason: 'SUPPRESSED' })
   })
 
-  it('requires the marketing consent for a digest, and only for those', () => {
-    expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined })).toEqual({ action: 'SKIP', reason: 'NO_CONSENT' })
-    expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined, marketingConsent: true })).toEqual({ action: 'SEND' })
-    expect(decide({ kind: 'NEW_MESSAGE', channel: 'EMAIL' })).toEqual({ action: 'SEND' })
+  it('sends a digest without the marketing consent: it is account mail, on by default', () => {
+    expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined })).toEqual({ action: 'SEND' })
+    expect(decide({ kind: 'DIGEST_WEEKLY', channel: 'EMAIL', createdAt: undefined, marketingConsent: false })).toEqual({ action: 'SEND' })
+    expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined, preference: false })).toEqual({ action: 'SKIP', reason: 'CHANNEL_OFF' })
+  })
+
+  it('requires the marketing consent for a promotional kind, when there is one', () => {
+    const original = POLICY.SYSTEM.class
+    POLICY.SYSTEM.class = 'PROMOTIONAL'
+    try {
+      expect(decide({ kind: 'SYSTEM', channel: 'EMAIL', preference: true })).toEqual({ action: 'SKIP', reason: 'NO_CONSENT' })
+      expect(decide({ kind: 'SYSTEM', channel: 'EMAIL', preference: true, marketingConsent: true })).toEqual({ action: 'SEND' })
+    } finally {
+      POLICY.SYSTEM.class = original
+    }
   })
 
   it('sends an account notice whatever the switches, the preferences and the hour say', () => {
@@ -97,7 +109,7 @@ describe('decideDelivery', () => {
 
     it('does not count digests against the email cap, or hold a digest to it', () => {
       const six = sends('NEW_MESSAGE', 6, 300)
-      expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined, marketingConsent: true, recent: six })).toEqual({ action: 'SEND' })
+      expect(decide({ kind: 'DIGEST_DAILY', channel: 'EMAIL', createdAt: undefined, recent: six })).toEqual({ action: 'SEND' })
       expect(decide({ kind: 'NEW_MESSAGE', channel: 'EMAIL', recent: [...sends('DIGEST_DAILY', 6, 300)] })).toEqual({ action: 'SEND' })
     })
   })

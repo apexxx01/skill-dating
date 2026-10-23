@@ -37,7 +37,7 @@ version in force of each document is config, `src/config/legal-versions.json`.
   it (`DELETE /api/users/me/consents/ROMANCE_MODE`) turns the mode off **and deletes** the profile, its private filters, the photos and their objects,
   drops, pending sparks and the reveal state; open romance matches end silently (`src/lib/romance/consent.ts`). Kept: the consent record itself (proof
   of the lawful basis for what happened while it was given) and what moderation or the law holds (reports, actions, the audit trail).
-- **Marketing** is off unless granted. It is what the two digest emails need (they are mail the platform starts itself to bring a person back: [NOTIFICATIONS.md](NOTIFICATIONS.md#classes)); nothing else is sent under it. Withdrawing it (`DELETE /api/users/me/consents/MARKETING`) stops the digests at the next run.
+- **Marketing** is off unless granted. It covers promotional mail only, and **no mail is promotional today**: the two digest emails are account mail, not marketing (below), so granting or withdrawing this consent changes nothing that is sent now. The pipeline checks it for any promotional kind added later ([NOTIFICATIONS.md](NOTIFICATIONS.md#classes)). Withdrawing it is `DELETE /api/users/me/consents/MARKETING`.
 
 ## Privacy settings (`src/lib/privacy/settings.ts`)
 
@@ -201,7 +201,7 @@ consent records are kept as the security and legal record; their retention perio
 - **Account notices say only that there is one.** A moderation decision is emailed and pushed as "You have an account notice", not as what it says.
 - **Control.** Per kind and channel, globally, with quiet hours in the person's own zone (`GET/PUT /api/notifications/channels`); one-click unsubscribe in every optional email, per kind and for all, by signed links
   and the `List-Unsubscribe` headers. Account notices cannot be switched off (they are the platform telling a person something about their account), and a bounced address stops them too.
-- **Digests need the MARKETING consent.** No consent, no digest, whatever else is switched on.
+- **Digests are account mail, not marketing.** The daily and weekly digests are on by default and need no consent; each carries a one-click unsubscribe for its kind and for all mail, and is switched off by the digest or email switches. *Treating them as account mail rather than marketing is a legal position: confirm in legal review before launch.* Only promotional mail needs the MARKETING consent, and none exists yet.
 - **Bounces.** An address that bounced for good or was reported as spam is suppressed by address (`EmailSuppression`), not by account, and kept after the account is deleted: forgetting a bounced address
   would start mailing a dead mailbox, or a person who complained, again. It holds the address and the reason and nothing else; it is a legitimate-interest record and is the one place an address
   outlives the account. It is not exported (it is not about the person's use of the product).

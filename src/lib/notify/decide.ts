@@ -82,8 +82,8 @@ export function decideDelivery(facts: DeliveryFacts): Decision {
   // Account notices are exempt from the channel-wide limits; a flood of them is a bug to see, not something to hide.
   if (!security) {
     // Digests have their own cadence (once a local day or week); the limits are for notifications.
-    const counted = (send: RecentSend) => POLICY[send.kind].class !== 'SECURITY' && POLICY[send.kind].class !== 'PROMOTIONAL'
-    if (policy.class !== 'PROMOTIONAL' && CHANNEL_LIMITS[channel].some((limit) => exceeds(facts.recent, now, limit, counted))) return { action: 'SKIP', reason: 'RATE_LIMIT' }
+    const counted = (send: RecentSend) => POLICY[send.kind].class !== 'SECURITY' && !POLICY[send.kind].ownCadence
+    if (!policy.ownCadence && CHANNEL_LIMITS[channel].some((limit) => exceeds(facts.recent, now, limit, counted))) return { action: 'SKIP', reason: 'RATE_LIMIT' }
   }
   return { action: 'SEND' }
 }

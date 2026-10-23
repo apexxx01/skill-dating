@@ -19,8 +19,8 @@ import { renderDigestEmail, type DigestSection } from './templates'
 //            names), squad deadlines (registration closing with no squad, a submission due), and, only beside one of those, how many daily quests are open.
 //   weekly   Monday from 09:00 local: the Ship Day recap, the person's streak and the last 7 days, their season standing.
 //
-// Each is PROMOTIONAL (policy.ts): it needs the MARKETING consent, the person's digest switch, a verified address that has not bounced, and a person who was
-// here in the last 60 days. It is skipped when there is nothing worth saying, and the run says so instead of mailing "a quiet week". Nothing here reads romance data.
+// Each is account mail (ACTIVITY in policy.ts), on by default: it needs the person's digest switch, a verified address that has not bounced, and a person who was
+// here in the last 60 days; every one carries a one-click unsubscribe for the kind and for all mail. It is skipped when there is nothing worth saying, and the run says so instead of mailing "a quiet week". Nothing here reads romance data.
 
 export const DAILY_DIGEST_DEFAULT_DROP_TIME = '09:00'
 export const DAILY_DIGEST_LAST_HOUR = '20:00'
@@ -223,7 +223,7 @@ export function digestDue(kind: DigestKind, now: Date, timezone: string | null, 
 /** The digest for one person if it is due and worth sending, and its record. Never throws for one person's trouble. */
 export async function sendDigest(db: PrismaClient, deps: DispatchDeps, kind: DigestKind, userId: string, now: Date): Promise<DigestOutcome> {
   const ctx = await loadContext(db, userId, now)
-  if (!ctx || !ctx.email || ctx.suppressed || !ctx.marketing) return 'NOT_ELIGIBLE'
+  if (!ctx || !ctx.email || ctx.suppressed) return 'NOT_ELIGIBLE'
   const wanted = kind === 'DIGEST_DAILY' ? ctx.settings.dailyDigest : ctx.settings.weeklyDigest
   if (!ctx.settings.emailEnabled || !wanted) return 'NOT_ELIGIBLE'
   const row = await db.user.findUnique({
@@ -287,14 +287,13 @@ export interface DigestRunResult {
 
 const DIGEST_BATCH = 500
 
-/** People who gave the MARKETING consent and have not withdrawn it, not dormant, not deleted, after `after`: the only people a digest can go to. */
+/** People with a verified address who are not dormant or deleted, after `after`: the only people a digest can go to. */
 async function candidates(db: PrismaClient, now: Date, after: string | undefined): Promise<string[]> {
   const rows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u."id" FROM "User" u
     WHERE u."deletedAt" IS NULL AND u."isEmailVerified" = true
       AND u."lastActiveAt" >= ${utcTimestamp(new Date(now.getTime() - DORMANT_AFTER_DAYS * DAY_MS))}
       AND ${after ?? ''} < u."id"
-      AND (SELECT c."withdrawnAt" IS NULL FROM "ConsentRecord" c WHERE c."userId" = u."id" AND c."type" = 'MARKETING' ORDER BY c."grantedAt" DESC LIMIT 1) = true
     ORDER BY u."id" ASC LIMIT ${DIGEST_BATCH}
   `)
   return rows.map((row) => row.id)

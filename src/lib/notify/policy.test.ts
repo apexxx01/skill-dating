@@ -39,15 +39,17 @@ describe('the channel policy', () => {
     expect(POLICY.MODERATION.class).toBe('SECURITY')
   })
 
-  it('makes the digests promotional and email-only', () => {
+  it('makes the digests account mail on their own cadence, on by default and email-only', () => {
     for (const kind of ['DIGEST_DAILY', 'DIGEST_WEEKLY'] as const) {
-      expect(POLICY[kind].class).toBe('PROMOTIONAL')
+      expect(POLICY[kind].class).toBe('ACTIVITY')
+      expect(POLICY[kind].ownCadence).toBe(true)
+      expect(POLICY[kind].email.default).toBe(true)
       expect(POLICY[kind].push.unavailable).toBe(true)
     }
   })
 
-  it('never makes an activity kind promotional by accident: only the digests are', () => {
-    expect(DELIVERY_KINDS.filter((kind) => POLICY[kind].class === 'PROMOTIONAL').sort()).toEqual(['DIGEST_DAILY', 'DIGEST_WEEKLY'])
+  it('has no promotional kind: anything that needs the marketing consent is a product decision made on purpose', () => {
+    expect(DELIVERY_KINDS.filter((kind) => POLICY[kind].class === 'PROMOTIONAL')).toEqual([])
   })
 })
 

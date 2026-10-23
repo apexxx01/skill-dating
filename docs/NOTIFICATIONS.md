@@ -45,8 +45,10 @@ directly), and a unit test fails when one is missing. Each kind has:
   (exposure `ACCOUNT`): a suspension is not for a lock screen. Only a bounced address stops them.
 - `ACTIVITY`: something somebody did to the person or asked of them (a message, an invitation, a match, Props, a comment). Opt-out per kind and channel; every
   email carries an unsubscribe link.
-- `PROMOTIONAL`: mail the platform starts itself, which today means the two digests. Needs the **MARKETING consent** (`ConsentRecord`, `POST /api/users/me/consents`)
-  as well as everything an activity email needs.
+- `PROMOTIONAL`: mail whose purpose is to sell or announce something. Needs the **MARKETING consent** (`ConsentRecord`, `POST /api/users/me/consents`) as well as
+  everything an activity email needs. **Nothing is promotional today.** The two digests are account mail (`ACTIVITY`, with a cadence of their own): on by default,
+  with a one-click unsubscribe per kind and for all, and no consent. *Classing them this way is a legal position: confirm in legal review before launch.* The rule stays
+  in the pipeline (step 5), so a promotional kind can be added without new code, and a unit test fails if one appears by accident.
 
 **Defaults** are conservative: email on for things a person would want to know about the same day (invitations, matches, messages, squad changes, hackathon
 reminders), off for the noisy ones (Props, follows, watched projects, endorsements); push on for the same plus comments and Props, off for follows and watched
@@ -66,7 +68,7 @@ meantime counts.
 7. Written more than 18 hours ago: skip (`STALE`). Recorded.
 8. Not `SECURITY` and inside the person's quiet hours: **hold** until they end, in the person's own time zone (`User.timezone`, UTC when unset).
 9. The kind's (or group's) limit for the channel is reached: skip (`RATE_LIMIT`). Recorded.
-10. Not `SECURITY` or promotional: the channel-wide limits are reached (email 6 a day; push 3 an hour and 10 a day): skip. Recorded.
+10. Not `SECURITY` and not on its own cadence (a digest): the channel-wide limits are reached (email 6 a day; push 3 an hour and 10 a day): skip. Recorded.
 11. Send.
 
 Skips that are the normal state of a channel nobody uses (steps 1, 2, 4, 5) leave no row. The others do, with the reason, so "why did I not get it" is answerable.

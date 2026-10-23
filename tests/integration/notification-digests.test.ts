@@ -38,9 +38,9 @@ describe('notification digests', () => {
     await cleanupTestUsers(suffix)
   }, 120_000)
 
-  /** A person who gave the marketing consent, was here today, and has a drop time of 09:00. */
+  /** A person who was here today and has a drop time of 09:00. The marketing consent is not needed: a digest is account mail. */
   async function reader(options: Partial<FixtureOptions> & { consent?: boolean } = {}) {
-    const { consent = true, ...rest } = options
+    const { consent = false, ...rest } = options
     const person = await makePerson({ tag, timezone: 'UTC', dropTimeLocal: '09:00', ...rest })
     if (consent) await testPrisma.consentRecord.create({ data: { userId: person.id, type: 'MARKETING', version: '2026-10-01', source: 'settings' } })
     return person
@@ -174,17 +174,17 @@ describe('notification digests', () => {
   })
 
   describe('who gets one', () => {
-    it('needs the marketing consent, and stops when it is withdrawn', async () => {
-      const without = await reader({ consent: false })
+    it('does not need the marketing consent, and is not stopped by withdrawing it: it is account mail, on by default', async () => {
+      const without = await reader()
       const b = await sender()
       await drop(without.id, b.id)
-      expect(await dailyOutcome(without.id)).toBe('NOT_ELIGIBLE')
+      expect(await dailyOutcome(without.id)).toBe('SENT')
 
-      const withdrawn = await reader()
+      const withdrawn = await reader({ consent: true })
       await drop(withdrawn.id, b.id)
       await testPrisma.consentRecord.updateMany({ where: { userId: withdrawn.id, type: 'MARKETING' }, data: { withdrawnAt: new Date() } })
-      expect(await dailyOutcome(withdrawn.id)).toBe('NOT_ELIGIBLE')
-      expect(email.outbox).toHaveLength(0)
+      expect(await dailyOutcome(withdrawn.id)).toBe('SENT')
+      expect(email.outbox).toHaveLength(2)
     })
 
     it('needs the digest and email switches on', async () => {
@@ -213,16 +213,17 @@ describe('notification digests', () => {
       expect(email.outbox).toHaveLength(0)
     })
 
-    it('is found by the hourly run among the people who gave the consent, and no one else', async () => {
+    it('is found by the hourly run among the people who are eligible, and not the ones who turned it off', async () => {
       const yes = await reader()
-      const no = await reader({ consent: false })
+      const off = await reader()
       const b = await sender()
       await drop(yes.id, b.id)
-      await drop(no.id, b.id)
+      await drop(off.id, b.id)
+      await saveSettings(testPrisma, off.id, { dailyDigest: false })
       const result = await runDigests(testPrisma, 'DIGEST_DAILY', { now: THURSDAY, deps: deps(THURSDAY) })
       expect(result.sent).toBeGreaterThanOrEqual(1)
       expect(email.to(await addressOf(yes.id))).toHaveLength(1)
-      expect(email.to(await addressOf(no.id))).toHaveLength(0)
+      expect(email.to(await addressOf(off.id))).toHaveLength(0)
     })
   })
 

@@ -697,7 +697,7 @@ export interface NotificationChannelsResponse {
     weeklyDigest: boolean
   }
   kinds: NotificationChannelKind[]
-  /** Digests are promotional mail: they need this consent (POST /api/users/me/consents). */
+  /** The consent promotional mail would need (POST /api/users/me/consents). No mail is promotional yet: the digests are account mail and do not need it. */
   marketingConsent: boolean
   push: { devices: number; configured: boolean }
   /** `undeliverable`: mail to the address bounced or was reported as spam, so no email is sent until it changes. */

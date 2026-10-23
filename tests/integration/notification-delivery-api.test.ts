@@ -28,7 +28,7 @@ describe('notification delivery routes', () => {
   const device = (id: string) => ({ endpoint: `https://push.example.test/${suffix}/${id}`, keys, label: 'Chrome on macOS' })
 
   describe('GET /api/notifications/channels and PUT', () => {
-    it('shows the defaults: everything on that the policy turns on, quiet hours 22:00 to 08:00, digests on but needing the marketing consent', async () => {
+    it('shows the defaults: everything on that the policy turns on, quiet hours 22:00 to 08:00, digests on, with no consent needed', async () => {
       const a = await user('def')
       const res = await req(a.jar, 'GET', '/api/notifications/channels')
       expect(res.status).toBe(200)
@@ -40,7 +40,7 @@ describe('notification delivery routes', () => {
       expect(byKind.SQUAD_INVITE.email).toEqual({ enabled: true, default: true, available: true })
       expect(byKind.PROPS.email.enabled).toBe(false)
       expect(byKind.DIGEST_DAILY.push.available).toBe(false)
-      expect(byKind.DIGEST_DAILY.class).toBe('PROMOTIONAL')
+      expect(byKind.DIGEST_DAILY.class).toBe('ACTIVITY')
       // Account notices are not a choice.
       expect(byKind.MODERATION).toBeUndefined()
       expect(byKind.DATA_EXPORT).toBeUndefined()

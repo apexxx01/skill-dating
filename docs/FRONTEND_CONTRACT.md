@@ -885,10 +885,10 @@ One page over `GET /api/notifications/channels` (and `PUT`, which answers with t
 - **Two global switches** (`settings.emailEnabled`, `settings.pushEnabled`) and **quiet hours** (`settings.quietHours`: `enabled`, `start`, `end` as `"22:00"` local times; they may cross midnight).
   Say which time zone they follow (the profile's, `GET /api/users/me/profile`).
 - **Per kind, two switches** (`kinds[].email`, `kinds[].push`): `enabled` is what is on now, `default` what it is until the person chooses, `available: false` means the kind is never sent on that channel (hide
-  the switch; the digests are email only). Group them by `class`: `ACTIVITY` (things people did to you or asked of you) and `PROMOTIONAL` (the two digests). Show **account and safety notices as a fixed
+  the switch; the digests are email only). Every kind today is `ACTIVITY` (things people did to you or asked of you, and the two digests); `PROMOTIONAL` is reserved for marketing mail and none exists yet. Show **account and safety notices as a fixed
   line** that cannot be switched ("We always tell you about your account and safety by email"): they are not in `kinds`.
-- **Digests** need the marketing consent: when `marketingConsent` is false, show the digest switches as off with the reason and a button that records the consent
-  (`POST /api/users/me/consents { type: "MARKETING", version, source: "settings" }`); `settings.dailyDigest` and `settings.weeklyDigest` are the person's own switches beside it.
+- **Digests** are account mail: on by default, no consent needed. `settings.dailyDigest` and `settings.weeklyDigest` are the person's own switches; every digest email also has a one-click unsubscribe.
+  `marketingConsent` is for promotional mail, which does not exist yet: do not gate the digest switches on it.
 - **Undeliverable mail.** When `email.undeliverable` is true, show a banner: mail to the address bounced or was reported, nothing is sent (not even account notices) until the address changes. When
   `email.verified` is false, say mail only goes to a verified address.
 - A kind's label is `label`. The romance mode's kinds are shown, labelled neutrally ("Activity in a private mode"), because the person turned the mode on; nothing about them is ever in an email or push.

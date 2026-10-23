@@ -120,7 +120,7 @@ event-driven `privacy/export` and `media/scan`. Its migrations are additive (new
 2. Set `RESEND_API_KEY`, `EMAIL_FROM` and `APP_URL`.
 3. In Resend, Webhooks, add an endpoint `https://<app>/api/webhooks/email` for the events `email.bounced` and `email.complained` (the others are acknowledged and ignored) and
    copy its signing secret into `RESEND_WEBHOOK_SECRET`.
-4. Check it: sign in as a test account, give it the MARKETING consent, and trigger a notification that emails by default (a squad invitation); the mail should arrive with a
+4. Check it: sign in as a test account, trigger a notification that emails by default (a squad invitation); the mail should arrive with a
    *Unsubscribe* button in the mail client (the `List-Unsubscribe` header). Then send the webhook test event from Resend and look for `200 {"handled":…}`.
 5. Mail is sent by the `notifications/deliver` job (every three minutes) and the digests by `digests/daily` and `digests/weekly` (hourly). All three need Inngest.
 6. To stop all email and push at once without a deploy, turn on `kill.notification-delivery` ([below](#kill-switches)).
