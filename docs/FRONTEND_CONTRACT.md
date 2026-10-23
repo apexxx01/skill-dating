@@ -931,7 +931,10 @@ Put the card in the page's metadata so a pasted link previews:
 <meta name="twitter:card" content="summary_large_image">
 ```
 
-Passport `/api/og/passport/{username}`, post `/api/og/post/{id}`, squad recap `/api/og/squad/{teamId}` (after the hackathon has ended), achievement `/api/og/achievement/{slug}?user={username}`. A card that may not be shown
+Passport `/api/og/passport/{username}`, post `/api/og/post/{id}`, squad recap `/api/og/squad/{teamId}` (after the hackathon has ended), achievement `/api/og/achievement/{slug}?user={username}`.
+**Do not build these addresses by hand: ask for them.** `GET /api/og/link?kind=passport|post|squad|achievement&id=...&user=...` (public, no session) answers `{ path, url }` with a version in it (`...?v=3f9a1c2b7d10`)
+that changes whenever the person, post, squad or achievement is edited, so a link preview never shows a day-old picture of an edit; use `url` (absolute) in `og:image`. `{ path: null, url: null }` means there is no card:
+leave the tag out. Call it where the page's metadata is made (server side); the cards keep their day-long cache. A card that may not be shown
 is a `404`: do not set the tag for a private or hidden page, or for a person with `showCardsOnWeb` off or who is a minor (a page for a minor's profile has no card). The card is a day old at worst; there is no way to purge one. The layout is deliberately plain: restyle it in `src/lib/og/layout.ts` (the data is
 `src/lib/og/models.ts`), bump `LAYOUT_VERSION` when you do.
 

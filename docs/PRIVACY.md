@@ -225,8 +225,9 @@ A share card (`/api/og/...`) is a public image: anyone with the link can fetch i
 - **No card at all** (the same `404` as for a card that never existed) for an account that is deleted, age-closed, suspended, banned, in invisible mode or at a high risk level; for a post that is not public or
   was hidden or removed; for a squad before its hackathon ends; for an achievement not earned.
 - **Squads** name only people who have cards; the rest (minors, people who turned cards off, invisible mode) are counted.
-- **Caching.** Browsers and shared caches may keep a card for a day (and serve it a week more while a new one is made). A person who goes private is gone from a fresh request at once, but a copy a cache
-  already holds can live up to that long; a person cannot purge it. This is a trade-off for the cost of drawing, and an open question for a product decision below.
+- **Caching.** Browsers and shared caches may keep a card for a day (and serve it a week more while a new one is made). Edits reach people at once through the **versioned address** (`GET /api/og/link`, a hash of the
+  `updatedAt` stamps of what the card is drawn from, in `?v=`): a new address is a new thing to every cache. A person who goes private is gone from a fresh request at once, but a copy a cache already holds under an
+  older address can live up to that long; a person cannot purge it. This is a trade-off for the cost of drawing.
 
 The cards show "signed-in public" fields to the open web, so the person decides: the switch above, on by default for adults and forced off for minors. *Confirm the default in legal review.*
 

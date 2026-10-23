@@ -560,6 +560,13 @@ less than the app does and are private by default: see [PRIVACY.md](PRIVACY.md#s
 (a request with `If-None-Match` gets `304` and nothing is drawn). Rate limited by address (60 a minute, `429 RATE_LIMITED`). Every card that may not be shown, or does not exist, answers the same
 `404 CARD_NOT_FOUND` (cached for a minute), so a card cannot be used to find out which.
 
+### `GET /api/og/link?kind=&id=&user=`
+**Public**, limited like the cards (60 a minute per address). The address of a card **with a version in it**, for the page's `og:image` tag: `kind` is `passport` (`id` = username), `post` or `squad` (`id` = the id)
+or `achievement` (`id` = the slug, and `user` = the username). **Response:** `{ path, url }` (`"/api/og/post/abc?v=3f9a1c2b7d10"` and the same with the app's address in front), or `{ path: null, url: null }`
+when the card may not be shown or does not exist (no more than the card itself would tell). The version is a hash of the `updatedAt` stamps of the rows the card is drawn from and of the layout's version, so
+**an edit gives a new address** and the long cache below is kept: every cache sees a new URL. The card routes ignore `v` (an old address still serves the current picture). `Cache-Control: no-store`.
+**Errors:** `400 VALIDATION_FAILED`, `429 RATE_LIMITED`.
+
 ### `GET /api/og/passport/{username}`
 A person's passport: name, headline, builder role, top skills, level and tier, projects shipped and achievements. A headline or builder role set to anything but `PUBLIC` is left out. No card for a minor
 (16 or 17), an account with no date of birth yet, someone who turned "show my cards on the web" off (`showCardsOnWeb`), or a deleted, suspended, banned, age-closed, invisible-mode or high-risk account.
