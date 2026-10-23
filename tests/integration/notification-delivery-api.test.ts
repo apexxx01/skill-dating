@@ -4,11 +4,14 @@ import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL } from './config'
 import { cleanupTestUsers, testPrisma } from './db'
 import { registerAndLogin, req, syntheticIp, uniqueSuffix, type TestUser } from './helpers'
 import { openToken, unsubscribeToken } from '../../src/lib/notify/tokens'
+import { suppressionKey } from '../../src/lib/notify/settings'
 
 // The notification delivery routes over HTTP: settings, push devices, the signed links in emails, and the email provider's webhook.
 describe('notification delivery routes', () => {
   const suffix = uniqueSuffix()
   let n = 0
+  // The suppression list holds hashes, so the addresses used here are remembered to be cleaned up.
+  const suppressedAddresses: string[] = []
   // The links in these tests are signed here with the same key the server verifies them with (set by the harness).
   beforeAll(() => {
     process.env.DATABASE_URL = INTEGRATION_DATABASE_URL
@@ -20,7 +23,7 @@ describe('notification delivery routes', () => {
     return registerAndLogin(`${name}@test.dev`, name)
   }
   afterAll(async () => {
-    await testPrisma.emailSuppression.deleteMany({ where: { email: { contains: `ndr` } } })
+    await testPrisma.emailSuppression.deleteMany({ where: { emailHash: { in: suppressedAddresses.map(suppressionKey) } } })
     await cleanupTestUsers(suffix)
   }, 120_000)
 
@@ -270,15 +273,21 @@ describe('notification delivery routes', () => {
     it('suppresses the address of a permanent bounce, and of a complaint', async () => {
       const bounced = `ndr-bounce-${suffix}@test.dev`
       const complained = `ndr-complaint-${suffix}@test.dev`
+      suppressedAddresses.push(bounced, complained)
       expect(await post(bounce(bounced))).toMatchObject({ status: 200, data: { handled: 'BOUNCE', addresses: 1 } })
       expect(await post({ type: 'email.complained', data: { email_id: 'em_y', to: [complained] } })).toMatchObject({ status: 200, data: { handled: 'COMPLAINT' } })
-      expect(await testPrisma.emailSuppression.findUnique({ where: { email: bounced } })).toMatchObject({ reason: 'BOUNCE' })
-      expect(await testPrisma.emailSuppression.findUnique({ where: { email: complained } })).toMatchObject({ reason: 'COMPLAINT' })
+      const kept = await testPrisma.emailSuppression.findUnique({ where: { emailHash: suppressionKey(bounced) } })
+      expect(kept).toMatchObject({ reason: 'BOUNCE' })
+      // Only the hash is kept: nothing in the row, or anywhere in the table, is the address.
+      expect(JSON.stringify(kept)).not.toContain(`ndr-bounce-${suffix}`)
+      expect(await testPrisma.emailSuppression.findUnique({ where: { emailHash: suppressionKey(complained) } })).toMatchObject({ reason: 'COMPLAINT' })
+      expect(await testPrisma.$queryRaw`SELECT 1 FROM "EmailSuppression" WHERE "emailHash" !~ '^[0-9a-f]{64}$'`).toHaveLength(0)
     })
 
     it('shows the person that mail to their address does not arrive', async () => {
       const a = await user('wh')
       const address = (await testPrisma.user.findUniqueOrThrow({ where: { id: a.userId } })).email
+      suppressedAddresses.push(address)
       expect((await req(a.jar, 'GET', '/api/notifications/channels')).data.email.undeliverable).toBe(false)
       await post(bounce(address))
       expect((await req(a.jar, 'GET', '/api/notifications/channels')).data.email.undeliverable).toBe(true)
@@ -287,7 +296,7 @@ describe('notification delivery routes', () => {
     it('ignores events it does not act on', async () => {
       expect(await post({ type: 'email.delivered', data: { to: ['x@test.dev'] } })).toMatchObject({ status: 200, data: { handled: 'IGNORED' } })
       expect(await post({ type: 'email.bounced', data: { to: ['y@test.dev'], bounce: { type: 'Transient' } } })).toMatchObject({ status: 200, data: { handled: 'IGNORED' } })
-      expect(await testPrisma.emailSuppression.count({ where: { email: { in: ['x@test.dev', 'y@test.dev'] } } })).toBe(0)
+      expect(await testPrisma.emailSuppression.count({ where: { emailHash: { in: ['x@test.dev', 'y@test.dev'].map(suppressionKey) } } })).toBe(0)
     })
 
     it('refuses an unsigned, wrongly signed, tampered or stale delivery', async () => {
@@ -296,7 +305,7 @@ describe('notification delivery routes', () => {
       expect((await post(event, { secret: `whsec_${Buffer.from('a-different-secret-entirely-000000').toString('base64')}` })).status).toBe(400)
       expect((await post(event, { tamper: true })).status).toBe(400)
       expect((await post(event, { timestamp: new Date(Date.now() - 10 * 60_000) })).status).toBe(400)
-      expect(await testPrisma.emailSuppression.count({ where: { email: `ndr-refused-${suffix}@test.dev` } })).toBe(0)
+      expect(await testPrisma.emailSuppression.count({ where: { emailHash: suppressionKey(`ndr-refused-${suffix}@test.dev`) } })).toBe(0)
     })
   })
 })

@@ -2622,10 +2622,11 @@ model NotificationDelivery {
 }
 
 // An address mail to which bounced or was complained about (POST /api/webhooks/email). Mail is never sent to it again. Kept by address, not by person: an account that
-// is deleted and a new one made on the same address must not start mailing a dead mailbox or somebody who reported us. Lower-cased.
+// is deleted and a new one made on the same address must not start mailing a dead mailbox or somebody who reported us. Only the SHA-256 of the trimmed, lower-cased
+// address is stored (64 hex characters, checked by the database), never the address itself.
 model EmailSuppression {
   id        String   @id @default(cuid())
-  email     String   @unique
+  emailHash String   @unique
   // BOUNCE (the mailbox does not exist, or refuses us for good) or COMPLAINT (the person marked a message as spam).
   reason    String
   createdAt DateTime @default(now())

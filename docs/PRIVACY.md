@@ -203,8 +203,8 @@ consent records are kept as the security and legal record; their retention perio
   and the `List-Unsubscribe` headers. Account notices cannot be switched off (they are the platform telling a person something about their account), and a bounced address stops them too.
 - **Digests are account mail, not marketing.** The daily and weekly digests are on by default and need no consent; each carries a one-click unsubscribe for its kind and for all mail, and is switched off by the digest or email switches. *Treating them as account mail rather than marketing is a legal position: confirm in legal review before launch.* Only promotional mail needs the MARKETING consent, and none exists yet.
 - **Bounces.** An address that bounced for good or was reported as spam is suppressed by address (`EmailSuppression`), not by account, and kept after the account is deleted: forgetting a bounced address
-  would start mailing a dead mailbox, or a person who complained, again. It holds the address and the reason and nothing else; it is a legitimate-interest record and is the one place an address
-  outlives the account. It is not exported (it is not about the person's use of the product).
+  would start mailing a dead mailbox, or a person who complained, again. It holds **the SHA-256 of the lower-cased address** and the reason and nothing else, never the address (a database check refuses anything
+  else); it is a legitimate-interest record and the one thing derived from an address that outlives the account. It is not exported (it is not about the person's use of the product).
 - **Logs** carry the delivery id and the kind, never an address or the text.
 
 ## Search (Stage 1G)

@@ -146,14 +146,15 @@ metrics say so (docs/METRICS.md).
 ### Bounces and complaints
 
 `POST /api/webhooks/email` takes the email provider's events, signed (Resend signs with Svix; `RESEND_WEBHOOK_SECRET`). A permanent or undetermined bounce, or a
-complaint, writes an `EmailSuppression` for the address (by address, not by account, so a new account on a dead mailbox does not start mailing it again) and marks the
+complaint, writes an `EmailSuppression` for the address (by address, not by account, so a new account on a dead mailbox does not start mailing it again; **only the SHA-256 of the trimmed, lower-cased address is stored, never the address**, and a database check refuses anything that is not 64 hex characters) and marks the
 delivery `FAILED` (`BOUNCED` or `COMPLAINED`). A transient bounce is left to the provider's own retries. Without the secret the route answers 503. `GET
 /api/notifications/channels` tells the person (`email.undeliverable`) that nothing reaches their address.
 
 ## Digests
 
-Two emails the platform starts itself, by the hourly jobs `digests/daily` and `digests/weekly` (`src/lib/notify/digest.ts`). Both are `PROMOTIONAL`: they go only to
-someone who has the MARKETING consent, has not turned the digest or email off, has a verified address that has not bounced, and was active in the last 60 days. Both are
+Two emails the platform starts itself, by the hourly jobs `digests/daily` and `digests/weekly` (`src/lib/notify/digest.ts`). Both are account mail (`ACTIVITY`, see
+Classes): they go to everyone who has not turned the digest or email off, has a verified address that has not bounced, and was active in the last 60 days, with no
+consent needed. Every one carries the one-click unsubscribe for its kind and for all mail. Both are
 **skipped when there is nothing worth sending**; the run counts them as `nothingToSend` and the day is not used up, so they are checked again at the next run.
 
 | | when | what is worth sending |

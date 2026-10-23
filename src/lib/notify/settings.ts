@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import type { DeliveryChannel, Prisma, PrismaClient } from '@prisma/client'
 import { consentStates } from '@/lib/privacy/consent'
 import { DEFAULT_SETTINGS, type DeliverySettings } from './decide'
@@ -86,15 +87,17 @@ export async function hasMarketingConsent(db: Pick<Db, 'consentRecord'>, userId:
   return consentStates(records).MARKETING.grantedVersion !== null
 }
 
-const lower = (email: string) => email.trim().toLowerCase()
+/** What the suppression list stores for an address: the SHA-256 of the trimmed, lower-cased address as hex. The address itself is never kept. */
+export const suppressionKey = (email: string): string => createHash('sha256').update(email.trim().toLowerCase(), 'utf8').digest('hex')
 
 export async function isSuppressed(db: Pick<Db, 'emailSuppression'>, email: string): Promise<boolean> {
-  return (await db.emailSuppression.findUnique({ where: { email: lower(email) }, select: { id: true } })) !== null
+  return (await db.emailSuppression.findUnique({ where: { emailHash: suppressionKey(email) }, select: { id: true } })) !== null
 }
 
 export async function suppressAddress(db: Pick<Db, 'emailSuppression'>, email: string, reason: 'BOUNCE' | 'COMPLAINT'): Promise<void> {
   // A complaint outweighs a bounce: the person asked not to be mailed.
-  await db.emailSuppression.upsert({ where: { email: lower(email) }, create: { email: lower(email), reason }, update: reason === 'COMPLAINT' ? { reason } : {} })
+  const emailHash = suppressionKey(email)
+  await db.emailSuppression.upsert({ where: { emailHash }, create: { emailHash, reason }, update: reason === 'COMPLAINT' ? { reason } : {} })
 }
 
 /**

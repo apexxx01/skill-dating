@@ -7,7 +7,7 @@ import { MemoryEmail } from '../../src/lib/infra/email.memory'
 import { MemoryPush } from '../../src/lib/infra/push.memory'
 import { runDigests, sendDigest } from '../../src/lib/notify/digest'
 import type { DispatchDeps } from '../../src/lib/notify/dispatch'
-import { saveSettings, suppressAddress } from '../../src/lib/notify/settings'
+import { saveSettings, suppressAddress, suppressionKey } from '../../src/lib/notify/settings'
 import { readUnsubscribeToken } from '../../src/lib/notify/tokens'
 import { invalidateFlags } from '../../src/lib/flags'
 
@@ -15,6 +15,8 @@ import { invalidateFlags } from '../../src/lib/flags'
 describe('notification digests', () => {
   const suffix = uniqueSuffix()
   const tag = `dg${suffix}`
+  // The suppression list holds hashes, so the addresses used here are remembered to be cleaned up.
+  const suppressedAddresses: string[] = []
   const THURSDAY = new Date('2026-10-22T10:30:00Z')
   const MONDAY = new Date('2026-10-26T10:00:00Z')
   let email: MemoryEmail
@@ -34,7 +36,7 @@ describe('notification digests', () => {
     await testPrisma.hackathon.deleteMany({ where: { id: { in: hackathons } } })
     await testPrisma.shipDayRecap.deleteMany({ where: { id: { in: recaps } } })
     await removePeople(tag)
-    await testPrisma.emailSuppression.deleteMany({ where: { email: { contains: tag } } })
+    await testPrisma.emailSuppression.deleteMany({ where: { emailHash: { in: suppressedAddresses.map(suppressionKey) } } })
     await cleanupTestUsers(suffix)
   }, 120_000)
 
@@ -208,7 +210,9 @@ describe('notification digests', () => {
       const deleted = await reader({ deleted: true })
       const dormant = await reader({ lastActiveDaysAgo: 61 })
       for (const person of [bounced, unverified, deleted, dormant]) await drop(person.id, b.id)
-      await suppressAddress(testPrisma, await addressOf(bounced.id), 'BOUNCE')
+      const bouncedAddress = await addressOf(bounced.id)
+      suppressedAddresses.push(bouncedAddress)
+      await suppressAddress(testPrisma, bouncedAddress, 'BOUNCE')
       for (const person of [bounced, unverified, deleted, dormant]) expect(await dailyOutcome(person.id), person.username).toBe('NOT_ELIGIBLE')
       expect(email.outbox).toHaveLength(0)
     })

@@ -8,7 +8,7 @@ import { MemoryPush } from '../../src/lib/infra/push.memory'
 import { releaseDeferred, sweepNotifications, type DispatchDeps } from '../../src/lib/notify/dispatch'
 import { processEmailEvent } from '../../src/lib/notify/webhook'
 import { readUnsubscribeToken } from '../../src/lib/notify/tokens'
-import { saveSettings, setChannelChoice, suppressAddress } from '../../src/lib/notify/settings'
+import { saveSettings, setChannelChoice, suppressAddress, suppressionKey } from '../../src/lib/notify/settings'
 import type { NotificationType, Prisma } from '@prisma/client'
 import { invalidateFlags } from '../../src/lib/flags'
 
@@ -17,6 +17,8 @@ import { invalidateFlags } from '../../src/lib/flags'
 describe('notification delivery', () => {
   const suffix = uniqueSuffix()
   const tag = `nd${suffix}`
+  // The suppression list holds hashes, so the addresses used here are remembered to be cleaned up.
+  const suppressedAddresses: string[] = []
   const NOON = new Date('2026-10-22T12:00:00Z')
   let email: MemoryEmail
   let push: MemoryPush
@@ -33,7 +35,7 @@ describe('notification delivery', () => {
   })
   afterAll(async () => {
     await removePeople(tag)
-    await testPrisma.emailSuppression.deleteMany({ where: { email: { contains: tag } } })
+    await testPrisma.emailSuppression.deleteMany({ where: { emailHash: { in: suppressedAddresses.map(suppressionKey) } } })
     await testPrisma.featureFlag.updateMany({ where: { key: 'kill.notification-delivery' }, data: { enabled: false } })
     await cleanupTestUsers(suffix)
   }, 120_000)
@@ -165,7 +167,9 @@ describe('notification delivery', () => {
 
     it('never mails an address that bounced, an account notice included, and records why', async () => {
       const a = await person()
-      await suppressAddress(testPrisma, await addressOf(a.id), 'BOUNCE')
+      const address = await addressOf(a.id)
+      suppressedAddresses.push(address)
+      await suppressAddress(testPrisma, address, 'BOUNCE')
       await notify(a.id, 'SYSTEM', { kind: 'MODERATION' })
       await sweepNotifications(testPrisma, deps())
       expect(email.outbox).toHaveLength(0)
@@ -366,14 +370,15 @@ describe('notification delivery', () => {
       await notify(a.id, 'TEAM_INVITATION', { kind: 'SQUAD_INVITE' })
       await sweepNotifications(testPrisma, deps())
       const address = await addressOf(a.id)
+      suppressedAddresses.push(address)
       const [row] = await deliveries(a.id)
       const result = await processEmailEvent(testPrisma, { type: 'email.bounced', data: { email_id: row.providerId, to: [address], bounce: { type: 'Permanent' } } })
       expect(result).toEqual({ handled: 'BOUNCE', addresses: 1 })
-      expect(await testPrisma.emailSuppression.findUnique({ where: { email: address.toLowerCase() } })).toMatchObject({ reason: 'BOUNCE' })
+      expect(await testPrisma.emailSuppression.findUnique({ where: { emailHash: suppressionKey(address) } })).toMatchObject({ reason: 'BOUNCE' })
       expect((await deliveries(a.id))[0]).toMatchObject({ status: 'FAILED', reason: 'BOUNCED' })
 
       await processEmailEvent(testPrisma, { type: 'email.complained', data: { email_id: row.providerId, to: [address] } })
-      expect(await testPrisma.emailSuppression.findUnique({ where: { email: address.toLowerCase() } })).toMatchObject({ reason: 'COMPLAINT' })
+      expect(await testPrisma.emailSuppression.findUnique({ where: { emailHash: suppressionKey(address) } })).toMatchObject({ reason: 'COMPLAINT' })
 
       // Then nothing more is sent to it.
       await notify(a.id, 'TEAM_INVITATION', { kind: 'SQUAD_INVITE' })
@@ -387,7 +392,7 @@ describe('notification delivery', () => {
       const address = await addressOf(a.id)
       expect(await processEmailEvent(testPrisma, { type: 'email.bounced', data: { to: [address], bounce: { type: 'Transient' } } })).toMatchObject({ handled: 'IGNORED' })
       expect(await processEmailEvent(testPrisma, { type: 'email.delivered', data: { to: [address] } })).toMatchObject({ handled: 'IGNORED' })
-      expect(await testPrisma.emailSuppression.count({ where: { email: address.toLowerCase() } })).toBe(0)
+      expect(await testPrisma.emailSuppression.count({ where: { emailHash: suppressionKey(address) } })).toBe(0)
     })
   })
 })
