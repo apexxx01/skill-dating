@@ -810,7 +810,7 @@ The design is in [PRIVACY.md](PRIVACY.md).
 `{ fieldVisibility: { bio|headline|location|website|githubUsername|twitterUsername|linkedinUrl|availability|builderRole|timezone: PUBLIC|CONNECTIONS|PRIVATE },
 hideFromLeaderboards, hideFromRecruiters, matchingPaused, invisibleMode, whoCanMessage: EVERYONE|CONNECTIONS|NOBODY, showActivity, showCardsOnWeb, cardsAvailable }`. PATCH takes any
 subset (unknown keys refused; `cardsAvailable` is read-only) and returns all of them. Audited. `showCardsOnWeb` ("Show my cards on the web") is whether the public share images may be drawn for the caller:
-on by default for an adult. `cardsAvailable` is false for a minor (16 or 17) and for an account with no date of birth yet; their `showCardsOnWeb` reads `false`, and turning it on is `400 CARDS_NOT_AVAILABLE` (turning it off is always fine).
+on by default for an adult who has never been a minor on the platform; an account that was under 18 at any point has it stored off until its owner turns it on (turning 18 does not turn it on, and the owner is told once, on the birthday). `cardsAvailable` is false for a minor (16 or 17) and for an account with no date of birth yet; their `showCardsOnWeb` reads `false`, and turning it on is `400 CARDS_NOT_AVAILABLE` (turning it off is always fine).
 
 ### `POST /api/users/me/export` and `GET /api/users/me/export`
 POST honours `Idempotency-Key`; 5 a day. Starts building an export of everything held about the caller; **`202`** `{ export }` (an export already being

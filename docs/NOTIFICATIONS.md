@@ -53,6 +53,8 @@ directly), and a unit test fails when one is missing. Each kind has:
   with a one-click unsubscribe per kind and for all, and no consent. *Classing them this way is a legal position: confirm in legal review before launch.* The rule stays
   in the pipeline (step 5), so a promotional kind can be added without new code, and a unit test fails if one appears by accident.
 
+`CARDS_ADULT` is a note written directly (not switchable in-app): the one-time "you are 18, your share cards are still off" ([PRIVACY.md](PRIVACY.md)); push on by default, no email.
+
 **Defaults** are conservative: email on for things a person would want to know about the same day (invitations, matches, messages, squad changes, hackathon
 reminders), off for the noisy ones (Props, follows, watched projects, endorsements); push on for the same plus comments and Props, off for follows and watched
 posts. Progress notices (level ups, achievements, quests, cosmetics) stay in the app. `GET /api/notifications/channels` returns every switch with its default.
