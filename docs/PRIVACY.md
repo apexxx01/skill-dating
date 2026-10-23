@@ -187,6 +187,7 @@ own in `delete.ts`).
 | Email and push delivery log (`NotificationDelivery`) | 90 days | rows deleted in batches; no message content is in them |
 | Activity days (`ActivityDay`) | 25 months | rows deleted. The metrics built from them hold no person and are kept |
 | Campus verifications (`CampusVerification`) | an hour after the code expired | rows deleted, and the campus e-mail address in them with them |
+| "Tell me when it opens" for the romance mode (`RomanceInterest`) | 180 days after the person was told (a request nobody has been told about is kept until they withdraw it) | rows deleted. Holds the country and city of the profile when they asked; seen by nobody but the admin metrics, as counts by city of at least 3 people. NEEDS LEGAL REVIEW: wanting a dating mode is personal data, and in some countries more |
 | Blocked uploads | the hash, verdict and labels only; the object is deleted at once | needs legal review: some countries require keeping evidence of child sexual abuse material for the authorities for a set period |
 
 Everything else is kept while the account exists and handled by the deletion rules above when it is deleted. The audit trail, moderation records and

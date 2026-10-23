@@ -234,6 +234,20 @@ Of the codes redeemed 14 to 41 days before the end of the day, the share whose i
 
 *Dimension:* Empty for all codes, PERSONAL or CAMPAIGN.
 
+### Demand
+
+**`romance_interest`** — Asked to be told when the romance mode opens (count)
+
+Adults who asked to be told when the romance mode opens (and have not withdrawn the request) by the end of the day. By city: the 50 largest, only cities with at least 3 people. The mode ships closed; this is the demand signal that decides where it opens first.
+
+*Dimension:* Empty for everybody, or city:IN:pune (the country and city kept with the request).
+
+**`romance_interest_share_of_adult_actives`** — Interest as a share of adult actives (ratio)
+
+People who asked to be told, divided by the adults (18 or older, date of birth on file) who were active in the last 30 days in the same place (everyone, or the city on their profile). It can pass 1: a person can ask without having been active lately. Detail: both counts.
+
+*Dimension:* Empty for everybody, or city:IN:pune.
+
 ## Reading the retention table
 
 `retention_d1`, `retention_d7` and `retention_d30` come with one row per signup week (the dimension). Each night's snapshot holds the whole table for the last 26 weeks as it stands that night, so
@@ -254,6 +268,7 @@ retention (active **on** day N), not "active at any point after"; the unbounded 
 | Safety | `safetyMetrics` |
 | Growth | `growthMetrics` |
 | Invites | `inviteMetrics` |
+| Demand | `demandMetrics` |
 
 `tests/integration/metrics.test.ts` builds a database with known rows and checks every metric against the number worked out by hand; read it for a worked example of each definition.
 

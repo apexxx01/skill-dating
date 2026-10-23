@@ -857,6 +857,15 @@ Development only: the "bucket" of the in-memory storage stand-in (404 `MEDIA_NOT
 
 ## Romance
 
+> **Post-launch.** The romance mode ships **closed**: every route below except `/api/romance/interest` (and leaving, `DELETE /api/romance/profile`) answers `503 ROMANCE_PAUSED` until it is opened for the caller
+> (the flag `romance.enabled`, or a city's `romance.city.<country>-<city>`; [ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)). Build the interface against it last.
+
+### `GET /api/romance/interest`, `POST /api/romance/interest`, `DELETE /api/romance/interest`
+"Tell me when it opens", the one part of the mode that works while it is closed. **`GET`** answers `{ interested, open, eligible }`: whether the caller has asked, whether the mode is open for them now, and whether they
+may ask (an adult with a date of birth on file). **`POST`** asks to be told, idempotently (asking again refreshes the country and city the request is counted under) and answers the same shape; `403
+DATING_UNDERAGE` for a minor, `403 DATING_BIRTH_DATE_REQUIRED` with no date of birth, `409 ROMANCE_ALREADY_OPEN` when the mode is open for them already. **`DELETE`** withdraws it (idempotent). When the mode opens where
+they are they get one notification (`ROMANCE_OPEN`). Rate limited (60 reads, 20 writes a minute).
+
 The romance mode (docs/ROMANCE.md): opt-in, 18+, work first with private filters underneath. Its name in the interface comes from one constant (`modeLabel`, `ROMANCE_MODE_LABEL` in `src/lib/romance/config.ts`); the routes, tables and analytics say "romance". Nothing here is ever part of a professional response (docs/SAFETY.md).
 
 ### `GET /api/romance/profile`
@@ -1416,7 +1425,8 @@ and a unit test fails if a code is missing here.
 | `FRAUD_SIGNAL_NOT_FOUND` | 404 | Fraud signal not found |
 | `REAUTH_REQUIRED` | 403 | Sign in again to do this: it needs a session started in the last {maxAgeMinutes} minutes |
 | `SIGNUPS_PAUSED` | 503 | New accounts are paused for a short while. Try again later |
-| `ROMANCE_PAUSED` | 503 | {mode} is paused for a short while. Try again later |
+| `ROMANCE_PAUSED` | 503 | {mode} is not open for you yet |
+| `ROMANCE_ALREADY_OPEN` | 409 | {mode} is already open for you |
 | `MESSAGING_PAUSED` | 503 | Messaging is paused for a short while. Try again later |
 | `POSTING_PAUSED` | 503 | Posting is paused for a short while. Try again later |
 | `EXTERNAL_HACKATHONS_PAUSED` | 503 | Adding hackathons from other sites is paused for a short while |

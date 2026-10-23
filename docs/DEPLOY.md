@@ -160,7 +160,9 @@ PATCH /api/admin/flags/kill.messaging  { "enabled": true }     (admin; audited)
 | Flag | Stops | Answers | Owner |
 | --- | --- | --- | --- |
 | `kill.signups` | new accounts (existing ones are not affected) | `503 SIGNUPS_PAUSED` | engineering on-call |
-| `kill.romance` | the romance mode: every romance route except leaving it | `503 ROMANCE_PAUSED` | Trust & Safety lead |
+| `kill.romance` | the romance mode: every romance route except leaving it and asking to be told; closes it even where it is open | `503 ROMANCE_PAUSED` | Trust & Safety lead |
+
+The romance mode also ships **closed** by the flag `romance.enabled` (OFF) and opens only where it, or a city flag `romance.city.<country>-<city>`, is on ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)); its owner is the Trust & Safety lead.
 | `kill.messaging` | starting conversations, sending, editing and reacting to messages | `503 MESSAGING_PAUSED` | Trust & Safety lead |
 | `kill.posting` | Ship Feed posts and edits, comments, LFG posts, squad ideas and demos | `503 POSTING_PAUSED` | Trust & Safety lead |
 | `kill.external-hackathons` | adding hackathons from other sites | `503 EXTERNAL_HACKATHONS_PAUSED` | Squads product owner |
