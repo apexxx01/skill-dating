@@ -1,13 +1,13 @@
 // What every number means, in words, in one place. GET /api/admin/metrics returns this beside the numbers, and docs/METRICS.md is written from it (a unit test checks that every key
 // the job writes is here and every key here is in the document). Days are UTC. "Active" is defined in src/lib/kpi/activity.ts: a person who used the product that day (a product event
-// of a set kind, or XP for an action of their own). The romance mode is in none of these numbers.
+// of a set kind, or XP for an action of their own). The romance mode is in none of these numbers, except the demand group: how many adults asked to be told when it opens.
 
 export type MetricUnit = 'count' | 'ratio' | 'hours' | 'per1k'
 
 export interface MetricDefinition {
   key: string
   label: string
-  group: 'North star' | 'Activity' | 'Retention' | 'Activation' | 'Matching' | 'Feed' | 'Squads and crews' | 'Notifications' | 'Safety' | 'Growth' | 'Invites'
+  group: 'North star' | 'Activity' | 'Retention' | 'Activation' | 'Matching' | 'Feed' | 'Squads and crews' | 'Notifications' | 'Safety' | 'Growth' | 'Invites' | 'Demand'
   unit: MetricUnit
   /** What the dimension of a row is, when the metric has one; absent when it is one number per day. */
   dimension?: string
@@ -182,6 +182,24 @@ export const METRIC_DEFINITIONS: readonly MetricDefinition[] = [
     unit: 'ratio',
     dimension: 'Empty for all codes, PERSONAL or CAMPAIGN.',
     definition: 'Of the codes redeemed 14 to 41 days before the end of the day, the share whose invitee got started (finished onboarding and did a first real thing) within 14 days of joining. Rejected invites count as not started.',
+  },
+  {
+    key: 'romance_interest',
+    label: 'Asked to be told when the romance mode opens',
+    group: 'Demand',
+    unit: 'count',
+    dimension: 'Empty for everybody, or city:IN:pune (the country and city kept with the request).',
+    definition:
+      'Adults who asked to be told when the romance mode opens (and have not withdrawn the request) by the end of the day. By city: the 50 largest, only cities with at least 3 people. The mode ships closed; this is the demand signal that decides where it opens first.',
+  },
+  {
+    key: 'romance_interest_share_of_adult_actives',
+    label: 'Interest as a share of adult actives',
+    group: 'Demand',
+    unit: 'ratio',
+    dimension: 'Empty for everybody, or city:IN:pune.',
+    definition:
+      'People who asked to be told, divided by the adults (18 or older, date of birth on file) who were active in the last 30 days in the same place (everyone, or the city on their profile). It can pass 1: a person can ask without having been active lately. Detail: both counts.',
   },
 ] as const
 

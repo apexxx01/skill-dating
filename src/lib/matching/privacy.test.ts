@@ -19,6 +19,8 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/age.ts': 'the date arithmetic (parse, age, cutoffs): pure functions of a date they are given',
   'lib/age-policy.ts': 'the age bands (under 16, minor, adult): pure functions of a date they are given',
   'lib/birth-date.ts': 'sets it once under the age policy; reports only whether one is on file, and whether the person may have share cards (an adult), never the date',
+  'lib/kpi/compute-ops.ts': 'the demand metrics compare the stored date with the adult cutoff to count adults; selects nobody’s date',
+  'lib/romance/interest.ts': 'asks the age policy whether the caller is an adult before recording a request to be told when the mode opens; returns no date',
   'lib/privacy/cards-notice.ts': 'the note on the 18th birthday: reads the stored date to find who turns 18 today and writes a notification; returns no date',
   'lib/birth-date-admin.ts': 'the admin correction: writes it and audits old and new; returns no date',
   'lib/api/handler.ts': 'names only the refusal marker (birthDateRefusedAt, a moment, not a date of birth) to close an account refused for its age',

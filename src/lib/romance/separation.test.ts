@@ -14,7 +14,7 @@ const walk = (dir: string): string[] =>
   })
 const rel = (file: string) => path.relative(SRC, file).split(path.sep).join('/')
 const read = (file: string) => fs.readFileSync(file, 'utf-8')
-const NAMES_THE_MODE = /romance|Romance|ROMANCE|DATING|Kindred/
+const NAMES_THE_MODE = /romance|Romance|ROMANCE|DATING|Halves/
 
 // The romance mode's own code needs no entry: everything under these directories is it.
 const OWN_DIRS = ['lib/romance/', 'app/api/romance/']
@@ -61,6 +61,14 @@ const MAY_NAME_THE_MODE: Record<string, string> = {
   'lib/moderation/targets.ts': 'romance profiles, sparks and messages can be reported, hidden and removed',
   'lib/moderation/target-types.ts': 'ROMANCE_PROFILE in the list of what can be reported',
   'lib/ops/kill-switches.ts': 'the romance mode’s kill switch',
+  'lib/api/gate.ts': 'asks the launch gate whether the mode is open for the caller: it ships closed',
+  'lib/flags.ts': 'leaves the launch flags of the mode out of GET /api/flags',
+  'app/api/admin/flags/route.ts': 'tells the people waiting for the mode when an admin creates a launch flag',
+  'app/api/admin/flags/[key]/route.ts': 'tells the people waiting for the mode when an admin changes a launch flag',
+  'app/api/notifications/channels/route.ts': 'lists the mode’s notification kinds only where the mode is open',
+  'app/api/notifications/preferences/route.ts': 'lists the mode’s notification kinds only where the mode is open',
+  'app/api/users/me/consents/route.ts': 'lists and accepts the mode’s consent only where the mode is open',
+  'lib/privacy/retention.ts': 'deletes the requests to be told when the mode opens, 180 days after they were answered',
   'lib/privacy/consent.ts': 'the ROMANCE_MODE consent type',
   'lib/infra/media-moderation.ts': 'the scanner every romance photo passes before it is shown',
   'lib/privacy/delete.ts': 'deleting an account purges the romance mode, as leaving it does',
@@ -73,6 +81,7 @@ const MAY_NAME_THE_MODE: Record<string, string> = {
   'lib/notify/dispatch.ts': 'recognises a message or a match that belongs to the mode, so it is sent as the neutral line',
   'lib/notify/digest.ts': 'the daily digest counts no spark of the mode',
   'lib/kpi/activity.ts': 'a comment: the metrics read no table of the mode',
+  'lib/kpi/compute-ops.ts': 'the demand group: how many adults asked to be told when the mode opens, by city (one table, no activity of the mode)',
   'lib/kpi/compute-product.ts': 'leaves the mode’s sparks and matches out of every matching number',
   'lib/kpi/definitions.ts': 'the definitions say the mode is in none of the numbers',
 }
@@ -165,11 +174,11 @@ describe('the romance mode stays apart', () => {
   })
 
   it('says the mode’s product name in exactly one place', () => {
-    const label = outside.filter((file) => /Kindred/.test(read(file))).map(rel)
+    const label = outside.filter((file) => /Halves/.test(read(file))).map(rel)
     expect(label).toEqual([])
     const config = read(path.join(SRC, 'lib/romance/config.ts'))
-    expect(config.match(/Kindred/g)).toHaveLength(1)
-    const others = files.filter((file) => rel(file) !== 'lib/romance/config.ts' && /Kindred/.test(read(file))).map(rel)
+    expect(config.match(/Halves/g)).toHaveLength(1)
+    const others = files.filter((file) => rel(file) !== 'lib/romance/config.ts' && /Halves/.test(read(file))).map(rel)
     expect(others).toEqual([])
   })
 
@@ -180,6 +189,6 @@ describe('the romance mode stays apart', () => {
 
   it('keeps the romance routes under /api/romance, and no professional route imports them', () => {
     const importers = files.filter((file) => /from '@\/lib\/romance\//.test(read(file)) && !OWN_DIRS.some((dir) => rel(file).startsWith(dir))).map(rel).sort()
-    expect(importers).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/consents/[type]/route.ts', 'lib/api/errors.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/moderation/targets.ts', 'lib/notification-kinds.ts', 'lib/privacy/delete.ts', 'lib/user-sync.ts'])
+    expect(importers).toEqual(['app/api/admin/flags/[key]/route.ts', 'app/api/admin/flags/route.ts', 'app/api/admin/users/[id]/birthdate/route.ts', 'app/api/notifications/channels/route.ts', 'app/api/notifications/preferences/route.ts', 'app/api/users/me/consents/[type]/route.ts', 'app/api/users/me/consents/route.ts', 'lib/api/errors.ts', 'lib/api/gate.ts', 'lib/flags.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/moderation/targets.ts', 'lib/notification-kinds.ts', 'lib/ops/kill-switches.ts', 'lib/privacy/delete.ts', 'lib/user-sync.ts'])
   })
 })

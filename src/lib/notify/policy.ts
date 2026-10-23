@@ -86,6 +86,8 @@ export const EXTRA_KINDS = [
   'SKILL_EVIDENCE_ENDORSED',
   'MATCH_CREATED',
   'CARDS_ADULT',
+  // The one note to people who asked to be told when the romance mode opens (src/lib/romance/announce.ts).
+  'ROMANCE_OPEN',
   // Resolved from NotificationType when a notification names no kind.
   'NEW_MESSAGE',
   'TEAM_INVITATION',
@@ -134,6 +136,7 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   ROMANCE_SPARK_DIGEST: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: never, push: never, urgency: 'low' },
   ROMANCE_REVEAL: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
   ROMANCE_DUO: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
+  ROMANCE_OPEN: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'low' },
   ROMANCE_MESSAGE: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
   // A match is time-critical in either mode; what leaves the app is still only the neutral line.
   ROMANCE_MATCH: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal', immediate: true },
