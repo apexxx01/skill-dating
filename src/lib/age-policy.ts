@@ -28,6 +28,11 @@ export function isMinor(birthDate: Date | null | undefined, now: Date = new Date
   return birthDate ? ageBandOf(birthDate, now) === 'MINOR' : false
 }
 
+/** 18 or older, with the date on file. Somebody whose age is not on file is not known to be an adult. */
+export function isAdult(birthDate: Date | null | undefined, now: Date = new Date()): boolean {
+  return birthDate ? ageBandOf(birthDate, now) === 'ADULT' : false
+}
+
 /**
  * Whether a recruiter may ever see this person. There are no recruiters yet; this is the one question a future recruiter surface must ask. A minor is
  * never visible, and neither is anyone whose age is not on file (we cannot tell they are an adult).
