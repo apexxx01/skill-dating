@@ -938,6 +938,7 @@ is a `404`: do not set the tag for a private or hidden page. The card is a day o
 
 - **Sign-up.** Read `?invite=CODE` on `/signup`, keep it through the sign-up, and pass it to Clerk: `signUp.create({ ..., unsafeMetadata: { inviteCode: code } })`. The backend attributes the account the first time
   it sees it. (For flows that cannot, `POST /api/invites/redeem { code }` in the first 14 days.) Never show an error for a bad code to someone who is signing up: they join anyway.
+  To tell them early that a link's code is good, call `GET /api/invites/check?code=CODE` (public, no session; `{ valid }`, 10 a minute per address): a quiet "you were invited" when true, nothing when false.
 - **Invite page** (`/settings/invites`): `GET /api/invites/me` gives `code`, `link`, how many `redeemed`, got started (`qualified`) and were `rewarded`, `xpPerInvite` and `rewardsLeft`. Say what earns it: "when a friend
   finishes onboarding and does something real". Do not show who joined.
 - **Campus** (`/settings/campus`): `GET /api/campus/me`; if `canJoin` is false say campuses are for people 18 and over. Otherwise pick (`GET /api/campuses?q=`, showing `emailDomains`), ask for the campus address, `POST

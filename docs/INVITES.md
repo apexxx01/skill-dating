@@ -20,6 +20,8 @@ A person joins with a code **once**, in the first **14 days** of their account:
 - **At sign-up.** The sign-up page sets `unsafeMetadata.inviteCode` on the Clerk user (`signUp.create({ unsafeMetadata: { inviteCode } })`). The first time the platform sees the account it reads the
   code and attributes the account to it (`syncClerkUser`). A bad code never stops a sign-up.
 - **Afterwards.** `POST /api/invites/redeem { code }`, for pages that cannot carry it in the sign-up.
+- **Before.** `GET /api/invites/check?code=` is public, for the sign-up page to say "you were invited" before there is an account. It answers `{ valid }` and nothing more (not whose code, not which
+  campus), the same no for every reason a code cannot be used, and is limited to 10 a minute per address, so it is no way to find codes.
 
 The attribution is a row (`InviteRedemption`): one per invitee, ever. The answers do not tell a code that never existed from one that was switched off, ran out or expired (`404
 INVITE_CODE_INVALID`), so nobody learns anything by trying codes. Your own code is `400 INVITE_OWN_CODE`; a second code is `409 INVITE_ALREADY_REDEEMED`; an account older than 14 days is

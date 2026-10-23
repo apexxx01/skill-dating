@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import type { User } from '@clerk/nextjs/server'
-import { INTEGRATION_DATABASE_URL } from './config'
+import { INTEGRATION_BASE_URL, INTEGRATION_DATABASE_URL } from './config'
 import { cleanupTestUsers, promoteToAdmin, testPrisma } from './db'
-import { registerAndLogin, req, uniqueSuffix, type TestUser } from './helpers'
+import { registerAndLogin, req, syntheticIp, uniqueSuffix, type TestUser } from './helpers'
 import { bornYearsAgo, makePerson, removePeople } from './matching-fixtures'
 import { INVITE_REWARD_CAP, qualifyInvites, redeemInvite } from '../../src/lib/invites/invites'
 import { syncClerkUser } from '../../src/lib/user-sync'
@@ -401,4 +401,61 @@ describe('invites', () => {
       expect((await req(member.jar, 'PATCH', '/api/admin/invites/x', { disabled: true })).status).toBe(403)
     })
   })
+  describe('GET /api/invites/check', () => {
+    const check = async (code: string | null, ip: string = syntheticIp()) => {
+      const res = await fetch(`${INTEGRATION_BASE_URL}/api/invites/check${code === null ? '' : `?code=${encodeURIComponent(code)}`}`, { headers: { 'x-forwarded-for': ip } })
+      return { status: res.status, cache: res.headers.get('cache-control'), data: await res.json() }
+    }
+
+    it('says yes to a good code, as typed in any case with hyphens, and answers nothing else', async () => {
+      const made = await req(admin.jar, 'POST', '/api/admin/invites', { label: `Check ${suffix}` })
+      campaigns.push(made.data.code.id)
+      const code: string = made.data.code.code
+      const typed = `${code.slice(0, 4)}-${code.slice(4)}`.toLowerCase()
+      for (const attempt of [code, typed]) {
+        const res = await check(attempt)
+        expect(res).toMatchObject({ status: 200, cache: 'no-store', data: { valid: true } })
+        expect(Object.keys(res.data)).toEqual(['valid'])
+      }
+      // Personal codes are good too, and the answer is the same shape.
+      const owner = await person()
+      const personal = await testPrisma.inviteCode.create({ data: { code: `P${Math.random().toString(36).slice(2, 9).toUpperCase().padEnd(7, 'Y')}`, kind: 'PERSONAL', ownerId: owner.id } })
+      expect((await check(personal.code)).data).toEqual({ valid: true })
+    })
+
+    it('gives the same no for a code that never existed, was switched off, ran out, expired or whose owner is gone', async () => {
+      const off = await req(admin.jar, 'POST', '/api/admin/invites', { label: `Off ${suffix}` })
+      const full = await req(admin.jar, 'POST', '/api/admin/invites', { label: `Full ${suffix}`, maxUses: 1 })
+      const old = await req(admin.jar, 'POST', '/api/admin/invites', { label: `Old ${suffix}` })
+      campaigns.push(off.data.code.id, full.data.code.id, old.data.code.id)
+      await req(admin.jar, 'PATCH', `/api/admin/invites/${off.data.code.id}`, { disabled: true })
+      expect((await redeemInvite(testPrisma, (await person({ ageDays: 1 })).id, full.data.code.code)).ok).toBe(true)
+      await testPrisma.inviteCode.update({ where: { id: old.data.code.id }, data: { expiresAt: new Date(Date.now() - 1000) } })
+      const gone = await person()
+      const orphan = await testPrisma.inviteCode.create({ data: { code: `G${Math.random().toString(36).slice(2, 9).toUpperCase().padEnd(7, 'Y')}`, kind: 'PERSONAL', ownerId: gone.id } })
+      await testPrisma.user.update({ where: { id: gone.id }, data: { deletedAt: new Date() } })
+
+      const answers = []
+      for (const code of ['ZZZZZZZZ', off.data.code.code, full.data.code.code, old.data.code.code, orphan.code]) answers.push(await check(code))
+      for (const answer of answers) expect(answer, JSON.stringify(answer)).toMatchObject({ status: 200, data: { valid: false } })
+      expect(new Set(answers.map((answer) => JSON.stringify(answer.data))).size).toBe(1)
+    })
+
+    it('says no to text that cannot be a code, and refuses a missing or oversized one', async () => {
+      expect((await check('!!')).data).toEqual({ valid: false })
+      expect((await check("' OR 1=1 --")).data).toEqual({ valid: false })
+      expect((await check(null)).status).toBe(400)
+      expect((await check('A'.repeat(65))).status).toBe(400)
+    })
+
+    it('is limited by address, and one address does not use up another’s', async () => {
+      const ip = syntheticIp()
+      const statuses: number[] = []
+      for (let i = 0; i < 12; i++) statuses.push((await check('ZZZZZZZZ', ip)).status)
+      expect(statuses.slice(0, 10).every((status) => status === 200)).toBe(true)
+      expect(statuses.slice(10)).toEqual([429, 429])
+      expect((await check('ZZZZZZZZ')).status).toBe(200)
+    })
+  })
+
 })

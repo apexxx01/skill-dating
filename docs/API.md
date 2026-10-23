@@ -581,6 +581,11 @@ An achievement the person earned: its name, description, XP, how rare it is and 
 ### `GET /api/invites/me`
 The caller's personal invite code (made on first use) and how it is doing. **Response:** `{ code, link, redeemed, qualified, rewarded, rewardCap, rewardsLeft, xpPerInvite }`.
 
+### `GET /api/invites/check?code=`
+**Public** (no session: for the sign-up page, before the person has an account), limited to **10 a minute per address**. **Response:** `{ valid: boolean }` and nothing else, with `Cache-Control: no-store`.
+`valid` is true for a code that a sign-up or `POST /api/invites/redeem` would accept (any case, hyphens and spaces allowed); false for one that never existed, was switched off, is used up or expired, or whose
+owner is gone, and for text that cannot be a code: one answer for all, and never whose code it is or which campus it names. **Errors:** `400 VALIDATION_FAILED` (`code` missing or longer than 64), `429 RATE_LIMITED`.
+
 ### `POST /api/invites/redeem`
 **Body:** `{ code }` (any case, hyphens and spaces allowed). Joins with a code, once, in the first 14 days of the account. **Response:** `{ redeemed: true, campusId }`. A sign-up that carries the code
 in the Clerk user's `unsafeMetadata.inviteCode` is attributed without this call. **Errors:** `404 INVITE_CODE_INVALID` (never existed, switched off, used up or expired: one answer for all),

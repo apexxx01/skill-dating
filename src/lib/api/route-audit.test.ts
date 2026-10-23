@@ -26,6 +26,7 @@ describe('route audit', () => {
       '/api/auth/session',
       '/api/health',
       '/api/inngest',
+      '/api/invites/check',
       '/api/notifications/open/[token]',
       '/api/notifications/unsubscribe',
       '/api/og/achievement/[slug]',

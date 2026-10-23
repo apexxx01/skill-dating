@@ -35,7 +35,7 @@ of progress, and credit you if you wish. A `/.well-known/security.txt` with this
 
 1. **Authenticated or public.** Every API handler is wrapped in `withAuth` except the explicit public allowlist: `/api/auth/session` (says whether a
    session is valid), `/api/health`, `/api/webhooks/clerk` and `/api/webhooks/email` (signed), `/api/inngest` (signed), the two signed links in emails
-   (`/api/notifications/unsubscribe`, `/api/notifications/open/{token}`: an HMAC token is the credential, rate limited by address) and the four share cards (`/api/og/...`: public images, rate
+   (`/api/notifications/unsubscribe`, `/api/notifications/open/{token}`: an HMAC token is the credential, rate limited by address), the invite-code check for the sign-up page (`/api/invites/check`: yes or no only, 10 a minute per address) and the four share cards (`/api/og/...`: public images, rate
    limited by address, with their privacy rules in `src/lib/og/data.ts`). `src/lib/api/route-audit.test.ts` parses every route file
    with the TypeScript compiler and fails on any other unwrapped handler; `tests/integration/route-authz.test.ts` calls every route anonymously against
    the running server and requires `401`.

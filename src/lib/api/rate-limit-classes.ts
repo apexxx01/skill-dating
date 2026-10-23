@@ -27,6 +27,8 @@ export const PUBLIC_ROUTES = new Set([
   '/api/webhooks/clerk',
   // Reach and retention (docs/NOTIFICATIONS.md). The email provider's bounces, signed; the links in emails, signed.
   '/api/webhooks/email',
+  // The sign-up page asks whether an invite code is good before the person has an account (docs/INVITES.md): yes or no, by address, tightly limited.
+  '/api/invites/check',
   '/api/notifications/unsubscribe',
   '/api/notifications/open/[token]',
   // Share cards: public images, rate limited by address and cached.

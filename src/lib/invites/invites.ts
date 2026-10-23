@@ -95,11 +95,31 @@ export type RedeemOutcome =
   | { ok: true; kind: 'PERSONAL' | 'CAMPAIGN'; campusId: string | null }
   | { ok: false; code: 'INVITE_CODE_INVALID' | 'INVITE_ALREADY_REDEEMED' | 'INVITE_OWN_CODE' | 'INVITE_WINDOW_CLOSED' }
 
+/** Whether a code can be used right now: not switched off, not expired, not used up. Whether it exists is the caller's question. */
+export const isUsable = (code: Pick<InviteCode, 'disabledAt' | 'expiresAt' | 'maxUses' | 'uses'>, now: Date): boolean =>
+  !code.disabledAt && !(code.expiresAt && code.expiresAt <= now) && !(code.maxUses !== null && code.uses >= code.maxUses)
+
+/**
+ * Whether a code as typed would be accepted by a sign-up or a redeem: for the sign-up page to say so before the person has an account. It answers yes or no and nothing
+ * else (not whose code it is, what campus it names, or why it is not good), and the same no for a code that never existed, was switched off, ran out or expired.
+ */
+export async function checkInviteCode(db: Db, rawCode: string, now: Date = new Date()): Promise<boolean> {
+  const normalized = normalizeCode(rawCode)
+  const code = normalized ? await db.inviteCode.findUnique({ where: { code: normalized }, select: { disabledAt: true, expiresAt: true, maxUses: true, uses: true, ownerId: true } }) : null
+  if (!code || !isUsable(code, now)) return false
+  // A personal code whose owner is gone cannot be redeemed either (redeemInvite).
+  if (code.ownerId) {
+    const owner = await db.user.findUnique({ where: { id: code.ownerId }, select: { deletedAt: true } })
+    if (!owner || owner.deletedAt) return false
+  }
+  return true
+}
+
 export async function redeemInvite(db: Db, userId: string, rawCode: string, now: Date = new Date()): Promise<RedeemOutcome> {
   const normalized = normalizeCode(rawCode)
   const code = normalized ? await db.inviteCode.findUnique({ where: { code: normalized } }) : null
   // One answer for a code that does not exist, was switched off, ran out or expired: a person trying codes learns nothing from the difference.
-  if (!code || code.disabledAt || (code.expiresAt && code.expiresAt <= now) || (code.maxUses !== null && code.uses >= code.maxUses)) return { ok: false, code: 'INVITE_CODE_INVALID' }
+  if (!code || !isUsable(code, now)) return { ok: false, code: 'INVITE_CODE_INVALID' }
   if (code.ownerId === userId) return { ok: false, code: 'INVITE_OWN_CODE' }
 
   const invitee = await db.user.findUnique({ where: { id: userId }, select: { createdAt: true, email: true, deletedAt: true } })
