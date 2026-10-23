@@ -237,6 +237,16 @@ export const jobs = {
     concurrency: 1,
     handler: async () => (await import('@/lib/notify/dispatch')).runDeliveryJob(),
   }),
+  // Delivers named notifications now instead of at the next sweep, for the kinds the policy marks `immediate` (src/lib/notify/immediate.ts): a match, a squad invitation,
+  // an account notice. Queued the moment one is written. A notification the sweep already took is not delivered twice.
+  'notifications/deliver-now': defineJob({
+    schema: z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(100) }),
+    retries: 1,
+    handler: async ({ data }) => {
+      const { prisma } = await import('@/lib/prisma')
+      return (await import('@/lib/notify/dispatch')).deliverNow(prisma, undefined, data.ids)
+    },
+  }),
   // The daily digest email, once a local day an hour after each person's drop time, skipped when there is nothing worth sending (src/lib/notify/digest.ts). Hourly. A big
   // population is taken in batches of 500 that continue themselves (`after`).
   'digests/daily': defineJob({

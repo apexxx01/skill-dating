@@ -1,5 +1,7 @@
 import type { Notification, Prisma, PrismaClient } from '@prisma/client'
 import { KIND_SPECS, NOTIFICATION_KINDS, type NotificationKind } from './notification-kinds'
+import { deliverSoon } from './notify/immediate'
+import { isImmediateKind } from './notify/policy'
 
 // Writing notifications while respecting what each person has switched off. Everything that creates a notification for ANOTHER person because of what
 // somebody did (a spark, a prop, a comment, a follow) goes through createNotification(); notifications about one's own account (a level-up, a quest) are not
@@ -45,7 +47,7 @@ export interface NotifyInput {
 /** Creates a notification unless the person has switched this kind off. Returns the notification, or null when it was not written. */
 export async function createNotification(db: Db, input: NotifyInput): Promise<Notification | null> {
   if (!(await wantsNotification(db, input.userId, input.kind))) return null
-  return db.notification.create({
+  const notification = await db.notification.create({
     data: {
       userId: input.userId,
       type: KIND_SPECS[input.kind].type,
@@ -55,6 +57,9 @@ export async function createNotification(db: Db, input: NotifyInput): Promise<No
       metadata: { kind: input.kind, ...(input.metadata ?? {}) } as Prisma.InputJsonValue,
     },
   })
+  // A time-critical kind (a spark, an invitation to a squad) is dispatched when this commits, not at the next sweep (src/lib/notify/immediate.ts).
+  if (isImmediateKind(input.kind, notification.metadata)) deliverSoon(db, [input.userId])
+  return notification
 }
 
 /** Notifications of the same kind about the same thing within this long are one notification with a count. */

@@ -334,12 +334,19 @@ export async function sweepNotifications(db: PrismaClient, deps: DispatchDeps = 
   `)
   result.claimed = claimed.length
   if (claimed.length === 0) return result
+  await deliverClaimed(db, deps, claimed.map((row) => row.id), now, result)
+  log.info('notification sweep', { ...result })
+  return result
+}
+
+/** Delivers notifications that have been claimed (their sweptAt set by this run), unless delivery is paused. */
+async function deliverClaimed(db: PrismaClient, deps: DispatchDeps, ids: string[], now: Date, result: SweepResult) {
   if (await isKilled(db, 'notification_delivery')) {
-    log.warn('notification delivery is paused by its kill switch', { skipped: claimed.length })
-    result.skipped = claimed.length
-    return result
+    log.warn('notification delivery is paused by its kill switch', { skipped: ids.length })
+    result.skipped = ids.length
+    return
   }
-  const notifications = await db.notification.findMany({ where: { id: { in: claimed.map((row) => row.id) } }, orderBy: { createdAt: 'asc' } })
+  const notifications = await db.notification.findMany({ where: { id: { in: ids } }, orderBy: { createdAt: 'asc' } })
   const contexts = new Map<string, UserContext | null>()
   for (const notification of notifications) {
     try {
@@ -349,7 +356,25 @@ export async function sweepNotifications(db: PrismaClient, deps: DispatchDeps = 
       log.error('could not deliver a notification', { error, notificationId: notification.id })
     }
   }
-  log.info('notification sweep', { ...result })
+}
+
+/**
+ * Dispatches these notifications now, for the kinds whose policy says "immediate" (src/lib/notify/immediate.ts). Each is claimed the way the sweep claims it (its sweptAt is set
+ * only if it was still null), so a notification the sweep took in the meantime, or one named twice, is delivered once. Quiet hours, switches and limits are applied like everywhere.
+ */
+export async function deliverNow(db: PrismaClient, deps: DispatchDeps = defaultDeps(), ids: readonly string[]): Promise<SweepResult> {
+  const now = deps.now ?? new Date()
+  const result = emptyResult()
+  if (ids.length === 0) return result
+  const claimed = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+    UPDATE "Notification" SET "sweptAt" = ${utcTimestamp(now)}
+    WHERE "id" IN (SELECT "id" FROM "Notification" WHERE "sweptAt" IS NULL AND "id" = ANY(${[...ids]}::text[]) ORDER BY "createdAt" ASC FOR UPDATE SKIP LOCKED)
+    RETURNING "id"
+  `)
+  result.claimed = claimed.length
+  if (claimed.length === 0) return result
+  await deliverClaimed(db, deps, claimed.map((row) => row.id), now, result)
+  log.info('immediate dispatch', { ...result })
   return result
 }
 

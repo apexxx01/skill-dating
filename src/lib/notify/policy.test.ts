@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { NotificationType } from '@prisma/client'
 import { NOTIFICATION_KINDS } from '@/lib/notification-kinds'
-import { DELIVERY_KINDS, KIND_OF_TYPE, POLICY, deliveryKindOf, groupOf, kindsInGroup, switchableKinds } from './policy'
+import { DELIVERY_KINDS, KIND_OF_TYPE, POLICY, deliveryKindOf, groupOf, isImmediateKind, isImmediateNotification, kindsInGroup, switchableKinds } from './policy'
 import { LOCALES, stringTables, t, tn } from './strings'
 
 describe('the channel policy', () => {
@@ -50,6 +50,37 @@ describe('the channel policy', () => {
 
   it('has no promotional kind: anything that needs the marketing consent is a product decision made on purpose', () => {
     expect(DELIVERY_KINDS.filter((kind) => POLICY[kind].class === 'PROMOTIONAL')).toEqual([])
+  })
+})
+
+describe('immediate dispatch', () => {
+  it('is for exactly the time-critical kinds, and a new one is a decision made on purpose', () => {
+    expect(DELIVERY_KINDS.filter((kind) => POLICY[kind].immediate).sort()).toEqual(['MATCH', 'MATCH_CREATED', 'MODERATION', 'ROMANCE_MATCH', 'SPARK', 'SQUAD_INVITE', 'SQUAD_REMINDER'])
+  })
+
+  it('applies to a kind whole, or to a notification whose metadata matches', () => {
+    for (const kind of ['SPARK', 'MATCH_CREATED', 'MATCH', 'SQUAD_INVITE', 'MODERATION'] as const) expect(isImmediateKind(kind, undefined), kind).toBe(true)
+    // The squad reminder: only the one a day before registration closes.
+    expect(isImmediateKind('SQUAD_REMINDER', { stage: 'T24H' })).toBe(true)
+    for (const stage of ['T7D', 'T48H', undefined]) expect(isImmediateKind('SQUAD_REMINDER', { stage }), String(stage)).toBe(false)
+    expect(isImmediateKind('SQUAD_REMINDER', null)).toBe(false)
+    expect(isImmediateKind('SQUAD_REMINDER', ['T24H'])).toBe(false)
+  })
+
+  it('leaves the rest batched: comments, Props, follows, messages, the digests, and the other squad kinds', () => {
+    for (const kind of ['COMMENT', 'PROPS', 'FOLLOW', 'NEW_MESSAGE', 'MENTION', 'SQUAD_PROPOSAL', 'SQUAD_UPDATE', 'HACKATHON_REMINDER', 'DIGEST_DAILY', 'DIGEST_WEEKLY', 'LEVEL_UP'] as const) expect(isImmediateKind(kind, { stage: 'T24H' }), kind).toBe(false)
+  })
+
+  it('reads a stored notification the way the pipeline does', () => {
+    expect(isImmediateNotification({ type: 'MATCH', metadata: { kind: 'MATCH_CREATED', matchId: 'm' } })).toBe(true)
+    expect(isImmediateNotification({ type: 'SYSTEM', metadata: { kind: 'MODERATION', actionId: 'a' } })).toBe(true)
+    expect(isImmediateNotification({ type: 'SYSTEM', metadata: { kind: 'SQUAD_REMINDER', stage: 'T24H' } })).toBe(true)
+    expect(isImmediateNotification({ type: 'SYSTEM', metadata: { kind: 'SQUAD_REMINDER', stage: 'T7D' } })).toBe(false)
+    expect(isImmediateNotification({ type: 'COMMENT', metadata: null })).toBe(false)
+    // A romance match is told at once too, in its neutral form (the pipeline resolves it to ROMANCE_MATCH); the other romance kinds wait for the sweep.
+    expect(isImmediateNotification({ type: 'MATCH', metadata: { kind: 'MATCH_CREATED', connectionType: 'DATING' } })).toBe(true)
+    expect(POLICY.ROMANCE_MATCH.exposure).toBe('NEUTRAL')
+    for (const kind of ['ROMANCE_MESSAGE', 'ROMANCE_SPARK', 'ROMANCE_DROP', 'ROMANCE_REVEAL', 'ROMANCE_DUO'] as const) expect(POLICY[kind].immediate, kind).toBeUndefined()
   })
 })
 

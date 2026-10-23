@@ -1,11 +1,15 @@
-import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll, beforeEach, vi } from 'vitest'
 import { cleanupTestUsers, testPrisma } from './db'
 import { uniqueSuffix } from './helpers'
 import { INTEGRATION_DATABASE_URL } from './config'
 import { makePerson, removePeople, type FixtureOptions } from './matching-fixtures'
 import { MemoryEmail } from '../../src/lib/infra/email.memory'
 import { MemoryPush } from '../../src/lib/infra/push.memory'
-import { releaseDeferred, sweepNotifications, type DispatchDeps } from '../../src/lib/notify/dispatch'
+import { deliverNow, releaseDeferred, sweepNotifications, type DispatchDeps } from '../../src/lib/notify/dispatch'
+import { requestImmediateDelivery } from '../../src/lib/notify/immediate'
+import { createNotification } from '../../src/lib/notifications'
+import { jobs, setJobQueue } from '../../src/lib/infra/jobs'
+import { MemoryJobQueue } from '../../src/lib/infra/jobs.memory'
 import { processEmailEvent } from '../../src/lib/notify/webhook'
 import { readUnsubscribeToken } from '../../src/lib/notify/tokens'
 import { saveSettings, setChannelChoice, suppressAddress, suppressionKey } from '../../src/lib/notify/settings'
@@ -174,6 +178,125 @@ describe('notification delivery', () => {
       await sweepNotifications(testPrisma, deps())
       expect(email.outbox).toHaveLength(0)
       expect((await deliveries(a.id)).map((row) => `${row.status}:${row.reason}`)).toEqual(['SKIPPED:SUPPRESSED'])
+    })
+  })
+
+  describe('immediate dispatch', () => {
+    const invite = (userId: string, over: { at?: Date } = {}) => notify(userId, 'TEAM_INVITATION', { kind: 'SQUAD_INVITE', title: 'Squad invitation', message: 'Ada invited you to join NightShift', link: '/teams/t1', at: over.at })
+
+    it('sends the named notifications now, without a sweep, and the sweep that follows does not send them again', async () => {
+      const a = await person()
+      const n = await invite(a.id)
+      const sent = await deliverNow(testPrisma, deps(), [n.id])
+      expect(sent).toMatchObject({ claimed: 1, sent: 1 })
+      expect(email.to(await addressOf(a.id))).toHaveLength(1)
+      expect((await testPrisma.notification.findUniqueOrThrow({ where: { id: n.id } })).sweptAt).not.toBeNull()
+      const swept = await sweepNotifications(testPrisma, deps())
+      expect(swept.claimed).toBe(0)
+      expect(email.to(await addressOf(a.id))).toHaveLength(1)
+      expect(await deliveries(a.id)).toHaveLength(1)
+    })
+
+    it('delivers once when it is asked for twice, or when the sweep took it first', async () => {
+      const a = await person()
+      const b = await person()
+      const first = await invite(a.id)
+      const second = await invite(b.id)
+      expect((await deliverNow(testPrisma, deps(), [first.id, first.id])).sent).toBe(1)
+      expect((await deliverNow(testPrisma, deps(), [first.id])).claimed).toBe(0)
+      await sweepNotifications(testPrisma, deps())
+      expect((await deliverNow(testPrisma, deps(), [second.id])).claimed).toBe(0)
+      expect(email.to(await addressOf(a.id))).toHaveLength(1)
+      expect(email.to(await addressOf(b.id))).toHaveLength(1)
+    })
+
+    it('still applies the person’s choices and quiet hours: now is not a way round them', async () => {
+      const night = new Date('2026-10-22T20:30:00Z') // 02:00 in Kolkata
+      const quiet = await person({ timezone: 'Asia/Kolkata' })
+      const off = await person()
+      await setChannelChoice(testPrisma, off.id, 'SQUAD_INVITE', 'EMAIL', false)
+      const heldInvite = await invite(quiet.id, { at: new Date(night.getTime() - 60_000) })
+      const offInvite = await invite(off.id, { at: new Date(night.getTime() - 60_000) })
+      const result = await deliverNow(testPrisma, deps(night), [heldInvite.id, offInvite.id])
+      expect(result).toMatchObject({ claimed: 2, sent: 0 })
+      expect(email.outbox).toHaveLength(0)
+      expect((await deliveries(quiet.id))[0]).toMatchObject({ status: 'DEFERRED', reason: 'QUIET_HOURS' })
+      // A held delivery is released by whichever run comes next, anybody's: do not leave this one for another test's.
+      await testPrisma.notificationDelivery.deleteMany({ where: { userId: quiet.id } })
+    })
+
+    it('does not send while the kill switch is on', async () => {
+      const a = await person()
+      const n = await invite(a.id)
+      await testPrisma.featureFlag.updateMany({ where: { key: 'kill.notification-delivery' }, data: { enabled: true } })
+      await invalidateFlags()
+      try {
+        expect((await deliverNow(testPrisma, deps(), [n.id])).sent).toBe(0)
+      } finally {
+        await testPrisma.featureFlag.updateMany({ where: { key: 'kill.notification-delivery' }, data: { enabled: false } })
+        await invalidateFlags()
+      }
+      expect(email.outbox).toHaveLength(0)
+    })
+
+    describe('the request that follows a write', () => {
+      let queue: MemoryJobQueue
+      beforeEach(() => {
+        queue = new MemoryJobQueue(jobs)
+        setJobQueue(queue)
+      })
+      afterAll(() => setJobQueue(undefined))
+      const queued = () => queue.accepted.filter((job) => job.name === 'notifications/deliver-now').flatMap((job) => (job.data as { ids: string[] }).ids)
+
+      it('queues the time-critical kinds a person has waiting, and nothing else', async () => {
+        const a = await person()
+        const wanted = [
+          await invite(a.id),
+          await notify(a.id, 'SPARK', { kind: 'SPARK' }),
+          await notify(a.id, 'MATCH', { kind: 'MATCH_CREATED' }),
+          await notify(a.id, 'SYSTEM', { kind: 'MODERATION' }),
+          await notify(a.id, 'SYSTEM', { kind: 'SQUAD_REMINDER', metadata: { kind: 'SQUAD_REMINDER', stage: 'T24H' } }),
+        ]
+        const batched = [
+          await notify(a.id, 'COMMENT', { kind: 'COMMENT' }),
+          await notify(a.id, 'PROPS', { kind: 'PROPS' }),
+          await notify(a.id, 'SYSTEM', { kind: 'SQUAD_REMINDER', metadata: { kind: 'SQUAD_REMINDER', stage: 'T7D' } }),
+          await notify(a.id, 'SYSTEM', { kind: 'SQUAD_REMINDER', metadata: { kind: 'SQUAD_REMINDER', stage: 'T48H' } }),
+          await notify(a.id, 'NEW_MESSAGE', { kind: 'NEW_MESSAGE' }),
+        ]
+        expect(await requestImmediateDelivery(testPrisma, [a.id], NOON)).toBe(wanted.length)
+        expect(queued().sort()).toEqual(wanted.map((row) => row.id).sort())
+        for (const row of batched) expect(queued()).not.toContain(row.id)
+      })
+
+      it('leaves alone what the sweep has taken, what is old, and people who were not named', async () => {
+        const a = await person()
+        const b = await person()
+        const taken = await invite(a.id)
+        await testPrisma.notification.update({ where: { id: taken.id }, data: { sweptAt: NOON } })
+        const old = await invite(a.id, { at: new Date(NOON.getTime() - 3600_000) })
+        const other = await invite(b.id)
+        expect(await requestImmediateDelivery(testPrisma, [a.id], NOON)).toBe(0)
+        expect(queued()).toEqual([])
+        expect(other.id).toBeDefined()
+      })
+
+      it('is asked for by the code that writes a notification, once the write is in, and only for the time-critical kinds', async () => {
+        const a = await person()
+        const spark = await createNotification(testPrisma, { userId: a.id, kind: 'SPARK', title: 'Someone sparked you', message: 'Ada sparked you', link: '/sparks' })
+        const comment = await createNotification(testPrisma, { userId: a.id, kind: 'COMMENT', title: 'New comment', message: 'Grace replied', link: '/posts/p1' })
+        await vi.waitFor(() => expect(queued()).toContain(spark!.id))
+        expect(queued()).not.toContain(comment!.id)
+        // What the job then does with it.
+        expect((await deliverNow(testPrisma, deps(new Date()), queued())).claimed).toBeGreaterThanOrEqual(1)
+        expect((await testPrisma.notification.findUniqueOrThrow({ where: { id: spark!.id } })).sweptAt).not.toBeNull()
+        expect((await testPrisma.notification.findUniqueOrThrow({ where: { id: comment!.id } })).sweptAt).toBeNull()
+      })
+
+      it('queues nothing, and fails nothing, when there is nobody to ask for', async () => {
+        expect(await requestImmediateDelivery(testPrisma, [], NOON)).toBe(0)
+        expect(queued()).toEqual([])
+      })
     })
   })
 

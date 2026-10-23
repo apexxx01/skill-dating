@@ -287,6 +287,11 @@ export class EventBus {
     else log.warn('after-commit callback dropped: transaction not opened with transactWithEvents')
   }
 
+  /** Whether `afterCommit` can run a callback for this db: a bare client (at once) or a transaction opened with transact(). Anything else would drop it with a warning. */
+  canAfterCommit(db: Db): boolean {
+    return this.scopes.has(db) || isClient(db)
+  }
+
   /** Records what a user earned, for the response of the request that opened the transaction. */
   recordReward(db: Db, userId: string, envelope: EnvelopeDraft): void {
     this.scopes.get(db)?.addReward(userId, envelope)
@@ -326,5 +331,6 @@ export const bus: EventBus = (shared.__domainEventBus ??= new EventBus({ loadSub
 
 export const emit = bus.emit.bind(bus)
 export const afterCommit = bus.afterCommit.bind(bus)
+export const canAfterCommit = bus.canAfterCommit.bind(bus)
 export const recordReward = bus.recordReward.bind(bus)
 export const transactWithEvents = bus.transact.bind(bus)

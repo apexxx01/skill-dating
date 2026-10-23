@@ -47,6 +47,11 @@ export interface KindPolicy {
   /** Kinds that share one limit count together (all the romance kinds are one). Default: the kind alone. */
   group?: string
   urgency: 'low' | 'normal' | 'high'
+  /**
+   * Dispatched the moment it is written, not at the next sweep (src/lib/notify/immediate.ts): true for the kind, or only for a notification whose metadata has these values (the
+   * squad reminder one day before the deadline, not the ones a week and two days before). Quiet hours, the person's switches and the limits still apply; this is only "now".
+   */
+  immediate?: true | { metadata: Record<string, string> }
   /** Sent on a schedule of its own (a digest: once a local day or week), so neither held to nor counted in the channel-wide limits. */
   ownCadence?: boolean
 }
@@ -114,11 +119,11 @@ const ROMANCE_LIMIT: RateLimit = { max: 3, windowMs: DAY }
 
 export const POLICY: Record<DeliveryKind, KindPolicy> = {
   // --- Matching ---
-  SPARK: { label: 'Someone sparked you', class: 'ACTIVITY', email: none, push: { default: true, limit: perHour(4) }, urgency: 'normal' },
+  SPARK: { label: 'Someone sparked you', class: 'ACTIVITY', email: none, push: { default: true, limit: perHour(4) }, urgency: 'normal', immediate: true },
   // The daily count is already in the in-app list and in the daily digest.
   SPARK_DIGEST: { label: 'The daily count of sparks', class: 'ACTIVITY', email: none, push: none, urgency: 'low' },
-  MATCH_CREATED: { label: 'A new match', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
-  MATCH: { label: 'A new match', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
+  MATCH_CREATED: { label: 'A new match', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high', immediate: true },
+  MATCH: { label: 'A new match', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high', immediate: true },
   NEW_MESSAGE: { label: 'New messages', class: 'ACTIVITY', email: { default: true, limit: perDay(3) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
   CONNECTION: { label: 'Connection requests and answers', class: 'ACTIVITY', email: { default: true, limit: perDay(3) }, push: { default: true, limit: perHour(3) }, urgency: 'normal' },
 
@@ -129,7 +134,8 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   ROMANCE_REVEAL: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
   ROMANCE_DUO: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
   ROMANCE_MESSAGE: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
-  ROMANCE_MATCH: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal' },
+  // A match is time-critical in either mode; what leaves the app is still only the neutral line.
+  ROMANCE_MATCH: { label: 'Activity in a private mode', class: 'ACTIVITY', exposure: 'NEUTRAL', group: 'ROMANCE', email: { default: false, limit: ROMANCE_LIMIT }, push: { default: true, limit: ROMANCE_LIMIT }, urgency: 'normal', immediate: true },
 
   // --- The feed ---
   PROPS: { label: 'Props on your posts', class: 'ACTIVITY', email: none, push: { default: true, limit: perHour(2) }, urgency: 'low' },
@@ -139,9 +145,10 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   MENTION: { label: 'Mentions', class: 'ACTIVITY', email: { default: true, limit: perDay(3) }, push: { default: true, limit: perHour(3) }, urgency: 'normal' },
 
   // --- Squads and crews ---
-  SQUAD_INVITE: { label: 'Invitations to join a squad', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
+  SQUAD_INVITE: { label: 'Invitations to join a squad', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high', immediate: true },
   SQUAD_PROPOSAL: { label: 'Squads proposed to you', class: 'ACTIVITY', email: { default: true, limit: perDay(3) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
-  SQUAD_REMINDER: { label: 'Reminders to find a team', class: 'ACTIVITY', email: { default: true, limit: perDay(2) }, push: { default: true, limit: perDay(2) }, urgency: 'normal' },
+  // Only the last reminder, a day before registration closes, is time-critical; the ones a week and two days before wait for the sweep.
+  SQUAD_REMINDER: { label: 'Reminders to find a team', class: 'ACTIVITY', email: { default: true, limit: perDay(2) }, push: { default: true, limit: perDay(2) }, urgency: 'normal', immediate: { metadata: { stage: 'T24H' } } },
   SQUAD_UPDATE: { label: 'Changes to your squad', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'normal' },
   PEER_REVIEW: { label: 'Asks to review your teammates', class: 'ACTIVITY', email: { default: true, limit: perDay(2) }, push: none, urgency: 'low' },
   TEAM_INVITATION: { label: 'Invitations to join a team', class: 'ACTIVITY', email: { default: true, limit: perDay(5) }, push: { default: true, limit: perHour(3) }, urgency: 'high' },
@@ -161,13 +168,22 @@ export const POLICY: Record<DeliveryKind, KindPolicy> = {
   SKILL_EVIDENCE_ENDORSED: { label: 'Endorsements', class: 'ACTIVITY', email: { default: false, limit: perDay(3) }, push: { default: true, limit: perHour(2) }, urgency: 'low' },
 
   // --- Account and safety ---
-  MODERATION: { label: 'Account and safety notices', class: 'SECURITY', exposure: 'ACCOUNT', email: { default: true, limit: perDay(10) }, push: { default: true, limit: perDay(10) }, urgency: 'high' },
+  MODERATION: { label: 'Account and safety notices', class: 'SECURITY', exposure: 'ACCOUNT', email: { default: true, limit: perDay(10) }, push: { default: true, limit: perDay(10) }, urgency: 'high', immediate: true },
   DATA_EXPORT: { label: 'Your data export', class: 'SECURITY', email: { default: true, limit: perDay(10) }, push: none, urgency: 'normal' },
   SYSTEM: { label: 'Other notices from the platform', class: 'ACTIVITY', email: none, push: none, urgency: 'low' },
 
   // --- Digests: account mail the platform starts itself; on by default, one-click unsubscribe per kind and for all ---
   DIGEST_DAILY: { label: 'The daily digest', class: 'ACTIVITY', email: { default: true }, push: never, urgency: 'low', ownCadence: true },
   DIGEST_WEEKLY: { label: 'The weekly digest', class: 'ACTIVITY', email: { default: true }, push: never, urgency: 'low', ownCadence: true },
+}
+
+/** Whether a notification of this kind, with this metadata, is dispatched the moment it is written. */
+export function isImmediateKind(kind: DeliveryKind, metadata: unknown): boolean {
+  const rule = POLICY[kind].immediate
+  if (!rule) return false
+  if (rule === true) return true
+  const bag = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? (metadata as Record<string, unknown>) : {}
+  return Object.entries(rule.metadata).every(([key, value]) => bag[key] === value)
 }
 
 export const isDeliveryKind = (value: unknown): value is DeliveryKind => typeof value === 'string' && (DELIVERY_KINDS as readonly string[]).includes(value)
@@ -216,6 +232,9 @@ export function deliveryKindOf(notification: NotificationLike): DeliveryKind {
   }
   return kind
 }
+
+/** Whether a stored notification is dispatched the moment it is written (its kind's rule, read from its type and metadata like the pipeline does). */
+export const isImmediateNotification = (notification: NotificationLike): boolean => isImmediateKind(deliveryKindOf(notification), notification.metadata)
 
 /** The kinds a person can switch per channel in settings: every one that is not a notice they must receive. */
 export function switchableKinds(): DeliveryKind[] {

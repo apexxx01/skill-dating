@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { ErrorCode } from '@/lib/api/errors'
 import { getStorage } from '@/lib/infra/storage'
 import { log } from '@/lib/log'
+import { deliverSoon } from '@/lib/notify/immediate'
 import { invalidateAccountState, KIND_OF_FEATURE, type RestrictedFeature } from './restrictions'
 import { applyContentEffect, resolveTarget } from './targets'
 import { CONTENT_TARGETS, REPORT_TARGETS } from './target-types'
@@ -182,6 +183,8 @@ export async function applyModerationAction(
   )
 
   await invalidateAccountState(target.ownerId)
+  // An account notice is time-critical: dispatched now, not at the next sweep (src/lib/notify/immediate.ts).
+  deliverSoon(db, [target.ownerId])
   if (objectKeys.length > 0) {
     const storage = getStorage()
     for (const key of objectKeys) await storage.remove(key).catch((error) => log.warn('could not remove a moderated object', { error, key }))
@@ -208,6 +211,9 @@ export async function reverseModerationAction(
     return reversed
   }
   const result = options.inTransaction ? await run(db as Tx) : await (db as Db).$transaction(run, { timeout: 30_000 })
-  if (typeof result !== 'string' && result.subjectUserId) await invalidateAccountState(result.subjectUserId)
+  if (typeof result !== 'string' && result.subjectUserId) {
+    await invalidateAccountState(result.subjectUserId)
+    deliverSoon(db as Db, [result.subjectUserId])
+  }
   return result
 }

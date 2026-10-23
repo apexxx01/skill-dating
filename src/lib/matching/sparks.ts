@@ -10,6 +10,7 @@ import { track } from '@/lib/infra/analytics'
 import { getRealtime, userChannel } from '@/lib/infra/realtime'
 import { log } from '@/lib/log'
 import { createNotification } from '@/lib/notifications'
+import { deliverSoon } from '@/lib/notify/immediate'
 import { advisoryLock } from '@/lib/progress'
 import { localDayStart } from '@/lib/time'
 import { accountDistrust } from '@/lib/trust'
@@ -307,6 +308,9 @@ export async function makeMatch(tx: Tx, first: Spark, second: Spark, now: Date, 
       metadata: { kind: 'MATCH_CREATED', matchId: match.id, conversationId: conversation.id, connectionType },
     })),
   })
+
+  // A match is time-critical: both people are told as soon as it commits, not at the next sweep (src/lib/notify/immediate.ts).
+  deliverSoon(tx, [userAId, userBId])
 
   // Announced last: the achievements it counts toward are merged in after the match itself. It pays no XP.
   if (style.announce) await emit(tx, 'MATCH_CREATED', { userId: second.fromId, otherUserId: first.fromId, matchId: match.id, connectionType, conversationId: conversation.id })

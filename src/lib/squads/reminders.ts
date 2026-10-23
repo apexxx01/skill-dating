@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { KIND_SPECS } from '@/lib/notification-kinds'
+import { deliverSoon } from '@/lib/notify/immediate'
 
 // Reminders to people registered for a hackathon who have no squad yet (docs/SQUADS.md, "Lifecycle"): a week before the registration deadline, at
 // two days (when the solo pool forms its squads) and at one day. Each stage is sent once per person (Notification.coalesceKey
@@ -78,7 +79,12 @@ export async function sendSquadReminders(db: Db, now: Date = new Date()): Promis
           coalesceKey,
           count: 1,
         }))
-      if (data.length > 0) written += (await db.notification.createMany({ data, skipDuplicates: true })).count
+      if (data.length > 0) {
+        const count = (await db.notification.createMany({ data, skipDuplicates: true })).count
+        written += count
+        // The last reminder, a day before registration closes, is time-critical: dispatched now, not at the next sweep (src/lib/notify/immediate.ts).
+        if (count > 0 && stage === 'T24H') deliverSoon(db, data.map((row) => row.userId))
+      }
       if (batch.length < 500) break
     }
   }

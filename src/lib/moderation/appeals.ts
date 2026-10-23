@@ -1,6 +1,7 @@
 import type { Appeal, PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import type { ErrorCode } from '@/lib/api/errors'
+import { deliverSoon } from '@/lib/notify/immediate'
 import { reverseModerationAction } from './actions'
 import { invalidateAccountState } from './restrictions'
 
@@ -59,5 +60,6 @@ export async function decideAppeal(
     { timeout: 30_000 }
   )
   await invalidateAccountState(appeal.userId)
+  deliverSoon(db, [appeal.userId])
   return { ok: true, appeal: decided }
 }
