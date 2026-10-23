@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { parseBirthDate } from '@/lib/age'
 import { ageBandOf, type AgeBand } from '@/lib/age-policy'
-import { clearMinorLocation } from '@/lib/birth-date'
+import { clearMinorLocation, keepCardsOff, startsWithCardsOff } from '@/lib/birth-date'
 
 // The correction of a locked date of birth: the only way a date changes once it is set (a person asks through the report flow with the reason
 // BIRTHDATE_CORRECTION; an admin decides here). Always with a reason, always audited with the old and the new date. The response never carries a date.
@@ -24,7 +24,7 @@ export type CorrectionResult =
 /**
  * Sets a person's date of birth to `input.birthDate`, whatever it was (or was not) before, and clears an earlier refusal. A date that would put them under the
  * platform's minimum is NOT applied (a correction cannot be used to admit a child); the admin deals with that account through moderation. A correction
- * to 16 or 17 clears the place they have given down to nothing finer than a country. `onMinor` lets the romance mode remove itself from the account (it
+ * to 16 or 17 clears the place they have given down to nothing finer than a country; a correction to a date that makes the account one that has been under 18 keeps its cards off. `onMinor` lets the romance mode remove itself from the account (it
  * is 18+), in the same transaction.
  */
 export async function correctBirthDate(
@@ -40,7 +40,7 @@ export async function correctBirthDate(
   const band = ageBandOf(birthDate, now)
 
   return db.$transaction(async (tx) => {
-    const target = await tx.user.findUnique({ where: { id: userId }, select: { id: true, birthDate: true, deletedAt: true } })
+    const target = await tx.user.findUnique({ where: { id: userId }, select: { id: true, birthDate: true, deletedAt: true, createdAt: true } })
     if (!target || target.deletedAt) return { kind: 'NOT_FOUND' as const }
     if (band === 'UNDER_MINIMUM') return { kind: 'UNDER_MINIMUM' as const }
 
@@ -50,6 +50,8 @@ export async function correctBirthDate(
       await clearMinorLocation(tx, userId)
       await hooks.onMinor?.(tx, userId)
     }
+    // Whoever is or was under 18 (by the corrected date) has the cards off until they turn them on; a correction to an adult never turns them on.
+    if (startsWithCardsOff(birthDate, target.createdAt, now)) await keepCardsOff(tx, userId)
     // Both dates are kept in the audit trail (an admin-only table; no route reads it), because a correction that cannot be traced is worth nothing.
     await tx.auditEvent.create({
       data: {
