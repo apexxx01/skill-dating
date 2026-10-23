@@ -16,6 +16,7 @@ import { log } from '@/lib/log'
 //   email and push delivery log 90 days                        NotificationDelivery rows deleted (no content is in them)
 //   activity days               25 months                      ActivityDay rows deleted (the metrics are kept: they hold no person)
 //   campus verifications        1 hour after their code expired  the row, and with it the campus e-mail address it held, is deleted
+//   "tell me when it opens"       180 days after the person was told  RomanceInterest rows deleted (a request nobody has been told about is kept until the person withdraws it)
 
 export const RETENTION = {
   productEventsMonths: 13,
@@ -25,6 +26,7 @@ export const RETENTION = {
   exportFilesHours: 24,
   deliveryLogDays: 90,
   activityDaysMonths: 25,
+  romanceInterestAnsweredDays: 180,
 } as const
 
 const BATCH = 1000
@@ -45,6 +47,7 @@ export function retentionCutoffs(now: Date) {
     exportFiles: now,
     deliveryLog: new Date(now.getTime() - RETENTION.deliveryLogDays * DAY_MS),
     activityDays: months25,
+    romanceInterest: new Date(now.getTime() - RETENTION.romanceInterestAnsweredDays * DAY_MS),
   }
 }
 
@@ -90,7 +93,8 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
   }
   const activityDays = (await db.activityDay.deleteMany({ where: { day: { lt: cut.activityDays } } })).count
   const campusVerifications = await sweepVerifications(db, now)
-  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, activityDays, campusVerifications }
+  const romanceInterest = (await db.romanceInterest.deleteMany({ where: { notifiedAt: { lt: cut.romanceInterest } } })).count
+  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, activityDays, campusVerifications, romanceInterest }
   log.info('retention finished', result)
   return result
 }

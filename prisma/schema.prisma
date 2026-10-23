@@ -400,6 +400,7 @@ model User {
   followers           Follow[]                 @relation("Followers")
   watches             Watch[]
   romanceProfile      RomanceProfile?
+  romanceInterest     RomanceInterest?
   risk                UserRisk?
   dataExports         DataExport[]
   consents            ConsentRecord[]
@@ -1853,6 +1854,24 @@ enum RomanceScope {
   CITY
   COUNTRY
   ANYWHERE
+}
+
+// "Tell me when it opens": an adult's request to be told when the romance mode opens where they are (POST /api/romance/interest). Country and city are the profile's own at the
+// time of the request (a snapshot, refreshed by asking again); they are what the admin metrics count by, never shown to anybody else. `notifiedAt` is set when the opening note was
+// written, so it is sent once. Removed with the account, by DELETE /api/romance/interest, and by the retention job 180 days after the note.
+model RomanceInterest {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  countryCode String?   @db.VarChar(2)
+  cityKey     String?
+  city        String?
+  notifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([countryCode, cityKey])
+  @@index([notifiedAt])
 }
 
 // A person's romance profile. 1:1 with User, created by opting in (PUT /api/romance/profile, behind the 18+ gate). The first half is what a match sees; the
