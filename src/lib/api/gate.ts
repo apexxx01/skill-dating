@@ -5,13 +5,15 @@ import { closedAccountAllows, featureOfRequest } from '@/lib/api/request-feature
 import { isHighRisk } from '@/lib/integrity/risk-job'
 import { accountState } from '@/lib/moderation/restrictions'
 import { isKilled, KILL_SWITCHES } from '@/lib/ops/kill-switches'
+import { romanceOpenFor } from '@/lib/romance/launch'
 import { staleConsents } from '@/lib/privacy/consent'
 import { consumeSafely, tooManyRequests } from '@/lib/rate-limiter'
 
 // The request gate: what withAuth (handler.ts) checks for every authenticated request after the session and before the route, so that no route can
 // forget it. In order:
 //   1. a banned or suspended account is closed to everything but its own account, data, notices and appeals (403 ACCOUNT_BANNED / ACCOUNT_SUSPENDED);
-//   2. a feature under a kill switch answers its own 503 code (src/lib/ops/kill-switches.ts);
+//   2. a feature under a kill switch answers its own 503 code (src/lib/ops/kill-switches.ts); the romance mode answers its code (ROMANCE_PAUSED) unless it has been opened for
+//      this person (src/lib/romance/launch.ts): it ships closed;
 //   3. a feature moderation restricted for this person answers 403 FEATURE_RESTRICTED (with the feature and until when);
 //   4. a write by someone who accepted an older version of the terms or the privacy notice answers 403 CONSENT_REQUIRED until they accept again;
 //   5. a write by a HIGH risk account counts against RISK_WRITE_LIMIT as well as the route's own limit.
@@ -35,7 +37,7 @@ export async function gateRequest(db: PrismaClient, user: { id: string }, method
 
   const feature = featureOfRequest(method, pathname)
   if (feature) {
-    if (await isKilled(db, feature)) return errorResponse(KILL_SWITCHES[feature].code)
+    if (feature === 'romance' ? !(await romanceOpenFor(db, user.id)) : await isKilled(db, feature)) return errorResponse(KILL_SWITCHES[feature].code)
     if (feature !== 'external_hackathons' && feature in state.restricted) {
       const until = state.restricted[feature]
       return errorResponse('FEATURE_RESTRICTED', { params: { feature, ...(until ? { until } : {}) } })

@@ -5,6 +5,7 @@ import { hasMarketingConsent, isSuppressed, loadChannelChoices, loadSettings, sa
 import { channelPolicy, switchableKinds, type DeliveryKind } from '@/lib/notify/policy'
 import { parseClock } from '@/lib/notify/quiet'
 import { getPush } from '@/lib/infra/push'
+import { isRomanceKind, romanceOpenFor } from '@/lib/romance/launch'
 import type { prisma as prismaClient } from '@/lib/prisma'
 
 // How notifications reach the caller outside the app (docs/NOTIFICATIONS.md): the email and push switches, quiet hours, the digests, and for every kind of
@@ -35,17 +36,19 @@ const bodySchema = z
   .refine((value) => value.settings !== undefined || value.kinds !== undefined, 'Send settings, kinds or both')
 
 async function view(prisma: typeof prismaClient, userId: string) {
-  const [settings, choices, marketing, devices, account] = await Promise.all([
+  const [settings, choices, marketing, devices, account, romanceOpen] = await Promise.all([
     loadSettings(prisma, userId),
     loadChannelChoices(prisma, userId),
     hasMarketingConsent(prisma, userId),
     prisma.pushSubscription.count({ where: { userId } }),
     prisma.user.findUnique({ where: { id: userId }, select: { email: true, isEmailVerified: true } }),
+    romanceOpenFor(prisma, userId),
   ])
   const undeliverable = account?.email ? await isSuppressed(prisma, account.email) : false
   return {
     settings: settingsView(settings),
-    kinds: channelViews(choices),
+    // The romance kinds are listed only where the mode is open (src/lib/romance/launch.ts).
+    kinds: channelViews(choices).filter((entry) => romanceOpen || !isRomanceKind(entry.kind)),
     // Digests are mail the platform starts itself, so they need this consent (GET/POST /api/users/me/consents).
     marketingConsent: marketing,
     push: { devices, configured: getPush().kind === 'webpush' },

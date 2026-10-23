@@ -3,6 +3,7 @@ import type { ErrorCode } from '@/lib/api/errors'
 import { loadFlags } from '@/lib/flags'
 import type { Cache } from '@/lib/infra/cache'
 import { log } from '@/lib/log'
+import { ROMANCE_KILL_FLAG } from '@/lib/romance/launch-keys'
 
 // Kill switches: a feature flag per thing that may have to be stopped at once, for everyone, without a deploy (an abuse wave, a legal request, a bug that
 // leaks data). A switch is ON when its flag exists and is enabled; then the feature answers its error code everywhere it is checked, on the server. The
@@ -10,7 +11,7 @@ import { log } from '@/lib/log'
 
 export const KILL_SWITCHES = {
   signups: { flag: 'kill.signups', code: 'SIGNUPS_PAUSED', owner: 'Engineering on-call' },
-  romance: { flag: 'kill.romance', code: 'ROMANCE_PAUSED', owner: 'Trust & Safety lead' },
+  romance: { flag: ROMANCE_KILL_FLAG, code: 'ROMANCE_PAUSED', owner: 'Trust & Safety lead' },
   messaging: { flag: 'kill.messaging', code: 'MESSAGING_PAUSED', owner: 'Trust & Safety lead' },
   posting: { flag: 'kill.posting', code: 'POSTING_PAUSED', owner: 'Trust & Safety lead' },
   external_hackathons: { flag: 'kill.external-hackathons', code: 'EXTERNAL_HACKATHONS_PAUSED', owner: 'Squads product owner' },

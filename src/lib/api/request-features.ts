@@ -27,7 +27,8 @@ const RULES: { feature: Feature; methods: readonly string[]; pattern: RegExp }[]
 
 export function featureOfRequest(method: string, pathname: string): Feature | null {
   const path = pathname.replace(/\/+$/, '')
-  // The romance mode: every route of it, except leaving it (which must always work).
+  // The romance mode: every route of it, except leaving it (which must always work) and asking to be told when it opens (which works while it is closed: that is what it is for).
+  if (path === '/api/romance/interest') return null
   if (path === '/api/romance' || path.startsWith('/api/romance/')) return method === 'DELETE' && path === '/api/romance/profile' ? null : 'romance'
   for (const rule of RULES) if (rule.methods.includes(method) && rule.pattern.test(path)) return rule.feature
   return null
