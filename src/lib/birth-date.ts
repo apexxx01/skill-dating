@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
-import { ageBandOf, MIN_PLATFORM_AGE, isMinor, type AgeBand } from '@/lib/age-policy'
+import { ageBandOf, cardsAllowed, MIN_PLATFORM_AGE, isMinor, type AgeBand } from '@/lib/age-policy'
 
 // Setting a date of birth, once, under the platform age policy (src/lib/age-policy.ts, docs/SAFETY.md). The one place that writes User.birthDate for a person
 // (an admin correction is the other, in src/lib/birth-date-admin.ts). It decides:
@@ -19,6 +19,12 @@ export type SetBirthDateResult =
   | { kind: 'SAME' }
   | { kind: 'LOCKED' }
   | { kind: 'REFUSED' }
+
+/** Whether this person may have share cards at all: an adult whose age is on file. Only the verdict leaves; the date does not. */
+export async function cardsAvailable(db: Db, userId: string, now: Date = new Date()): Promise<boolean> {
+  const row = await db.user.findUnique({ where: { id: userId }, select: { birthDate: true } })
+  return cardsAllowed(row?.birthDate, now)
+}
 
 /** Clears what an account for a minor may not carry: anything finer than a country. */
 export async function clearMinorLocation(db: Db, userId: string): Promise<void> {

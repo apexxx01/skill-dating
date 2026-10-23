@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
-import { isMinor } from '@/lib/age-policy'
+import { cardsAllowed } from '@/lib/age-policy'
 import { levelFor } from '@/lib/levels'
 import { effectiveLevel } from '@/lib/integrity/risk'
 import { accountState } from '@/lib/moderation/restrictions'
@@ -9,9 +9,9 @@ import type { AchievementCard, CardModel, PassportCard, PostCard, SquadCard } fr
 // The data behind each share card, and the rules about who may be on one. A card is a public image: anybody with the link can fetch it, signed in or not, and it
 // ends up in link previews, search engines and other people's feeds. So it shows less than the app does, and only what the person has not kept to themselves:
 //
-//   hidden entirely (404)   an account that is deleted, closed for its age, suspended or banned, at a HIGH risk level, or in invisible mode; a post that is not PUBLIC,
-//                           or is hidden, removed or deleted; a squad whose hackathon is not public or has not ended;
-//   a minor, or an account with no date of birth yet   only the @username, level and counts: no name, headline, role, skills, or place;
+//   hidden entirely (404)   an account that is deleted, closed for its age, suspended or banned, at a HIGH risk level, in invisible mode, or whose owner turned "show my
+//                           cards on the web" off; a minor (16 or 17), or an account with no date of birth yet, has no cards at all, whatever the switch says (cardsAllowed);
+//                           a post that is not PUBLIC, or is hidden, removed or deleted; a squad whose hackathon is not public or has not ended;
 //   a passport field that is not PUBLIC  not shown (the headline and the builder role are the fields a card prints);
 //   never shown   e-mail, bio, links, location, the date of birth, and anything from a person's private modes: no such table is read here.
 // A person who is not in the cards can always be linked to by name inside the app; the cards are for sharing, and are generous with nothing.
@@ -22,7 +22,6 @@ interface Holder {
   id: string
   username: string
   name: string | null
-  minimal: boolean
   fieldVisibility: Record<string, unknown>
 }
 
@@ -30,20 +29,20 @@ interface Holder {
 async function holderOf(db: Db, where: { username: string } | { id: string }, now: Date): Promise<Holder | null> {
   const user = await db.user.findFirst({
     where: { ...('username' in where ? { username: { equals: where.username, mode: 'insensitive' as const } } : { id: where.id }), deletedAt: null, birthDateRefusedAt: null },
-    select: { id: true, username: true, name: true, birthDate: true, profile: { select: { invisibleMode: true, fieldVisibility: true } } },
+    select: { id: true, username: true, name: true, birthDate: true, profile: { select: { invisibleMode: true, showCardsOnWeb: true, fieldVisibility: true } } },
   })
   if (!user || user.profile?.invisibleMode) return null
+  // Cards are public images of an adult who has not switched them off. No date of birth on file is not known to be an adult.
+  if (!cardsAllowed(user.birthDate, now) || user.profile?.showCardsOnWeb === false) return null
   const state = await accountState(db as never, user.id, undefined, now)
   // The risk level is read from its row, not from the cached list of high risk accounts: a card is cached on its own, and what hides it should not lag a second time.
   const risk = await db.userRisk.findUnique({ where: { userId: user.id }, select: { level: true, overrideLevel: true } })
   if (state.banned || state.suspendedUntil || effectiveLevel(risk) === 'HIGH') return null
   const fieldVisibility = user.profile?.fieldVisibility && typeof user.profile.fieldVisibility === 'object' && !Array.isArray(user.profile.fieldVisibility) ? (user.profile.fieldVisibility as Record<string, unknown>) : {}
-  // No date of birth on file is treated as a minor: nothing is known that says otherwise.
-  const minimal = user.birthDate === null || isMinor(user.birthDate, now)
-  return { id: user.id, username: user.username, name: minimal ? null : drawable(user.name), minimal, fieldVisibility }
+  return { id: user.id, username: user.username, name: drawable(user.name), fieldVisibility }
 }
 
-const isPublicField = (holder: Holder, field: string) => !holder.minimal && (holder.fieldVisibility[field] ?? 'PUBLIC') === 'PUBLIC'
+const isPublicField = (holder: Holder, field: string) => (holder.fieldVisibility[field] ?? 'PUBLIC') === 'PUBLIC'
 
 export async function passportCard(db: Db, username: string, now: Date = new Date()): Promise<PassportCard | null> {
   const holder = await holderOf(db, { username }, now)
@@ -52,7 +51,7 @@ export async function passportCard(db: Db, username: string, now: Date = new Dat
     db.user.findUniqueOrThrow({ where: { id: holder.id }, select: { xp: true, headline: true, builderRole: true } }),
     db.project.count({ where: { status: 'SHIPPED', isPublic: true, OR: [{ ownerId: holder.id }, { members: { some: { userId: holder.id } } }] } }),
     db.userAchievement.count({ where: { userId: holder.id } }),
-    holder.minimal ? Promise.resolve([]) : db.userSkill.findMany({ where: { userId: holder.id }, orderBy: { level: 'desc' }, take: 3, select: { skill: { select: { name: true } } } }),
+    db.userSkill.findMany({ where: { userId: holder.id }, orderBy: { level: 'desc' }, take: 3, select: { skill: { select: { name: true } } } }),
   ])
   const level = levelFor(user.xp)
   return {
@@ -101,7 +100,8 @@ export async function squadCard(db: Db, teamId: string, now: Date = new Date()):
   // A recap is for after the hackathon, and only for one anybody could see.
   if (!squad || squad.hackathon.status !== 'ENDED' || !squad.hackathon.isPublic || squad.hackathon.moderatedAt) return null
   const holders = await Promise.all(squad.team.members.map((member) => holderOf(db, { id: member.userId }, now)))
-  const named = holders.filter((holder): holder is Holder => holder !== null && !holder.minimal)
+  // Members who may not be on a card (a minor, or someone who switched cards off) are counted, never named.
+  const named = holders.filter((holder): holder is Holder => holder !== null)
   return {
     kind: 'squad',
     squad: clip(drawable(squad.name, 'A squad') ?? 'A squad', 60),

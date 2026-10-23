@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse } from '@/lib/api/handler'
+import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
+import { cardsAvailable } from '@/lib/birth-date'
 import { getJobQueue } from '@/lib/infra/jobs'
 import { loadMembership } from '@/lib/leaderboard-write'
 import { log } from '@/lib/log'
 import { privacySchema, readPrivacy, savePrivacy } from '@/lib/privacy/settings'
 
 // Privacy settings in one place (src/lib/privacy/settings.ts): passport field visibility, leaderboards, recruiters, pausing matching, invisible mode, who
-// can message me, activity. GET returns all of them; PATCH changes any subset and returns all of them. Audited.
+// can message me, activity, and whether share cards may be drawn for me. GET returns all of them; PATCH changes any subset and returns all of them. Audited.
 export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
   return createApiResponse(await readPrivacy(prisma, user.id))
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:me:privacy-get' } })
@@ -14,6 +15,8 @@ export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(privacySchema)(request)
   if (body instanceof Response) return body
+  // The cards are public images of an adult: a minor, or an account with no date of birth yet, cannot turn them on (turning them off is always fine).
+  if (body.data.showCardsOnWeb === true && !(await cardsAvailable(prisma, user.id))) return createApiError('CARDS_NOT_AVAILABLE')
   const before = await loadMembership(prisma, user.id)
   const { leaderboardChanged } = await savePrivacy(prisma, user.id, body.data)
   if (leaderboardChanged) {

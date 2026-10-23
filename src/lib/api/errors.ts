@@ -133,6 +133,7 @@ export const ERROR_CATALOG = {
   BIRTH_DATE_LOCKED: { status: 409, message: 'Your date of birth is already set and cannot be changed' },
   AGE_BELOW_MINIMUM: { status: 403, message: 'You need to be at least {minAge} to use Skill Dating' },
   BIRTH_DATE_REQUIRED: { status: 400, message: 'Your date of birth is required' },
+  CARDS_NOT_AVAILABLE: { status: 400, message: 'Share cards on the web are for accounts that are 18 or older with a date of birth on file' },
   MINOR_LOCATION_LIMITED: { status: 400, message: 'Accounts for people under 18 can share a country, not a city, campus or place' },
   BIRTHDATE_CORRECTION_SELF_ONLY: { status: 400, message: 'A date of birth correction is a request about your own account' },
   DROP_NOT_FOUND: { status: 404, message: 'Drop not found' },

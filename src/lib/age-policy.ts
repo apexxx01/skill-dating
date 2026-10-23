@@ -35,6 +35,14 @@ export function recruiterVisible(birthDate: Date | null | undefined, now: Date =
   return birthDate ? ageBandOf(birthDate, now) === 'ADULT' : false
 }
 
+/**
+ * Whether a share card (a public image anyone with the link can fetch) may ever be drawn for this person: only an adult whose age is on file. A minor, and anyone whose age is not
+ * known, have no cards, whatever their settings say.
+ */
+export function cardsAllowed(birthDate: Date | null | undefined, now: Date = new Date()): boolean {
+  return birthDate ? ageBandOf(birthDate, now) === 'ADULT' : false
+}
+
 /** For SQL: born on or before this date means 18 or older. */
 export const adultCutoff = (now: Date = new Date()) => birthDateCutoffForAge(ADULT_AGE, now)
 /** For SQL: born on or before this date means 16 or older. */

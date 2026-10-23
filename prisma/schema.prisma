@@ -500,6 +500,9 @@ model Profile {
   // others can see; hiding activity keeps the contribution heatmap to themselves.
   hideFromLeaderboards Boolean           @default(false)
   showActivity         Boolean           @default(true)
+  // "Show my cards on the web": whether the public share images (/api/og/...) may be drawn for this person. On unless they turn it off; an account that is not known to be 18 or older
+  // has no cards whatever this says (cardsAllowed in src/lib/age-policy.ts), and cannot turn it on.
+  showCardsOnWeb       Boolean           @default(true)
   // The rest of the privacy settings (GET/PATCH /api/users/me/privacy, src/lib/privacy/settings.ts).
   // Who sees each passport field: { field: PUBLIC | CONNECTIONS | PRIVATE }. A field not named is PUBLIC.
   fieldVisibility      Json              @default("{}")

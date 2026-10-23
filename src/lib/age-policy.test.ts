@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ageBandOf, isMinor, adultCutoff, platformCutoff, recruiterVisible } from './age-policy'
+import { ageBandOf, cardsAllowed, isMinor, adultCutoff, platformCutoff, recruiterVisible } from './age-policy'
 import { ageOn, birthDateCutoffForAge } from './age'
 
 const at = (iso: string) => new Date(`${iso}T12:00:00Z`)
@@ -70,5 +70,18 @@ describe('cutoffs agree with ageOn for every day of a year', () => {
   it('names the cutoffs for SQL', () => {
     expect(adultCutoff(at('2026-10-18'))).toBe('2008-10-18')
     expect(platformCutoff(at('2026-10-18'))).toBe('2010-10-18')
+  })
+})
+
+describe('cardsAllowed', () => {
+  const now = new Date('2026-10-23T12:00:00Z')
+  it('is for adults whose age is on file, and nobody else', () => {
+    expect(cardsAllowed(new Date('1990-01-01T00:00:00Z'), now)).toBe(true)
+    expect(cardsAllowed(new Date('2008-10-23T00:00:00Z'), now)).toBe(true) // 18 today
+    expect(cardsAllowed(new Date('2008-10-24T00:00:00Z'), now)).toBe(false) // 17, until tomorrow
+    expect(cardsAllowed(new Date('2010-01-01T00:00:00Z'), now)).toBe(false) // 16
+    expect(cardsAllowed(new Date('2015-01-01T00:00:00Z'), now)).toBe(false) // under the minimum
+    expect(cardsAllowed(null, now)).toBe(false)
+    expect(cardsAllowed(undefined, now)).toBe(false)
   })
 })

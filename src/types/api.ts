@@ -987,7 +987,7 @@ export interface ProfileSettings {
   countryCode: string | null
   /** Tidied free text. Puts the user on that city's board (within their country). */
   city: string | null
-  /** Tidied free text. Puts the user on that campus's board. */
+  /** Tidied free text, to show. It does not put the user on a board: a verified campus does (POST /api/campus/verification). */
   campus: string | null
   /** Removes the user from every leaderboard and from every rank other people can see. */
   hideFromLeaderboards: boolean
@@ -1601,6 +1601,10 @@ export interface PrivacySettings {
   invisibleMode: boolean
   whoCanMessage: 'EVERYONE' | 'CONNECTIONS' | 'NOBODY'
   showActivity: boolean
+  /** "Show my cards on the web": whether the public share images may be drawn for this person. What is in force: always false when `cardsAvailable` is false. */
+  showCardsOnWeb: boolean
+  /** Adults whose date of birth is on file only. Turning `showCardsOnWeb` on when this is false is `400 CARDS_NOT_AVAILABLE`. */
+  cardsAvailable: boolean
 }
 
 /** GET and POST /api/users/me/export */

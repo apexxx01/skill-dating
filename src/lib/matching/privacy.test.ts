@@ -18,7 +18,7 @@ const rel = (file: string) => path.relative(SRC, file).split(path.sep).join('/')
 const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/age.ts': 'the date arithmetic (parse, age, cutoffs): pure functions of a date they are given',
   'lib/age-policy.ts': 'the age bands (under 16, minor, adult): pure functions of a date they are given',
-  'lib/birth-date.ts': 'sets it once under the age policy; reports only whether one is on file, never the date',
+  'lib/birth-date.ts': 'sets it once under the age policy; reports only whether one is on file, and whether the person may have share cards (an adult), never the date',
   'lib/birth-date-admin.ts': 'the admin correction: writes it and audits old and new; returns no date',
   'lib/api/handler.ts': 'names only the refusal marker (birthDateRefusedAt, a moment, not a date of birth) to close an account refused for its age',
   'lib/romance/candidates.ts': 'the SQL for who may be shown in the romance mode: compares the column with cutoffs, selects nobody’s date',
@@ -39,7 +39,7 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'types/api.ts': 'documents the owner’s own profile settings',
   'lib/campus/campus.ts': 'the age gate for joining a campus (a minor shares a country only): reads it to decide, returns no date',
   'lib/invites/invites.ts': 'the onboarding facts of an invitee: reads whether a date is on file, returns no date',
-  'lib/og/data.ts': 'decides what a public share card may show (a minor is a username only): reads it to decide, returns no date',
+  'lib/og/data.ts': 'decides whether a public share card may be drawn at all (a minor has none): reads it to decide, returns no date',
   'lib/search/postgres.ts': 'leaves out accounts refused for their age (birthDateRefusedAt, a moment, not a date of birth)',
 }
 

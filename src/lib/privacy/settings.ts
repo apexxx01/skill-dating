@@ -1,5 +1,6 @@
 import type { MessagePermission, Prisma, PrismaClient } from '@prisma/client'
 import { z } from 'zod'
+import { cardsAvailable } from '@/lib/birth-date'
 
 // Privacy settings, in one place (GET/PATCH /api/users/me/privacy). Most live on Profile; pausing matching lives on the matching profile.
 //
@@ -11,6 +12,8 @@ import { z } from 'zod'
 //   invisibleMode        left out of people search and discovery lists.
 //   whoCanMessage        EVERYONE, CONNECTIONS or NOBODY may start a direct conversation (src/lib/privacy/messaging.ts).
 //   showActivity         whether others see the contribution heatmap and streak.
+//   showCardsOnWeb       whether the public share images (/api/og/...) may be drawn for them. On by default for adults; an account that is not known to be 18 or older has no
+//                        cards and cannot turn this on (cardsAvailable), so what GET returns for it is false.
 
 type Db = PrismaClient
 
@@ -28,6 +31,7 @@ export const privacySchema = z
     invisibleMode: z.boolean(),
     whoCanMessage: z.enum(['EVERYONE', 'CONNECTIONS', 'NOBODY']),
     showActivity: z.boolean(),
+    showCardsOnWeb: z.boolean(),
   })
   .partial()
   .strict()
@@ -43,6 +47,10 @@ export interface PrivacySettings {
   invisibleMode: boolean
   whoCanMessage: MessagePermission
   showActivity: boolean
+  /** What is in force: false for an account that is not known to be an adult, whatever was saved. */
+  showCardsOnWeb: boolean
+  /** Whether the switch can be on at all: an adult whose age is on file. */
+  cardsAvailable: boolean
 }
 
 /** Pure: every passport field with its level, PUBLIC when not set. */
@@ -64,9 +72,10 @@ export function applyFieldVisibility<T extends Partial<Record<PassportField, unk
 }
 
 export async function readPrivacy(db: Db, userId: string): Promise<PrivacySettings> {
-  const [profile, matching] = await Promise.all([
-    db.profile.findUnique({ where: { userId }, select: { fieldVisibility: true, hideFromLeaderboards: true, hideFromRecruiters: true, invisibleMode: true, whoCanMessage: true, showActivity: true } }),
+  const [profile, matching, cardsOk] = await Promise.all([
+    db.profile.findUnique({ where: { userId }, select: { fieldVisibility: true, hideFromLeaderboards: true, hideFromRecruiters: true, invisibleMode: true, whoCanMessage: true, showActivity: true, showCardsOnWeb: true } }),
     db.matchingProfile.findUnique({ where: { userId }, select: { paused: true } }),
+    cardsAvailable(db, userId),
   ])
   return {
     fieldVisibility: visibilityOf(profile?.fieldVisibility),
@@ -76,6 +85,8 @@ export async function readPrivacy(db: Db, userId: string): Promise<PrivacySettin
     invisibleMode: profile?.invisibleMode ?? false,
     whoCanMessage: profile?.whoCanMessage ?? 'EVERYONE',
     showActivity: profile?.showActivity ?? true,
+    showCardsOnWeb: cardsOk && (profile?.showCardsOnWeb ?? true),
+    cardsAvailable: cardsOk,
   }
 }
 
@@ -84,7 +95,7 @@ export async function savePrivacy(db: Db, userId: string, input: PrivacyInput): 
   const before = await readPrivacy(db, userId)
   const columns: Prisma.ProfileUncheckedUpdateInput = {}
   if (input.fieldVisibility) columns.fieldVisibility = { ...before.fieldVisibility, ...input.fieldVisibility }
-  for (const key of ['hideFromLeaderboards', 'hideFromRecruiters', 'invisibleMode', 'whoCanMessage', 'showActivity'] as const) if (input[key] !== undefined) (columns as Record<string, unknown>)[key] = input[key]
+  for (const key of ['hideFromLeaderboards', 'hideFromRecruiters', 'invisibleMode', 'whoCanMessage', 'showActivity', 'showCardsOnWeb'] as const) if (input[key] !== undefined) (columns as Record<string, unknown>)[key] = input[key]
   await db.$transaction(async (tx) => {
     if (Object.keys(columns).length > 0) await tx.profile.upsert({ where: { userId }, create: { ...(columns as Prisma.ProfileUncheckedCreateInput), userId }, update: columns })
     if (input.matchingPaused !== undefined) await tx.matchingProfile.updateMany({ where: { userId }, data: { paused: input.matchingPaused } })
