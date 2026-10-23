@@ -32,6 +32,7 @@ export const PUBLIC_ROUTES = new Set([
   '/api/notifications/unsubscribe',
   '/api/notifications/open/[token]',
   // Share cards: public images, rate limited by address and cached.
+  '/api/og/link',
   '/api/og/passport/[username]',
   '/api/og/post/[id]',
   '/api/og/squad/[id]',

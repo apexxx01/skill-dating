@@ -4,7 +4,7 @@
 export interface PassportCard {
   kind: 'passport'
   username: string
-  /** Null for a minor, or a name the fonts cannot draw. */
+  /** Null for a name the fonts cannot draw. */
   name: string | null
   headline: string | null
   role: string | null

@@ -39,6 +39,11 @@ describe('share cards', () => {
     const bytes = new Uint8Array(await res.arrayBuffer())
     return bytes.length > 1000 && [0x89, 0x50, 0x4e, 0x47].every((byte, i) => bytes[i] === byte)
   }
+  /** The versioned address of a card from GET /api/og/link: the body of the answer. */
+  const link = async (params: Record<string, string>) => {
+    const res = await get(`/api/og/link?${new URLSearchParams(params)}`)
+    return { status: res.status, cache: res.headers.get('cache-control'), data: await res.json() }
+  }
   const makePost = async (authorId: string, over: Record<string, unknown> = {}) => {
     const row = await testPrisma.shipPost.create({ data: { authorId, kind: 'SHIP', title: 'My first ship', body: 'It **works**. See [the repo](https://example.com).', ...over } })
     created.posts.push(row.id)
@@ -67,6 +72,45 @@ describe('share cards', () => {
       expect(changed.status).toBe(200)
       expect(changed.headers.get('etag')).not.toBe(etag)
       await changed.arrayBuffer()
+    })
+
+    it('has a versioned address that changes when the person does, keeps the long cache, and is empty when there is no card', async () => {
+      const a = await person({ name: 'Ada Lovelace', headline: 'Builds engines' })
+      const first = await link({ kind: 'passport', id: a.username })
+      expect(first).toMatchObject({ status: 200, cache: 'no-store' })
+      expect(first.data.path).toMatch(new RegExp(`^/api/og/passport/${a.username}\\?v=[0-9a-f]{12}$`))
+      expect(first.data.url).toBe(`${INTEGRATION_BASE_URL}${first.data.path}`)
+      // The same until something changes.
+      expect((await link({ kind: 'passport', id: a.username.toUpperCase() })).data.path.split('?')[1]).toBe(first.data.path.split('?')[1])
+      // The address serves the card, with the day-long cache.
+      const card = await get(first.data.path)
+      expect(card.status).toBe(200)
+      expect(card.headers.get('cache-control')).toBe('public, max-age=86400, stale-while-revalidate=604800')
+      await card.arrayBuffer()
+
+      // An edit gives a new address; the old one still answers, with the current picture.
+      await testPrisma.user.update({ where: { id: a.id }, data: { headline: 'Builds better engines' } })
+      const second = await link({ kind: 'passport', id: a.username })
+      expect(second.data.path).not.toBe(first.data.path)
+      const old = await get(first.data.path)
+      expect(old.status).toBe(200)
+      await old.arrayBuffer()
+      // So does changing what the person shares, and earning something.
+      await testPrisma.profile.upsert({ where: { userId: a.id }, create: { userId: a.id, fieldVisibility: { headline: 'PRIVATE' } }, update: { fieldVisibility: { headline: 'PRIVATE' } } })
+      const third = await link({ kind: 'passport', id: a.username })
+      expect(third.data.path).not.toBe(second.data.path)
+
+      // No card, no address: for a person who turned cards off, a minor, and a name that is nobody's; the same answer for each.
+      await testPrisma.profile.update({ where: { userId: a.id }, data: { showCardsOnWeb: false } })
+      const kid = await person({ birthDate: bornYearsAgo(16, 40) })
+      for (const username of [a.username, kid.username, `nobody-${tag}`]) expect((await link({ kind: 'passport', id: username })).data, username).toEqual({ path: null, url: null })
+    })
+
+    it('refuses a bad request to the address route, and an achievement address without a person', async () => {
+      expect((await link({ kind: 'nope', id: 'x' })).status).toBe(400)
+      expect((await link({ kind: 'passport' })).status).toBe(400)
+      expect((await link({ kind: 'passport', id: 'x'.repeat(101) })).status).toBe(400)
+      expect((await link({ kind: 'achievement', id: 'whatever' })).data).toEqual({ path: null, url: null })
     })
 
     it('finds the person whatever the case of the username', async () => {
@@ -172,6 +216,18 @@ describe('share cards', () => {
       expect(await postCard(testPrisma, row.id)).toMatchObject({ title: 'My first ship', excerpt: 'It works. See the repo.', author: `Ada Lovelace (@${a.username})`, propsCount: 5, commentCount: 2, postKind: 'SHIP' })
     })
 
+    it('has a versioned address for a public post that changes when it is edited, and none for one that has no card', async () => {
+      const a = await person({ name: 'Ada Lovelace' })
+      const row = await makePost(a.id)
+      const first = await link({ kind: 'post', id: row.id })
+      expect(first.data.path).toMatch(new RegExp(`^/api/og/post/${row.id}\\?v=[0-9a-f]{12}$`))
+      expect((await get(first.data.path)).status).toBe(200)
+      await testPrisma.shipPost.update({ where: { id: row.id }, data: { title: 'My second ship', editedAt: new Date(), revision: { increment: 1 } } })
+      expect((await link({ kind: 'post', id: row.id })).data.path).not.toBe(first.data.path)
+      const crew = await makePost(a.id, { visibility: 'CREW' })
+      for (const id of [crew.id, 'not-a-post']) expect((await link({ kind: 'post', id })).data, id).toEqual({ path: null, url: null })
+    })
+
     it('has no card for a post whose author turned their cards off', async () => {
       const a = await person({ name: 'Private Author' })
       const row = await makePost(a.id)
@@ -225,7 +281,7 @@ describe('share cards', () => {
       created.teams.push(team.id)
       for (const m of [owner, adult, kid, invisible, cardsOff]) await testPrisma.teamMember.create({ data: { teamId: team.id, userId: m.id, role: m.id === owner.id ? 'OWNER' : 'MEMBER' } })
       await testPrisma.hackathonTeam.create({ data: { hackathonId: hackathon.id, teamId: team.id, name: `Squad ${tag}`, rank: 3 } })
-      return { team, owner, adult, kid, invisible, cardsOff }
+      return { team, owner, adult, kid, invisible, cardsOff, hackathon }
     }
 
     it('recaps a squad after its hackathon, naming adults who can be found and only counting the rest', async () => {
@@ -240,6 +296,20 @@ describe('share cards', () => {
       expect(JSON.stringify(card)).not.toContain(invisible.username)
       expect(JSON.stringify(card)).not.toContain(cardsOff.username)
       expect(JSON.stringify(card)).not.toMatch(/Young Member|Hidden Member|Private Member/)
+    })
+
+    it('has a versioned address for a recap that changes when the squad, its hackathon or its members change', async () => {
+      const { team, owner, hackathon } = await squad()
+      const first = await link({ kind: 'squad', id: team.id })
+      expect(first.data.path).toMatch(new RegExp(`^/api/og/squad/${team.id}\\?v=[0-9a-f]{12}$`))
+      expect((await get(first.data.path)).status).toBe(200)
+      await testPrisma.hackathon.update({ where: { id: hackathon.id }, data: { name: `Renamed ${tag}` } })
+      const second = await link({ kind: 'squad', id: team.id })
+      expect(second.data.path).not.toBe(first.data.path)
+      await testPrisma.user.update({ where: { id: owner.id }, data: { name: 'Squad Owner Renamed' } })
+      expect((await link({ kind: 'squad', id: team.id })).data.path).not.toBe(second.data.path)
+      const early = await squad({ hackathon: { status: 'ACTIVE' } })
+      expect((await link({ kind: 'squad', id: early.team.id })).data).toEqual({ path: null, url: null })
     })
 
     it('has no recap before the hackathon is over, or for one that is not public or was hidden', async () => {
@@ -275,6 +345,19 @@ describe('share cards', () => {
         earnedOn: '2026-10-20',
         holder: `Ada Lovelace (@${a.username})`,
       })
+    })
+
+    it('has a versioned address for an achievement that changes with the achievement or the person, and none for one not earned', async () => {
+      const a = await person({ name: 'Ada Lovelace' })
+      const b = await person()
+      const ach = await achievement()
+      await testPrisma.userAchievement.create({ data: { userId: a.id, achievementId: ach.id } })
+      const first = await link({ kind: 'achievement', id: ach.slug, user: a.username })
+      expect(first.data.path).toMatch(new RegExp(`^/api/og/achievement/${ach.slug}\\?user=${a.username}&v=[0-9a-f]{12}$`))
+      expect((await get(first.data.path)).status).toBe(200)
+      await testPrisma.achievement.update({ where: { id: ach.id }, data: { description: 'Shipped a project, twice' } })
+      expect((await link({ kind: 'achievement', id: ach.slug, user: a.username })).data.path).not.toBe(first.data.path)
+      for (const user of [b.username, 'nobody']) expect((await link({ kind: 'achievement', id: ach.slug, user })).data, user).toEqual({ path: null, url: null })
     })
 
     it('has no card for one the person has not earned, an unknown one, no user, or a person who may not be shown', async () => {

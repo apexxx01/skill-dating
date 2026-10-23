@@ -32,6 +32,7 @@ const SIGNED_OR_PUBLIC_API_ROUTES = [
   { method: 'POST', path: '/api/notifications/unsubscribe' },
   { method: 'GET', path: '/api/notifications/open/x' },
   { method: 'GET', path: '/api/invites/check' },
+  { method: 'GET', path: '/api/og/link' },
   { method: 'GET', path: '/api/og/passport/x' },
   { method: 'GET', path: '/api/og/post/x' },
   { method: 'GET', path: '/api/og/squad/x' },

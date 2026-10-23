@@ -30,6 +30,7 @@ describe('route audit', () => {
       '/api/notifications/open/[token]',
       '/api/notifications/unsubscribe',
       '/api/og/achievement/[slug]',
+      '/api/og/link',
       '/api/og/passport/[username]',
       '/api/og/post/[id]',
       '/api/og/squad/[id]',
