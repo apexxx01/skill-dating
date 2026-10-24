@@ -1662,3 +1662,109 @@ export interface RiskView {
   factors: Partial<Record<'collusion' | 'reports' | 'blocks' | 'throttles' | 'velocity' | 'unverified', number>>
   computedAt: IsoDate | null
 }
+
+// Growth: invites, campuses, share cards -------------------------------------------------------------------------------------
+
+/** GET /api/invites/me */
+export interface InviteStats {
+  code: string
+  link: string | null
+  redeemed: number
+  qualified: number
+  rewarded: number
+  rewardCap: number
+  rewardsLeft: number
+  xpPerInvite: number
+}
+
+/** GET /api/invites/check?code= (public): only whether the code can be used. */
+export interface InviteCheckResponse {
+  valid: boolean
+}
+
+/** POST /api/invites/redeem */
+export interface RedeemInviteResponse {
+  redeemed: true
+  campusId: string | null
+}
+
+export interface CampusSummary {
+  id: string
+  slug: string
+  name: string
+}
+
+/** GET /api/campuses */
+export interface CampusesResponse {
+  campuses: (CampusSummary & { city: string | null; countryCode: string | null; emailDomains: string[] })[]
+}
+
+/** GET /api/campus/me. The college address is never returned, only the domain of a check in progress. */
+export interface CampusMeResponse {
+  campus: (CampusSummary & { city?: string | null; countryCode?: string | null }) | null
+  verifiedAt: IsoDate | null
+  pending: { campusId: string; domain: string | null; expiresAt: IsoDate } | null
+  suggested: CampusSummary | null
+  /** False for a minor or an account with no date of birth: they share a country and nothing finer. */
+  canJoin: boolean
+}
+
+/** POST /api/campus/verification */
+export interface CampusVerificationStartResponse {
+  sent: true
+  domain: string
+  expiresAt: IsoDate
+  expiresInMinutes: number
+}
+
+/** POST /api/campus/verification/confirm */
+export interface CampusVerificationConfirmResponse {
+  campus: CampusSummary
+}
+
+/** GET /api/og/link: the versioned address of a share card, or nulls where the card itself would be a 404. */
+export interface CardLinkResponse {
+  path: string | null
+  url: string | null
+}
+
+// The romance mode (post-launch) -----------------------------------------------------------------------------------------------
+
+/** GET, POST and DELETE /api/romance/interest: "tell me when it opens". The only romance route that works while the mode is closed. */
+export interface RomanceInterestState {
+  /** The caller has asked to be told. */
+  interested: boolean
+  /** The mode is open for the caller now. */
+  open: boolean
+  /** The caller may ask: an adult with a date of birth on file. */
+  eligible: boolean
+}
+
+// Staff: metrics ---------------------------------------------------------------------------------------------------------------
+
+export interface MetricDefinitionView {
+  key: string
+  label: string
+  group: string
+  unit: 'count' | 'ratio' | 'hours' | 'per1k'
+  dimension?: string
+  definition: string
+}
+
+export interface MetricRowView {
+  day: IsoDate
+  key: string
+  dimension: string
+  value: number
+  detail: Record<string, number | string | null> | null
+}
+
+/** GET /api/admin/metrics */
+export interface MetricsResponse {
+  from: string
+  to: string
+  computedThrough: string | null
+  truncated: boolean
+  definitions: MetricDefinitionView[]
+  rows: MetricRowView[]
+}

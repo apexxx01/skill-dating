@@ -17,6 +17,9 @@
     "db:seed": "tsx prisma/seed.ts",
     "seed": "tsx prisma/seed.ts",
     "seed:demo": "tsx prisma/seed-demo.ts",
+    "openapi:scan": "tsx scripts/openapi/scan-routes.ts",
+    "openapi:build": "tsx scripts/openapi/build.ts",
+    "openapi:check": "tsx scripts/openapi/build.ts --check",
     "perf:measure": "tsx scripts/perf/measure.ts",
     "perf:load": "tsx scripts/perf/load.ts",
     "perf:digests": "tsx scripts/perf/digests.ts",
@@ -88,6 +91,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.42.0",
+    "@seriousme/openapi-schema-validator": "^2.4.1",
     "@testing-library/dom": "^10.0.0",
     "@testing-library/jest-dom": "^6.4.2",
     "@testing-library/react": "^16.0.0",
@@ -104,9 +108,11 @@
     "postcss": "^8.4.35",
     "prisma": "^5.10.0",
     "tailwindcss": "^3.4.1",
+    "ts-json-schema-generator": "^2.3.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
-    "vitest": "^1.3.1"
+    "vitest": "^1.3.1",
+    "zod-to-json-schema": "^3.23.5"
   },
   "overrides": {
     "gaxios": {
