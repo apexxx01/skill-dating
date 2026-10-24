@@ -16,4 +16,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const result = await listMatches(prisma, user.id, { cursor: query.data.cursor, limit: query.data.limit ?? 20 })
   if (result === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   return createApiResponse(result)
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'matches:list' } })
+}, { cache: { maxAge: 0 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'matches:list' } })

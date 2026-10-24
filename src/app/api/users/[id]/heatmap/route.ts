@@ -49,4 +49,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const items = await loadHeatmap(prisma, id, range)
   await cache.set(key, JSON.stringify(items), { ttlMs: HEATMAP_TTL_MS })
   return createApiResponse<HeatmapResponse>({ ...base, hidden: false, items })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:heatmap' } })
+}, { cache: { maxAge: 60 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:heatmap' } })

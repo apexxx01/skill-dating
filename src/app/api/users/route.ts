@@ -119,7 +119,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     nextCursor: result.nextCursor,
     pagination: result.pagination,
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:list' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:list' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(updateProfileSchema)(request)

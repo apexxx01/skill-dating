@@ -42,7 +42,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
   return createApiResponse({ notifications: result.items, unreadCount, nextCursor: result.nextCursor, pagination: result.pagination })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'notifications:list' } })
+}, { cache: { maxAge: 0 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'notifications:list' } })
 
 // Bulk mark-as-read on the collection route. Path-segment tricks like
 // PATCH /api/notifications/read-all don't reach this file at all (no such

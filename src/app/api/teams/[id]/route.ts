@@ -53,7 +53,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   return createApiResponse({ ...team, isOwner, isMember })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'teams:get' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'teams:get' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

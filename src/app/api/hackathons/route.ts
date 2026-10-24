@@ -95,7 +95,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     nextCursor: result.nextCursor,
     pagination: result.pagination,
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:list' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {

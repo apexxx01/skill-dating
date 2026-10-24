@@ -28,4 +28,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma }) => {
     select: { id: true, slug: true, name: true, city: true, countryCode: true, emailDomains: true },
   })
   return createApiResponse({ campuses })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'campus:list' } })
+}, { cache: { maxAge: 300 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'campus:list' } })

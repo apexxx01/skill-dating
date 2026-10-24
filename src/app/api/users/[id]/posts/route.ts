@@ -14,4 +14,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (page === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   if (!page) return createApiError('USER_NOT_FOUND')
   return createApiResponse(page)
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:posts' } })
+}, { cache: { maxAge: 10 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:posts' } })

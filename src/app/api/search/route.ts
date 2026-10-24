@@ -23,4 +23,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const outcome = await runSearch(prisma, user.id, { q: query.data.q, types, limit: query.data.limit, cursor: query.data.cursor })
   if (outcome.kind === 'invalid-cursor') return createApiError('INVALID_CURSOR')
   return createApiResponse(outcome.data)
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'search:universal' } })
+}, { cache: { maxAge: 5 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'search:universal' } })

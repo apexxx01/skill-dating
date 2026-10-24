@@ -6,4 +6,4 @@ import { getDashboardData } from '@/lib/dashboard'
 // only. Recommendations respect blocks.
 export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
   return createApiResponse(await getDashboardData(prisma, user.id))
-}, { rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'dashboard:get' } })
+}, { cache: { maxAge: 0 }, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'dashboard:get' } })

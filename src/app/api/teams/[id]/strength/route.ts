@@ -16,4 +16,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const strength = await loadTeamStrength(prisma, id)
   if (!strength) return createApiError('TEAM_NOT_FOUND')
   return createApiResponse(strength)
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:strength' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'teams:strength' } })

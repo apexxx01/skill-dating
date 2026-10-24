@@ -19,4 +19,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const achievements = await loadAchievementItems(prisma, id)
   return createApiResponse<AchievementsResponse>({ achievements, earned: achievements.filter((item) => item.earned).length, total: achievements.length })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:achievements' } })
+}, { cache: { maxAge: 60 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:achievements' } })

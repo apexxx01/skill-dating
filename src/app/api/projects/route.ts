@@ -110,7 +110,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
   return createApiResponse({ projects: result.items, nextCursor: result.nextCursor, pagination: result.pagination })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'projects:list' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'projects:list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(createProjectSchema)(request)

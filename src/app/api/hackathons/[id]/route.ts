@@ -84,7 +84,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
 
   return createApiResponse({ ...hackathon, unverified: isUnverified(hackathon), participation })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'hackathons:get' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'hackathons:get' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

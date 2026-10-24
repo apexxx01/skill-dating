@@ -8,4 +8,4 @@ import { loadQuests } from '@/lib/quest-view'
 export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
   const row = await prisma.user.findUnique({ where: { id: user.id }, select: { timezone: true } })
   return createApiResponse(await loadQuests(prisma, user.id, row?.timezone))
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'quests:get' } })
+}, { cache: { maxAge: 15 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'quests:get' } })

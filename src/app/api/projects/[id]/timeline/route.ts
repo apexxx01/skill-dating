@@ -14,4 +14,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (page === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   if (!page) return createApiError('PROJECT_NOT_FOUND')
   return createApiResponse(page)
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'projects:timeline' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'projects:timeline' } })

@@ -48,4 +48,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     case 'ok':
       return createApiResponse(outcome.data)
   }
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'leaderboard:get' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'leaderboard:get' } })

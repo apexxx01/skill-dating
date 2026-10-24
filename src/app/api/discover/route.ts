@@ -98,4 +98,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         }
       : {}),
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'discover:list' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'discover:list' } })
