@@ -720,6 +720,7 @@ A suspended or banned account gets `403 ACCOUNT_SUSPENDED` (`params.until`) or `
 | People | `GET /api/admin/users?q=`; `GET` / `PATCH /api/admin/users/{id}/risk` → `RiskView`; `PATCH …/role`, `…/verification`; `PUT …/plan`; `POST …/birthdate` (a correction) |
 | Fraud | `GET /api/admin/fraud-signals`, `PATCH …/{id}` |
 | Audit (admins) | `GET /api/admin/audit` |
+| Settings (admins) | `GET /api/admin/settings` → `PlatformSettingsResponse`; `PUT /api/admin/settings/{key} { value }` → `PlatformSettingView`. The one setting today is `romance.launch-threshold` (when a city is ready for Halves); show its default, whether it was changed, and validate against the `400` `details.value` |
 | Kill switches and flags (admins) | `GET` / `POST /api/admin/flags`, `GET` / `PATCH` / `DELETE /api/admin/flags/{key}` → `AdminFlag`. The romance launch keys (`romance.enabled`, `romance.city.*`) and the `kill.romance` switch are here; switching one on notifies the people who asked to be told |
 | Metrics (`/admin/metrics`) | `GET /api/admin/metrics` → `MetricsResponse`; export `GET /api/admin/metrics/export.csv` |
 | Campuses and campaign codes | `GET` / `POST /api/admin/campuses`, `PATCH …/{id}`; `GET` / `POST /api/admin/invites`, `PATCH …/{id}` |

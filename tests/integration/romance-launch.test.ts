@@ -190,6 +190,8 @@ describe('the romance launch gate', () => {
       expect(PLACE_MINIMUM).toBe(3)
       expect(get('romance_interest')?.value).toBe(5)
       expect(get('romance_interest', 'city:IN:pune-x')?.value).toBe(3)
+      // The city rows say whether the city has the number of interested adults the launch rule asks for (the setting romance.launch-threshold, 250 by default).
+      expect(get('romance_interest', 'city:IN:pune-x')?.detail).toMatchObject({ minInterestedAdults: 250, meetsInterestThreshold: 0 })
       expect(get('romance_interest', 'city:NG:lagos-x')).toBeUndefined()
       // 3 asked; the adults active in 30 days in Pune: 2 who asked + 4 who did not = 6.
       expect(get('romance_interest_share_of_adult_actives', 'city:IN:pune-x')).toMatchObject({ value: 3 / 6, detail: { interested: 3, adultActives: 6 } })

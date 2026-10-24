@@ -1204,6 +1204,12 @@ Every feature flag with its answer for the caller: `{ flags: { "new-feed": true,
 ### `DELETE /api/admin/flags/[key]`
 **Auth:** `ADMIN`. **Response:** `{ success: true }`. Audited.
 
+### `GET /api/admin/settings`
+**Auth:** `ADMIN`. The values an administrator can change without a deploy (`src/lib/settings.ts`). **Response:** `{ settings: [{ key, description, value, default, isDefault, updatedById, updatedAt }] }`. A setting no one has changed has its default (`isDefault: true`, `updatedAt: null`). Today there is one, `romance.launch-threshold`: `{ minInterestedAdults: 250, minPairingSharePercent: 30 }`, the rule for when a city is ready for the romance mode ([ROMANCE.md](ROMANCE.md#where-to-open-it-first)).
+
+### `PUT /api/admin/settings/[key]`
+**Auth:** `ADMIN`. **Body:** `{ value }`, checked against the schema of that setting (for the threshold: `minInterestedAdults` an integer 1 to 1,000,000, `minPairingSharePercent` an integer 0 to 50, no other keys): `400 VALIDATION_FAILED` with `details.value` listing what is wrong. **Response:** the setting as in the list. `404 SETTING_NOT_FOUND` for a key that is not a setting. Audited (`PLATFORM_SETTING_UPDATED`, old and new value).
+
 A flag is **on for a user** when they are on its `allowUserIds` (even while it is disabled), or it is `enabled` and the user falls inside the rollout: `rolloutPercent` 100 is everyone, a lower value is a stable share of users chosen by a hash of the flag key and the user id. Raising the percentage only adds users. A flag that does not exist is off.
 
 ### `POST /api/admin/jobs/{area}/{action}`
@@ -1343,6 +1349,7 @@ and a unit test fails if a code is missing here.
 | `HACKATHON_TEAM_TOO_LARGE` | 400 | Team exceeds this hackathon's max team size of {max} |
 | `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
 | `FLAG_NOT_FOUND` | 404 | Feature flag not found |
+| `SETTING_NOT_FOUND` | 404 | Setting not found |
 | `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
 | `JOB_NOT_FOUND` | 404 | No such job |
 | `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |

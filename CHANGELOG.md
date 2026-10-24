@@ -25,6 +25,11 @@ the work landed. Behaviour is described in the documents under [docs/](docs/); t
 - **CI and docs.** The fast checks (types, lint, unit, build, migration drift, API description up to date) run on every push and pull request; the full integration suite against a
   production build runs on pull requests to `main` and nightly. A new README, this changelog, and [LAUNCH_CHECKLIST](docs/LAUNCH_CHECKLIST.md), which also holds the checklist for
   turning Halves on city by city.
+- **Missing providers are reported.** A deployed process without mail, push, storage, media scanning or error reporting prints a boxed startup warning naming each, and in production
+  `GET /api/health` answers `degraded` with `missingProviders` (names only). Media scanning stays fail-closed.
+- **A rule for opening Halves, as an admin setting.** `romance.launch-threshold` (default: at least 250 interested adults in the city, and each side of the interested-in pairing at least
+  30% of that pool) is changed with `PUT /api/admin/settings/{key}` (audited); the city rows of the interest metric say which cities reach the first number. The pairing half cannot be
+  measured from the interest list, which holds no gender or preference, and is evidenced outside the product (see the launch checklist).
 - Fixed on the way: an integration test that mixed the real clock with a fixed digest date; the admin job route now accepts an encoded job name.
 
 ## Stage 1G: reach and retention (2026-10-22 to 2026-10-23)

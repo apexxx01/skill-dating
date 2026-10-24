@@ -314,12 +314,15 @@ export interface GetAdminSettingsArgs extends CallOptions {
 }
 
 export interface PutAdminSettingsByKeyBody {
-  value?: unknown;
+  value: {
+    minInterestedAdults: number;
+    minPairingSharePercent: number;
+  };
 }
 
 export interface PutAdminSettingsByKeyArgs extends CallOptions {
   path: { key: string | number }
-  body?: PutAdminSettingsByKeyBody
+  body: PutAdminSettingsByKeyBody
 }
 
 export interface GetAdminUsersQuery {

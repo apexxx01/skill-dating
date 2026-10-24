@@ -27,6 +27,11 @@ separation rules in [SAFETY.md](SAFETY.md).
 - **Opening is a launch decision**, not a deploy: see "Turning on Halves (post-launch)" in [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md): interest by city, the media-scanning provider live, the legal review, moderation
   capacity, then the city flags one by one.
 
+### Where to open it first
+
+A city is ready when at least 250 adults there asked to be told **and** each side of the interested-in pairing is at least 30% of that pool (the setting `romance.launch-threshold`, changed by an administrator with `PUT /api/admin/settings/romance.launch-threshold`, audited). The admin metrics mark
+the cities that reach the first number (`romance_interest`, `detail.meetsInterestThreshold`); the interest list holds no gender or preference, so the second is evidenced outside the product ([LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md#turning-on-halves-post-launch)).
+
 ### Asking to be told when it opens
 
 `GET`/`POST`/`DELETE /api/romance/interest` ([API.md](API.md#romance)) is the demand signal. An **adult with a date of birth on file** (a minor is `403 DATING_UNDERAGE`, an unknown age

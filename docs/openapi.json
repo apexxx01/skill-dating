@@ -2697,6 +2697,7 @@
           "Admin"
         ],
         "summary": "List the values an administrator can change without a deploy",
+        "description": "Auth: `ADMIN`. The values an administrator can change without a deploy (`src/lib/settings.ts`). Response: `{ settings: [{ key, description, value, default, isDefault, updatedById, updatedAt }] }`. A setting no one has changed has its default (`isDefault: true`, `updatedAt: null`). Today there is one, `romance.launch-threshold`: `{ minInterestedAdults: 250, minPairingSharePercent: 30 }`, the rule for when a city is ready for the romance mode ([ROMANCE.md](ROMANCE.md#where-to-open-it-first)).",
         "responses": {
           "200": {
             "description": "PlatformSettingsResponse",
@@ -2749,6 +2750,7 @@
           "Admin"
         ],
         "summary": "Change one such value (audited, checked against its schema)",
+        "description": "Auth: `ADMIN`. Body: `{ value }`, checked against the schema of that setting (for the threshold: `minInterestedAdults` an integer 1 to 1,000,000, `minPairingSharePercent` an integer 0 to 50, no other keys): `400 VALIDATION_FAILED` with `details.value` listing what is wrong. Response: the setting as in the list. `404 SETTING_NOT_FOUND` for a key that is not a setting. Audited (`PLATFORM_SETTING_UPDATED`, old and new value).",
         "parameters": [
           {
             "name": "key",
@@ -2767,8 +2769,30 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "value": {}
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "minInterestedAdults": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
+                      },
+                      "minPairingSharePercent": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 50
+                      }
+                    },
+                    "required": [
+                      "minInterestedAdults",
+                      "minPairingSharePercent"
+                    ],
+                    "additionalProperties": false
+                  }
                 },
+                "required": [
+                  "value"
+                ],
                 "additionalProperties": false
               }
             }
