@@ -40,7 +40,6 @@ jobs:
       TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
       TEST_DB_NAME: skill_dating_ci
       TEST_PORT: 3459
-      TEST_SERVER_LOG: ${{ runner.temp }}/server.log
       NEXT_TELEMETRY_DISABLED: 1
       # The suite creates real users and sessions on a Clerk DEVELOPMENT instance through the Backend API, so it needs that
       # instance's keys as repository secrets (a dedicated instance: the suite creates and deletes users, and refuses a key that
@@ -49,6 +48,9 @@ jobs:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
       # Nothing else is needed: Upstash, Inngest, Ably, Resend, push and storage run as in-memory twins when unset.
     steps:
+      # The runner context is not available in job-level env, so the harness's log path is set here, for every later step.
+      - name: Where the server log goes
+        run: echo "TEST_SERVER_LOG=$RUNNER_TEMP/server.log" >> "$GITHUB_ENV"
       - name: Skip notice
         if: env.CLERK_SECRET_KEY == ''
         run: echo "::warning::CLERK_SECRET_KEY is not available to this run, so the integration suite was skipped."
