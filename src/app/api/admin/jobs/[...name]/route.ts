@@ -5,8 +5,17 @@ import { withAuth, createApiResponse, createApiError, readBodyText } from '@/lib
 import { jobs, runJob } from '@/lib/infra/jobs'
 import { bodySchema } from './schema'
 
+function decodePathName(raw: string): string {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
-  const name = new URL(request.url).pathname.replace(/^\/api\/admin\/jobs\//, '').replace(/\/+$/, '')
+  // A job's name has a slash in it (`metrics/snapshot`); a client that encodes the path parameter sends `metrics%2Fsnapshot`, which is the same job.
+  const name = decodePathName(new URL(request.url).pathname.replace(/^\/api\/admin\/jobs\//, '').replace(/\/+$/, ''))
   if (!Object.prototype.hasOwnProperty.call(jobs, name)) return createApiError('JOB_NOT_FOUND')
 
   // No body at all means "run it with its defaults".
