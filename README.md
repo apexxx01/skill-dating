@@ -85,7 +85,7 @@ Next.js 15 (App Router) · React 19 · TypeScript · PostgreSQL 16 · Prisma 5 �
 
 ## Local setup in five commands
 
-Requirements: Node 20+ and PostgreSQL 13 or newer running locally, and a [Clerk](https://clerk.com) **development** instance (free).
+Requirements: Node 22 (`.nvmrc`; `nvm use`) and PostgreSQL 13 or newer running locally, and a [Clerk](https://clerk.com) **development** instance (free).
 
 ```bash
 git clone https://github.com/apexxx01/skill-dating.git && cd skill-dating
