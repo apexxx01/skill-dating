@@ -1,21 +1,10 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam } from '@/lib/api/pagination'
 import { blockedPeerIds } from '@/lib/blocks'
-import { BOARD_PERIODS, BOARD_SCOPES, parseScopeId, type CachedScope } from '@/lib/leaderboard-boards'
+import { parseScopeId, type CachedScope } from '@/lib/leaderboard-boards'
 import { readLeaderboard } from '@/lib/leaderboard-read'
 import { isValidId } from '@/lib/progress'
-
-const querySchema = z.object({
-  period: z.enum(BOARD_PERIODS).default('all-time'),
-  scope: z.enum(BOARD_SCOPES).default('global'),
-  // "IN", "IN:bengaluru", a campus, or a team id: see LeaderboardResponse. Absent: the caller's own place.
-  scopeId: z.string().trim().min(1).max(160).optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 // Ranks come from sorted sets in the cache (src/lib/leaderboard-write.ts keeps them current, a nightly job
 // rebuilds them from the XP log), not from summing the log per request. Blocked people, in either direction, are

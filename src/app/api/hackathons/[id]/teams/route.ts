@@ -1,14 +1,9 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
-import { z } from 'zod'
+import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { hackathonPaysRewards, isLocked, otherSquadFor } from '@/lib/squads/membership'
-
-const registerTeamSchema = z.object({
-  teamId: z.string().max(64),
-  projectId: z.string().max(64).optional(),
-})
+import { registerTeamSchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

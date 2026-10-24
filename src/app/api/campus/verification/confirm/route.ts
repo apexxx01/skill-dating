@@ -1,11 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { confirmVerification } from '@/lib/campus/campus'
 import { refreshBoards } from '@/lib/campus/boards'
-
-// POST /api/campus/verification/confirm { code }: the person becomes a member of the campus (its leaderboard and feed) when the code is right. Five tries, then the code is void.
-const bodySchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'The six digits from the e-mail') }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(bodySchema)(request)

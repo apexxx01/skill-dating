@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server'
 import { Prisma } from '@prisma/client'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { isUnverified } from '@/lib/squads/external-create'
-
-// PATCH /api/admin/hackathons/{id}/verify { verified }: an admin vouches for an external hackathon (it then pays XP like a native one), or takes
-// that back. Native hackathons are always verified.
-const bodySchema = z.object({ verified: z.boolean() }).strict()
+import { bodySchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

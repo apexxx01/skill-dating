@@ -1,19 +1,9 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse } from '@/lib/api/handler'
 import { KIND_SPECS, NOTIFICATION_KINDS, type NotificationKind } from '@/lib/notification-kinds'
 import { loadPreferences, savePreferences } from '@/lib/notifications'
 import { isRomanceKind, romanceOpenFor } from '@/lib/romance/launch'
-
-// Which kinds of notification the caller wants. Every kind is on until it is switched off. The kinds are in src/lib/notification-kinds.ts.
-const bodySchema = z
-  .object({
-    preferences: z
-      .object(Object.fromEntries(NOTIFICATION_KINDS.map((kind) => [kind, z.boolean().optional()])) as Record<NotificationKind, z.ZodOptional<z.ZodBoolean>>)
-      .strict()
-      .refine((value) => Object.keys(value).length > 0, 'Send at least one kind'),
-  })
-  .strict()
+import { bodySchema } from './schema'
 
 // The romance kinds are listed only where the mode is open (src/lib/romance/launch.ts); a closed mode appears in no list.
 const view = (enabled: Record<NotificationKind, boolean>, romanceOpen: boolean) => ({

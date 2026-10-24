@@ -1,13 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import { emit, transactWithEvents } from '@/lib/events'
 import { track } from '@/lib/infra/analytics'
 import { hackathonPaysRewards } from '@/lib/squads/membership'
-
-const submitSchema = z.object({
-  teamId: z.string().max(64).min(1),
-})
+import { submitSchema } from './schema'
 
 // Submission is a team action, not an individual one - any member of the
 // registered team can call this, and it moves every teammate's own

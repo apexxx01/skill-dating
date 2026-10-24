@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { INVITE_WINDOW_DAYS, redeemInvite } from '@/lib/invites/invites'
-
-// POST /api/invites/redeem { code }: joins with an invite code, once, in the first 14 days of the account. (A sign-up that carries the code in the Clerk user's unsafeMetadata.inviteCode
-// is attributed automatically; this is for the pages that cannot.) The answer does not say whether the invite will count: that is decided when the invitee has got started.
-const bodySchema = z.object({ code: z.string().trim().min(4).max(40) }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(bodySchema)(request)

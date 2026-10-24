@@ -1,20 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-// Self-scoped view of the caller's own outstanding/resolved team
-// applications. Every other query against TeamApplication is scoped by
-// teamId and gated to the team owner/admin (see [id]/applications and
-// [id]/candidates) — this is the only place an applicant can see what
-// happened to their own applications. Always scoped to the session's
-// user.id; a userId is never accepted from the client.
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  status: z.enum(['PENDING', 'ACCEPTED', 'REJECTED', 'WITHDRAWN']).optional(),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

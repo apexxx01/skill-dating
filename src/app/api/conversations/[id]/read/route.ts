@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, checkMembership, readBodyText } from '@/lib/api/handler'
+import { withAuth, createApiResponse, createApiError, checkMembership, readBodyText } from '@/lib/api/handler'
 import { markConversationRead, unreadCountsByConversation } from '@/lib/messaging'
-import { z } from 'zod'
-
-const readSchema = z.object({
-  upToMessageId: z.string().min(1).max(64).optional(),
-})
+import { readSchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

@@ -1,10 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, decodeKeysetCursor, encodeKeysetCursor, keysetOrderBy, keysetWhere } from '@/lib/api/pagination'
-
-// GET /api/admin/hackathons/{id}/peer-reviews: every peer review of a hackathon with its private note, for admins (moderation), newest first.
-const querySchema = z.object({ cursor: cursorParam, limit: z.coerce.number().int().min(1).max(100).default(50) })
+import { decodeKeysetCursor, encodeKeysetCursor, keysetOrderBy, keysetWhere } from '@/lib/api/pagination'
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { effectiveLevel } from '@/lib/integrity/risk'
-
-// GET /api/admin/users?q=: find a person by id, username (exact, then prefix) or e-mail. Searching by e-mail, and seeing e-mail addresses, is for admins
-// only (403 FORBIDDEN for a moderator). Each result carries the role, verification, risk and restrictions in force. Staff only; every search is audited.
-const querySchema = z.object({ q: z.string().trim().min(2).max(200), limit: z.coerce.number().int().min(1).max(25).default(10) })
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const query = validateQuery(querySchema)(request)

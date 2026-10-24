@@ -1,37 +1,11 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, authorize } from '@/lib/api/handler'
-import { z } from 'zod'
+import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { blockedUserIds } from '@/lib/blocks'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
-
-const createProjectSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(5000).optional(),
-  shortDesc: z.string().max(300).optional(),
-  githubUrl: z.string().max(2048).url().optional().or(z.literal('')),
-  demoUrl: z.string().max(2048).url().optional().or(z.literal('')),
-  websiteUrl: z.string().max(2048).url().optional().or(z.literal('')),
-  techStack: z.array(z.string().max(50)).max(20).default([]),
-  lookingFor: z.array(z.string().max(50)).max(20).default([]),
-  maxTeamSize: z.number().min(1).max(10).default(5),
-  hackathonId: z.string().max(64).optional(),
-  isPublic: z.boolean().default(true),
-})
-
-const updateProjectSchema = createProjectSchema.partial()
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  status: z.enum(['IDEA', 'PLANNING', 'BUILDING', 'TESTING', 'SHIPPED', 'ARCHIVED']).optional(),
-  search: z.string().max(200).optional(),
-  techStack: z.string().max(200).optional(),
-  ownerId: z.string().max(64).optional(),
-  cursor: cursorParam,
-})
+import { createProjectSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

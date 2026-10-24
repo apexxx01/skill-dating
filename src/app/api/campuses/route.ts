@@ -1,15 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse } from '@/lib/api/handler'
 import { foldText } from '@/lib/search/query'
 import { normalizeCountryCode } from '@/lib/places'
-
-// The campuses a person can verify, for a picker: GET /api/campuses?q=&countryCode=. The domains are listed so the page can say which address to use.
-const querySchema = z.object({
-  q: z.string().max(100).optional(),
-  countryCode: z.string().max(2).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-})
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const query = validateQuery(querySchema)(request)

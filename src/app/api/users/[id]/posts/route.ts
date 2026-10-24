@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { userPosts } from '@/lib/posts/timelines'
-
-const query = z.object({ cursor: z.string().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
+import { query } from './schema'
 
 // A person's posts, newest first, including the ones they co-authored; only those the caller may see (visibility, blocks, soft delete).
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

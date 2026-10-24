@@ -1,16 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
-import { z } from 'zod'
 import { blockGuard } from '@/lib/blocks'
 import { hackathonLimits, isLocked } from '@/lib/squads/membership'
 import { INVITATION_TTL_MS } from '@/lib/squads/lifecycle'
-
-const inviteSchema = z.object({
-  userId: z.string().max(64).min(1),
-  message: z.string().max(1000).optional(),
-  // The open slot the invitee is asked to fill.
-  slotId: z.string().min(1).max(64).optional(),
-})
+import { inviteSchema } from './schema'
 
 // Team invitations reuse the TeamApplication table (invitedById set marks a
 // row as owner-initiated rather than applicant-initiated) so the accept

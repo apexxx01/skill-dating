@@ -1,13 +1,9 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { CODE_TTL_MINUTES, startVerification } from '@/lib/campus/campus'
 import { EmailSendError } from '@/lib/infra/email'
 import { log } from '@/lib/log'
-
-// POST /api/campus/verification: mails a six-digit code to a campus e-mail address, good for 15 minutes and 5 tries (docs/INVITES.md). At most 5 a hour. The address is
-// used to send the code and is erased when the code is confirmed or has expired; it is never returned.
-const bodySchema = z.object({ campusId: z.string().min(1).max(64), email: z.string().max(254) }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(bodySchema)(request)

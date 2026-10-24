@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { inviteProposal } from '@/lib/squads/builder'
-
-// POST /api/hackathons/{id}/squad-builder/{proposalId}/invite: turns the caller's proposal into a team (theirs, or a new one) and a 48-hour slot
-// invitation for every proposed person who is still free, in one call. A proposal is used once; send an Idempotency-Key to retry safely.
-const bodySchema = z.object({ teamName: z.string().trim().min(1).max(100).optional() }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const parts = new URL(request.url).pathname.split('/')

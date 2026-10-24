@@ -1,25 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { blockGuard } from '@/lib/blocks'
-
-const CONNECTION_TYPES = ['TEAMMATE', 'COLLABORATOR', 'MENTOR', 'FRIEND', 'NETWORK'] as const
-
-const createConnectionSchema = z.object({
-  receiverId: z.string().max(64).min(1),
-  type: z.enum(CONNECTION_TYPES).default('NETWORK'),
-  message: z.string().max(1000).optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'BLOCKED']).optional(),
-  direction: z.enum(['sent', 'received']).optional(),
-  cursor: cursorParam,
-})
+import { createConnectionSchema, querySchema } from './schema'
 
 const userSummarySelect = { id: true, name: true, username: true, image: true, headline: true } as const
 

@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { proposalFor } from '@/lib/squads/builder'
 import { respondToProposal } from '@/lib/squads/pool'
-
-// POST /api/squad-proposals/{id}/respond { accept }: a member's answer to a squad the solo pool proposed. The squad forms (or fails) as soon as
-// everybody has answered, else when its day is up.
-const bodySchema = z.object({ accept: z.boolean() }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

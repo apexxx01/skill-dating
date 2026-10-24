@@ -1,11 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
-
-const updateUserSkillSchema = z.object({
-  level: z.number().min(1).max(5).optional(),
-  yearsExperience: z.number().min(0).max(50).optional(),
-})
+import { updateUserSkillSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

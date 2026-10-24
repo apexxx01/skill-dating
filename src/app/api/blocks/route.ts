@@ -1,19 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { endMatchesBetween } from '@/lib/matching/matches'
-
-const createBlockSchema = z.object({
-  userId: z.string().min(1).max(64),
-  reason: z.string().max(500).optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { createBlockSchema, querySchema } from './schema'
 
 const userSummarySelect = { id: true, name: true, username: true, image: true, headline: true } as const
 

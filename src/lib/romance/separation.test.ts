@@ -21,6 +21,8 @@ const OWN_DIRS = ['lib/romance/', 'app/api/romance/']
 
 const MAY_NAME_THE_MODE: Record<string, string> = {
   'app/api/admin/users/[id]/birthdate/route.ts': 'a correction to 16 or 17 removes the person from the mode (it is 18+)',
+  'app/api/admin/queue/schema.ts': 'the queue’s reason filter lists the report reasons, which include the romance mode’s',
+  'app/api/sparks/schema.ts': 'a comment: the mode has its own spark route',
   'app/api/matching/profile/route.ts': 'says in a comment that the mode is not a type of the matching profile',
   'app/api/sparks/route.ts': 'says in a comment that the mode has its own spark route',
   'lib/achievement-definitions.ts': 'says in a comment that a romance match counts toward no achievement',

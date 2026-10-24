@@ -1,39 +1,12 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { hasMarketingConsent, isSuppressed, loadChannelChoices, loadSettings, saveSettings, setChannelChoice, channelViews, settingsView, type SettingsChanges } from '@/lib/notify/settings'
-import { channelPolicy, switchableKinds, type DeliveryKind } from '@/lib/notify/policy'
+import { channelPolicy, type DeliveryKind } from '@/lib/notify/policy'
 import { parseClock } from '@/lib/notify/quiet'
 import { getPush } from '@/lib/infra/push'
 import { isRomanceKind, romanceOpenFor } from '@/lib/romance/launch'
 import type { prisma as prismaClient } from '@/lib/prisma'
-
-// How notifications reach the caller outside the app (docs/NOTIFICATIONS.md): the email and push switches, quiet hours, the digests, and for every kind of
-// notification whether it comes by email and by push. In-app notifications have their own switches (GET/PUT /api/notifications/preferences) and are always shown.
-
-const clock = z.string().max(5).regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'A time such as 22:00')
-
-const kindChoice = z.object({ email: z.boolean().optional(), push: z.boolean().optional() }).strict()
-
-const bodySchema = z
-  .object({
-    settings: z
-      .object({
-        emailEnabled: z.boolean().optional(),
-        pushEnabled: z.boolean().optional(),
-        quietHours: z.object({ enabled: z.boolean().optional(), start: clock.optional(), end: clock.optional() }).strict().optional(),
-        dailyDigest: z.boolean().optional(),
-        weeklyDigest: z.boolean().optional(),
-      })
-      .strict()
-      .optional(),
-    kinds: z
-      .object(Object.fromEntries(switchableKinds().map((kind) => [kind, kindChoice.optional()])) as Record<string, z.ZodOptional<typeof kindChoice>>)
-      .strict()
-      .optional(),
-  })
-  .strict()
-  .refine((value) => value.settings !== undefined || value.kinds !== undefined, 'Send settings, kinds or both')
+import { bodySchema } from './schema'
 
 async function view(prisma: typeof prismaClient, userId: string) {
   const [settings, choices, marketing, devices, account, romanceOpen] = await Promise.all([

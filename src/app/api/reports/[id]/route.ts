@@ -1,11 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
-
-const updateReportSchema = z.object({
-  status: z.enum(['REVIEWING', 'RESOLVED', 'DISMISSED']),
-  reason: z.string().max(2000).optional(),
-})
+import { updateReportSchema } from './schema'
 
 // Judgment call: allowed forward-only transitions. PENDING can move to any
 // of the three next states (a moderator may resolve/dismiss immediately

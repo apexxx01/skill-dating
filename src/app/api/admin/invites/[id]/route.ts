@@ -1,18 +1,6 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-
-// PATCH /api/admin/invites/{id}: change a campaign code's label, limit or expiry, or switch it off (`disabled: true`) or on again. A personal code can only be switched off or on.
-const patchSchema = z
-  .object({
-    label: z.string().trim().min(2).max(100),
-    maxUses: z.number().int().min(1).max(1_000_000).nullable(),
-    expiresAt: z.string().datetime().nullable(),
-    disabled: z.boolean(),
-  })
-  .partial()
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, 'Send at least one field')
+import { patchSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').pop() ?? ''

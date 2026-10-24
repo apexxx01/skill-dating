@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { reverseModerationAction } from '@/lib/moderation/actions'
-
-// POST /api/admin/actions/{id}/reverse { reason }: takes an action back (restrictions lifted, hidden content shown again; removed text stays removed).
-// Audited; the person is told. Staff only.
-const bodySchema = z.object({ reason: z.string().trim().min(3).max(2000) }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

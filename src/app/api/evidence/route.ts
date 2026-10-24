@@ -1,45 +1,11 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockRelation } from '@/lib/blocks'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-import {
-  ENDORSEMENT_TYPE,
-  MAX_EVIDENCE_PER_SKILL,
-  USER_EVIDENCE_TYPES,
-  endorsementSummaries,
-  isHttpUrl,
-  lockKey,
-} from '@/lib/skill-evidence'
-
-// .strict(): a body that tries to set verifiedAt, metadata or any other
-// server-controlled field is rejected outright instead of being silently
-// dropped, so an attempt to forge verification is visible as a 400.
-const createEvidenceSchema = z
-  .object({
-    skillId: z.string().min(1).max(64),
-    type: z.enum(USER_EVIDENCE_TYPES),
-    title: z.string().trim().min(1).max(200),
-    url: z
-      .string()
-      .trim()
-      .max(2048)
-      .url()
-      .refine(isHttpUrl, 'URL must start with http:// or https://')
-      .optional(),
-    description: z.string().trim().max(2000).optional(),
-  })
-  .strict()
-
-const querySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  userId: z.string().min(1).max(64).optional(),
-  skillId: z.string().min(1).max(64).optional(),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { ENDORSEMENT_TYPE, MAX_EVIDENCE_PER_SKILL, endorsementSummaries, lockKey } from '@/lib/skill-evidence'
+import { createEvidenceSchema, querySchema } from './schema'
 
 const skillSelect = { id: true, name: true, slug: true, category: true } as const
 

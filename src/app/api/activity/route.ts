@@ -1,17 +1,9 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { blockRelation } from '@/lib/blocks'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-const querySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  userId: z.string().min(1).max(64).optional(),
-  type: z.string().min(1).max(64).optional(),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { querySchema } from './schema'
 
 const activitySelect = {
   id: true,

@@ -1,10 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
-import { z } from 'zod'
-
-const editMessageSchema = z.object({
-  content: z.string().min(1).max(10000),
-})
+import { editMessageSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

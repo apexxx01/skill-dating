@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
@@ -10,17 +9,8 @@ import {
   projectIdFromPath,
   type ProjectAccess,
 } from '@/lib/progress'
-import { dueDateSchema, milestoneResponse, milestoneSelect } from '@/lib/milestones'
-
-const patchMilestoneSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    description: z.string().trim().max(5000).nullable().optional(),
-    dueDate: dueDateSchema.nullable().optional(),
-    order: z.number().int().min(0).max(10000).optional(),
-    completed: z.boolean().optional(),
-  })
-  .refine((v) => Object.values(v).some((value) => value !== undefined), { message: 'Nothing to update' })
+import { milestoneResponse, milestoneSelect } from '@/lib/milestones'
+import { patchMilestoneSchema } from './schema'
 
 type Resolved =
   | { ok: false; error: NextResponse }

@@ -1,10 +1,6 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
-import { z } from 'zod'
-
-const transferSchema = z.object({
-  newOwnerId: z.string().max(64).min(1),
-})
+import { transferSchema } from './schema'
 
 // Team.ownerId is the field every ownership-gated action actually checks
 // (checkOwnership -> team PATCH/DELETE, and DELETE .../members/[userId]'s

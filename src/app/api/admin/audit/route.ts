@@ -1,19 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-// GET /api/admin/audit?actorId=&targetId=&targetType=&action=&cursor=: the audit log, newest first. Admins only. IP addresses and user agents are not
-// returned (they are kept for incident response, docs/SECURITY.md).
-const querySchema = z.object({
-  actorId: z.string().min(1).max(64).optional(),
-  targetId: z.string().min(1).max(64).optional(),
-  targetType: z.string().min(1).max(64).optional(),
-  action: z.string().min(1).max(64).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const query = validateQuery(querySchema)(request)

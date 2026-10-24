@@ -3,15 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { withAuth, createApiResponse, createApiError, readBodyText } from '@/lib/api/handler'
 import { jobs, runJob } from '@/lib/infra/jobs'
-import { boundedJson } from '@/lib/api/limits'
-
-// POST /api/admin/jobs/{area}/{action}  body: { data?: {...} }
-//
-// Admin only. Runs one of the background jobs (src/lib/infra/jobs.ts) right now, in this request, and
-// answers with what it returned: how an operator triggers the nightly leaderboard rebuild or the
-// season rollover outside their schedule, and how a deploy without the job queue (a preview, a
-// laptop) runs them. The job runs exactly as the queue would run it, payload validated by its schema.
-const bodySchema = z.object({ data: boundedJson(16_384).optional() })
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const name = new URL(request.url).pathname.replace(/^\/api\/admin\/jobs\//, '').replace(/\/+$/, '')

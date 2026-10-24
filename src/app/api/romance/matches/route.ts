@@ -1,13 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam } from '@/lib/api/pagination'
 import { listRomanceMatches } from '@/lib/romance/matches'
-
-const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 // The caller's open romance matches, newest first. To leave one: DELETE /api/matches/{id}; to report and leave: POST /api/matches/{id}/report (both work on any match the caller is in).
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

@@ -1,29 +1,15 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import {
   authorSelect,
   isValidId,
   loadProjectAccess,
   projectIdFromPath,
 } from '@/lib/progress'
-
-// MILESTONE and SHIPPED updates are written by the system (milestone
-// completion, shipping); clients can only post these two kinds.
-const createUpdateSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  content: z.string().trim().min(1).max(10000),
-  type: z.enum(['UPDATE', 'ANNOUNCEMENT']).default('UPDATE'),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { createUpdateSchema, querySchema } from './schema'
 
 const updateSelect = {
   id: true,

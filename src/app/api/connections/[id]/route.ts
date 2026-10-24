@@ -1,13 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
-
-const reviewSchema = z.object({
-  status: z.enum(['ACCEPTED', 'DECLINED']),
-})
+import { reviewSchema } from './schema'
 
 const userSummarySelect = { id: true, name: true, username: true, image: true, headline: true } as const
 

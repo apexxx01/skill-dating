@@ -1,17 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import { recordActivity } from '@/lib/activity'
 import { emit, transactWithEvents } from '@/lib/events'
 import { hackathonPaysRewards } from '@/lib/squads/membership'
-
-const resultsSchema = z.object({
-  results: z.array(z.object({
-    hackathonTeamId: z.string().max(64).min(1),
-    rank: z.number().min(1),
-    score: z.number().optional(),
-  })).min(1).max(500),
-})
+import { resultsSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {

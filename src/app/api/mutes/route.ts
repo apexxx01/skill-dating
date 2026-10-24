@@ -1,10 +1,6 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-
-// POST /api/mutes { userId }: hide a person from your feed, comments and lists without blocking them (they are not told, and can still interact with
-// you; block for that). Idempotent: muting twice is one mute. GET: the people you muted.
-const bodySchema = z.object({ userId: z.string().min(1).max(64) }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(bodySchema)(request)

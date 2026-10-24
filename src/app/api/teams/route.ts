@@ -1,39 +1,11 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { blockedUserIds } from '@/lib/blocks'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { createSlots } from '@/lib/squads/membership'
 import { slotsFromLookingFor } from '@/lib/squads/roles'
-import { slotInputSchema, squadRoleSchema } from '@/lib/squads/schemas'
-
-const createTeamSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(5000).optional(),
-  projectId: z.string().max(64).optional(),
-  hackathonId: z.string().max(64).optional(),
-  maxSize: z.number().min(2).max(10).default(5),
-  // The old free-text needs: turned into OTHER (or inferred) slots. `slots` is the structured form; both may be sent.
-  lookingFor: z.array(z.string().max(50)).max(20).default([]),
-  slots: z.array(slotInputSchema).max(9).default([]),
-  // The role the creator plays on the team.
-  squadRole: squadRoleSchema.optional(),
-  roleLabel: z.string().trim().min(1).max(40).optional(),
-  isRecruiting: z.boolean().default(true),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  search: z.string().max(200).optional(),
-  isRecruiting: z.coerce.boolean().optional(),
-  hackathonId: z.string().max(64).optional(),
-  skills: z.string().max(200).optional(),
-  // Teams with an open slot for this role.
-  role: squadRoleSchema.optional(),
-  cursor: cursorParam,
-})
+import { createTeamSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

@@ -1,14 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { getStorage } from '@/lib/infra/storage'
 import { readyAssets } from '@/lib/media-assets'
-
-// PUT /api/users/me/avatar { mediaId }: uses an uploaded AVATAR (POST /api/media/uploads with purpose AVATAR, then complete) as the profile picture.
-// Only a READY asset can be used, which for an avatar means the media scanner passed it (or a moderator approved it); while it is SCANNING or IN_REVIEW
-// it is "not found". The picture is served from the bucket's public address, so this needs STORAGE_PUBLIC_BASE_URL (503 STORAGE_UNAVAILABLE without).
-// DELETE removes the picture.
-const bodySchema = z.object({ mediaId: z.string().min(1).max(64) }).strict()
+import { bodySchema } from './schema'
 
 export const PUT = withAuth(async (request: NextRequest, { prisma, user }) => {
   const body = await validateBody(bodySchema)(request)
