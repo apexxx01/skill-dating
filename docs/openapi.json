@@ -2690,6 +2690,138 @@
         }
       }
     },
+    "/api/admin/settings": {
+      "get": {
+        "operationId": "getAdminSettings",
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List the values an administrator can change without a deploy",
+        "responses": {
+          "200": {
+            "description": "PlatformSettingsResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/admin/settings/route.ts",
+        "x-roles": [
+          "ADMIN"
+        ],
+        "x-rate-limit": {
+          "maxRequests": 60,
+          "windowSeconds": 60,
+          "key": "admin:settings-list"
+        }
+      }
+    },
+    "/api/admin/settings/{key}": {
+      "put": {
+        "operationId": "putAdminSettingsByKey",
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Change one such value (audited, checked against its schema)",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PlatformSettingView",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSettingView"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/admin/settings/[key]/route.ts",
+        "x-roles": [
+          "ADMIN"
+        ],
+        "x-rate-limit": {
+          "maxRequests": 30,
+          "windowSeconds": 60,
+          "key": "admin:settings-update"
+        }
+      }
+    },
     "/api/admin/users": {
       "get": {
         "operationId": "getAdminUsers",
@@ -24927,6 +25059,7 @@
           "ROMANCE_PROFILE_REQUIRED",
           "ROMANCE_SPARK_LIMIT_REACHED",
           "SERVICE_UNAVAILABLE",
+          "SETTING_NOT_FOUND",
           "SIGNUPS_PAUSED",
           "SIGNUP_EMAIL_REJECTED",
           "SIGNUP_RATE_LIMITED",
@@ -27548,6 +27681,65 @@
         "additionalProperties": false,
         "description": "GET /api/hackathons/{id}/peer-reviews: the caller's side only."
       },
+      "PlatformSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformSettingView"
+            }
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "PlatformSettingView": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "value": {},
+          "default": {},
+          "isDefault": {
+            "type": "boolean",
+            "description": "True until an administrator changes it."
+          },
+          "updatedById": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "description",
+          "value",
+          "default",
+          "isDefault",
+          "updatedById",
+          "updatedAt"
+        ],
+        "additionalProperties": false,
+        "description": "GET /api/admin/settings, PUT /api/admin/settings/{key}: a value an administrator can change without a deploy."
+      },
       "PlayerCard": {
         "type": "object",
         "properties": {
@@ -30003,7 +30195,7 @@
         ]
       },
       "SendMessageResponse": {
-        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60638",
+        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-61077",
         "description": "POST /api/conversations/[id]: the message just sent plus the sender's rewards (5 XP for a first message to a connection)."
       },
       "SendSparkResponse": {
@@ -32549,7 +32741,7 @@
         ],
         "description": "A mutation response that also reports what it earned."
       },
-      "WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60638": {
+      "WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-61077": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -33542,6 +33734,11 @@
     "SERVICE_UNAVAILABLE": {
       "status": 503,
       "message": "The service is temporarily unavailable. Try again shortly",
+      "params": []
+    },
+    "SETTING_NOT_FOUND": {
+      "status": 404,
+      "message": "Setting not found",
       "params": []
     },
     "SIGNUP_EMAIL_REJECTED": {

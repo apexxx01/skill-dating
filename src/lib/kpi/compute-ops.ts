@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { adultCutoff } from '@/lib/age-policy'
 import { MEANINGFUL_EVENTS, OWN_ACTION_XP_TYPES } from './activity'
 import { addDays, dateParam, endOf, startOf, windowStart } from './days'
+import { romanceLaunchThreshold } from '@/lib/settings'
 import { inScope, num, ratio, row, type Db, type MetricRow, type MetricsScope } from './types'
 
 // The numbers about reaching people, keeping them safe, where they come from and who brings them (docs/METRICS.md, "Notifications", "Safety", "Growth", "Invites").
@@ -149,8 +150,11 @@ export async function demandMetrics(db: Db, day: string, scope?: MetricsScope): 
           AND 'city:' || p."countryCode" || ':' || p."cityKey" = asked."place" AND ${inScope(scope, 'u')}) AS "actives"
     FROM asked ORDER BY asked."interested" DESC, asked."place" ASC
   `)
+  // Whether each city has reached the number of interested adults the launch checklist asks for (an admin setting, src/lib/settings.ts). The other half of the rule, the balance of the
+  // interested-in pairing, is not measurable here: the interest list holds no gender or preference.
+  const threshold = await romanceLaunchThreshold(db)
   for (const entry of cities) {
-    out.push(...row('romance_interest', num(entry.interested), undefined, entry.place))
+    out.push(...row('romance_interest', num(entry.interested), { minInterestedAdults: threshold.minInterestedAdults, meetsInterestThreshold: num(entry.interested) >= threshold.minInterestedAdults ? 1 : 0 }, entry.place))
     out.push(...row('romance_interest_share_of_adult_actives', ratio(num(entry.interested), num(entry.actives)), { interested: num(entry.interested), adultActives: num(entry.actives) }, entry.place))
   }
   return out

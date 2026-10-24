@@ -1018,6 +1018,22 @@ export interface FlagsResponse {
   flags: Record<string, boolean>
 }
 
+/** GET /api/admin/settings, PUT /api/admin/settings/{key}: a value an administrator can change without a deploy. */
+export interface PlatformSettingView {
+  key: string
+  description: string
+  value: unknown
+  default: unknown
+  /** True until an administrator changes it. */
+  isDefault: boolean
+  updatedById: string | null
+  updatedAt: IsoDate | null
+}
+
+export interface PlatformSettingsResponse {
+  settings: PlatformSettingView[]
+}
+
 /** A feature flag as the admin API returns it. */
 export interface AdminFlag {
   key: string

@@ -11,6 +11,8 @@ export const OPERATION_SUMMARIES: Record<string, string> = {
   'GET /api/admin/campuses': 'List the campuses with their member counts',
   'POST /api/admin/campuses': 'Add a campus with its e-mail domains',
   'PATCH /api/admin/campuses/{id}': 'Rename, move or close a campus to new members',
+  'GET /api/admin/settings': 'List the values an administrator can change without a deploy',
+  'PUT /api/admin/settings/{key}': 'Change one such value (audited, checked against its schema)',
   'GET /api/admin/flags': 'List the feature flags',
   'POST /api/admin/flags': 'Create a feature flag',
   'GET /api/admin/flags/{key}': 'Read one feature flag',

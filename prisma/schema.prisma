@@ -1625,6 +1625,16 @@ model FeatureFlag {
   updatedAt      DateTime @updatedAt
 }
 
+// A value an administrator can change without a deploy (src/lib/settings.ts holds the known keys, their schema and their defaults; a key with no row has its default).
+// Changes are audited. Nothing here is about a person.
+model PlatformSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // Product analytics (see src/lib/infra/analytics.ts). props never holds personal data.
 // userId is set to null when the user is deleted, so the counts survive but the link does not.
 model ProductEvent {

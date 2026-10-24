@@ -80,6 +80,8 @@ export const RESPONSES: Record<string, ResponseSpec> = {
   'PATCH /api/admin/flags/{key}': { type: 'AdminFlag' },
   'GET /api/admin/metrics': { type: 'MetricsResponse' },
   'GET /api/admin/queue': { type: 'QueueResponse' },
+  'GET /api/admin/settings': { type: 'PlatformSettingsResponse' },
+  'PUT /api/admin/settings/{key}': { type: 'PlatformSettingView' },
   'GET /api/admin/users/{id}/risk': { type: 'RiskView' },
   'PATCH /api/admin/users/{id}/risk': { type: 'RiskView' },
   'GET /api/appeals': { type: 'AppealsResponse' },

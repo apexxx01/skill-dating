@@ -115,6 +115,7 @@ export const DATA_INVENTORY: Record<string, InventoryEntry> = {
   ConsentRecord: { fields: { userId: 'KEEP' }, export: 'FULL', note: 'proof of consent and of its withdrawal: kept as the legal record of the basis for past processing' },
   Report_resolvedBy: { fields: { resolvedById: 'KEEP' }, export: 'NONE', note: 'the moderator who resolved a report (Report.resolvedById)' },
   FeatureFlag: { fields: { allowUserIds: 'CUSTOM', updatedById: 'KEEP' }, export: 'NONE', note: 'early-access allowlists: the person is taken off every list' },
+  PlatformSetting: { fields: { updatedById: 'KEEP' }, export: 'NONE', note: 'values an administrator can change without a deploy: nothing about a person; the audit trail names who changed one' },
   IntegritySignal: { fields: { userId: 'SET_NULL' }, export: 'NONE', note: 'integrity signals: internal; the link to the person is cleared' },
   FraudSignal: { fields: { memberIds: 'KEEP', reviewedById: 'KEEP' }, export: 'NONE', note: 'collusion findings: internal evidence, kept as ids of an anonymised account' },
 }

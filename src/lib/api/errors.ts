@@ -70,6 +70,7 @@ export const ERROR_CATALOG = {
   REPORT_NOT_FOUND: { status: 404, message: 'Report not found' },
   BUILD_NOT_FOUND: { status: 404, message: 'No current build found' },
   FLAG_NOT_FOUND: { status: 404, message: 'Feature flag not found' },
+  SETTING_NOT_FOUND: { status: 404, message: 'Setting not found' },
 
   // --- People ------------------------------------------------------------------
   USER_BLOCKED: { status: 403, message: 'You have blocked this user' },
