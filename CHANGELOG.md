@@ -3,22 +3,29 @@
 What changed, stage by stage. The newest stage is first. Each stage was built on its own branch and merged into `main` once its tests were green; the dates are the days
 the work landed. Behaviour is described in the documents under [docs/](docs/); this file only says what arrived and why it matters.
 
-## Stage 1H: seed, performance, API contract, CI and polish (2026-10-23)
+## Stage 1H: seed, performance, API contract, CI and polish (2026-10-23 to 2026-10-24)
 
-- **Halves is off at launch.** The romance mode answers `503 ROMANCE_PAUSED` on every route until it is explicitly opened (the flag `romance.enabled`, or a city's flag), and
-  appears nowhere else: not in the notification settings, the consents, the search, the onboarding data or the contract. `POST`/`DELETE /api/romance/interest` records
-  "tell me when it opens" for adults, with their country and city; the admin metrics show the interest by city and as a share of adult actives; opening the mode tells the
-  people who asked, once.
+- **Halves is off at launch.** The romance mode answers `503 ROMANCE_PAUSED` on every route until it is explicitly opened (the flag `romance.enabled`, or a city's flag
+  `romance.city.<country>-<city>`; `kill.romance` closes it everywhere), and appears nowhere else: not in the notification settings, the consents, the search, the onboarding data
+  or the contract, which marks it post-launch. `POST`/`DELETE /api/romance/interest` records "tell me when it opens" for adults, with their country and city; the admin metrics show
+  the interest by city and as a share of adult actives; opening the mode tells the people who asked, once. The product name is "Halves".
 - **Cards for people who were minors.** Turning 18 does not publish a card: an account that was under 18 at any point keeps `showCardsOnWeb` off until the person turns it on, and
   is told once, on the 18th birthday in their own time zone, what the switch is.
-- **A world to demo.** `npm run seed` builds a deterministic, idempotent world of about 400 builders in twelve cities (or 10,000 with `--scale`), through the real domain
-  functions; `npm run seed:demo -- --username <name>` makes a polished demo account.
-- **Performance.** The hottest queries were measured with `EXPLAIN ANALYZE` at 10,000 users, the missing indexes were added, read-heavy `GET`s carry private caching headers and
-  ETags, and `docs/PERFORMANCE.md` has the before and after. A load script (`npm run load`) drives the busiest endpoints against a preview deployment.
-- **An API contract.** `docs/openapi.json` (OpenAPI 3.1, built from the Zod schemas and the response types), served at `GET /api/openapi.json` to admins and in development; a
-  test fails when a route and the spec disagree. A typed client in `src/lib/api-client`. `docs/FRONTEND_CONTRACT.md` is rewritten as one section per page.
-- **CI and docs.** Workflows for typecheck, lint, unit, build and migration drift on every push, and for the full integration suite on pull requests to `main` and nightly. A
-  pitch-grade README, this changelog, and `docs/LAUNCH_CHECKLIST.md`.
+- **A world to demo and to measure.** `npm run seed` builds a deterministic, idempotent world of about 400 builders in twelve cities (10,000 with `--scale`), through the real
+  domain functions on a simulated clock, with every status and lifecycle state; `npm run seed:demo -- --username <name>` makes a polished account; `--with-romance` adds 40
+  synthetic adults. It refuses to run in production ([SEED](docs/SEED.md)).
+- **Performance, measured.** The hottest endpoints were measured at 10,000 people with `EXPLAIN ANALYZE`. Stored full-text vectors and trigram indexes took people search from
+  p95 521 ms to 134 ms, the passport from 76 to 28; every other read is under 100 ms and every write under 65 ms (the squad builder, which computes a squad, is 253 ms). 28 read-only `GET`s carry private caching headers and ETags (`304`).
+  The digests for 10,000 people took 101 seconds in all across a day's five passes. Autocannon scripts drive the busiest endpoints against a local server or a preview deployment ([PERFORMANCE](docs/PERFORMANCE.md);
+  measured on a laptop, to be repeated on the hosting platform).
+- **An API contract.** Every route's request schemas moved into a `schema.ts` beside it. `docs/openapi.json` (OpenAPI 3.1, 260 operations) is built from the routes, the Zod
+  schemas and the response types and served at `GET /api/openapi.json`; a test fails when a route and the spec disagree or when the file is stale. `src/lib/api-client` is a typed
+  fetch client generated from it: typed errors from the error catalogue, automatic Idempotency-Key, cursor pagination helpers, and the reward moments to celebrate.
+  `docs/FRONTEND_CONTRACT.md` is rewritten as one section per page.
+- **CI and docs.** The fast checks (types, lint, unit, build, migration drift, API description up to date) run on every push and pull request; the full integration suite against a
+  production build runs on pull requests to `main` and nightly. A new README, this changelog, and [LAUNCH_CHECKLIST](docs/LAUNCH_CHECKLIST.md), which also holds the checklist for
+  turning Halves on city by city.
+- Fixed on the way: an integration test that mixed the real clock with a fixed digest date; the admin job route now accepts an encoded job name.
 
 ## Stage 1G: reach and retention (2026-10-22 to 2026-10-23)
 
