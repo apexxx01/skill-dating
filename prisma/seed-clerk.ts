@@ -1,15 +1,15 @@
 /**
  * Opt-in: makes the seeded demo accounts usable through Clerk.
  *
- * Run with: npm run db:seed:clerk   (after npm run db:seed)
+ * Run with: npm run db:seed:clerk   (after npm run seed:demo -- --username <name>, see docs/SEED.md)
  *
- * The seed inserts demo users as legacy rows (clerkId null). This creates the
- * matching Clerk users on the development instance with the Backend API, using the
- * documented demo password, and stores each Clerk id on its local row, so the demo
- * accounts can sign in through Clerk.
+ * The demo seed inserts its accounts as rows with no Clerk id (clerkId null), at <username>@demo.skilldating.test. This creates the
+ * matching Clerk users on the development instance with the Backend API, using the documented demo password, and stores each Clerk
+ * id on its local row, so the demo accounts can sign in through Clerk. The people of the seeded world (@seed.skilldating.test) are
+ * not touched: they exist to fill the product, not to sign in.
  *
  * Clerk refuses the reserved .test TLD the seed uses, so the Clerk account for
- * demo1@demo.skilldating.test signs in with demo1@demo.skilldating.example.com
+ * aanya@demo.skilldating.test signs in with aanya@demo.skilldating.example.com
  * (example.com is reserved, so it can never be a real mailbox). The local row keeps
  * its seeded email until Clerk next reports a change for the account, after which
  * the local email follows Clerk's, like any other account.

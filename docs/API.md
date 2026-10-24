@@ -1,6 +1,9 @@
 # API Reference
 
-Generated from the actual route handlers in `src/app/api/`. Every route except
+Generated from the actual route handlers in `src/app/api/`. The same routes are described in machine-readable form in [`openapi.json`](openapi.json) (OpenAPI 3.1, built from the routes, their Zod request
+schemas and the response types of `src/types/api.ts`; a test fails when it is out of date), and `src/lib/api-client` is a typed client generated from it. A route's request schemas live in a `schema.ts` beside
+its `route.ts` (a Next.js route may export only its handlers). This file is the long form: rules, limits and every error.
+ Every route except
 `GET /api/auth/session`, `GET /api/health`, `POST /api/webhooks/clerk`, `POST /api/webhooks/email`, `/api/inngest`, the signed links in emails (`/api/notifications/unsubscribe`,
 `/api/notifications/open/{token}`) and the share cards (`/api/og/...`) requires an authenticated
 Clerk session: a session token sent as `Authorization: Bearer <token>` or in the
@@ -1173,6 +1176,11 @@ Any other name, a wildcard, or a channel the caller may not read refuses the **w
 ---
 
 ## Platform
+
+### `GET /api/openapi.json`
+**Auth:** required, and the `ADMIN` role (any signed-in person in development). The OpenAPI 3.1 description of this API (`docs/openapi.json`), the same document that is committed to the repository: 184 paths, with the
+request schemas, the response types where they are typed, the error catalogue (`x-error-catalog`), rate limits (`x-rate-limit`), idempotency (`x-idempotent`), cache lifetimes (`x-cache-max-age`), reward envelopes
+(`x-rewards`) and the post-launch marker on the romance routes (`x-launch`). Cached privately for 60 seconds with an ETag.
 
 ### `GET /api/health`
 **Auth: none.** For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails (still `200`, since the app keeps serving); or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached.

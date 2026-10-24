@@ -2,7 +2,8 @@
 
 The order of a deploy, what to run after it, and what to do when it fails. For what each setting means see
 the [README](../README.md#configuration) and [ARCHITECTURE.md](ARCHITECTURE.md#environment-srclibenvts); for the
-gamification stage (leaderboards, cosmetics, seasons) see [GAMIFICATION.md](GAMIFICATION.md).
+gamification stage (leaderboards, cosmetics, seasons) see [GAMIFICATION.md](GAMIFICATION.md). Before the first public launch work through
+[LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md).
 
 ## The order
 
@@ -101,6 +102,19 @@ event-driven `privacy/export` and `media/scan`. Its migrations are additive (new
 | `CONSENT_REQUIRED` | no (default `true`) | onboarding is complete only with the current terms and privacy notice accepted ([PRIVACY.md](PRIVACY.md#consent-srclibprivacyconsentts)) |
 | `INTEGRATION_TEST_SERVER` | never in production (refused) | set by the integration harness only, so its production build may use the in-memory stand-ins |
 
+## Stage 1H: what a deploy needs
+
+No new setting. Three migrations (`20261024000100_cards_for_former_minors`, `20261024000200_romance_launch_gate`, `20261024000300_performance_indexes`) are applied by the usual `npm run db:migrate:deploy`:
+
+- **The romance mode is closed.** `romance.enabled` is created OFF and the `RomanceInterest` table is added; nothing opens by itself, in any environment ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)).
+  Two jobs are added to the schedule (`cards/adult-notice` at :40 and `romance/announce` at :35 of every hour); `romance/announce` does nothing while the mode is closed.
+- **Cards for former minors.** An existing account whose date of birth makes it under 18 on the day it was made gets `showCardsOnWeb` switched off by the migration (and a profile row with it off, if it had none); accounts with no date of birth stay as they are.
+- **Performance indexes** ([PERFORMANCE.md](PERFORMANCE.md)). The migration adds generated `searchVec` columns to `ShipPost` and `Project` (PostgreSQL rewrites those tables to fill them) and builds GIN and B-tree indexes
+  without `CONCURRENTLY` (a migration runs in a transaction, which forbids it). Both take locks that block writes to those tables while they run: seconds on a table of thousands of rows, minutes
+  on millions. Before launch the tables are small; on a database that already has volume, apply it in a quiet period. The trigram indexes use `pg_trgm`, which the Stage 1G search migration already created.
+- **The API description** is `docs/openapi.json`, served by `GET /api/openapi.json` to administrators (and to any signed-in person in development). It is built from the code and checked in CI; nothing to run on deploy.
+- **Read caching.** 28 read-only `GET`s answer `Cache-Control: private, max-age=N` and an ETag. If a CDN or proxy sits in front of the app, it must not cache `private` responses (the default) and must pass `Authorization`, `Cookie` and `If-None-Match`.
+
 ## Settings added in Stage 1G
 
 | Setting | Required | What it does |
@@ -162,12 +176,13 @@ PATCH /api/admin/flags/kill.messaging  { "enabled": true }     (admin; audited)
 | `kill.signups` | new accounts (existing ones are not affected) | `503 SIGNUPS_PAUSED` | engineering on-call |
 | `kill.romance` | the romance mode: every romance route except leaving it and asking to be told; closes it even where it is open | `503 ROMANCE_PAUSED` | Trust & Safety lead |
 
-The romance mode also ships **closed** by the flag `romance.enabled` (OFF) and opens only where it, or a city flag `romance.city.<country>-<city>`, is on ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)); its owner is the Trust & Safety lead.
 | `kill.messaging` | starting conversations, sending, editing and reacting to messages | `503 MESSAGING_PAUSED` | Trust & Safety lead |
 | `kill.posting` | Ship Feed posts and edits, comments, LFG posts, squad ideas and demos | `503 POSTING_PAUSED` | Trust & Safety lead |
 | `kill.external-hackathons` | adding hackathons from other sites | `503 EXTERNAL_HACKATHONS_PAUSED` | Squads product owner |
 | `kill.squad-autoform` | the solo pool's automatic squads (the job skips) | the job returns `paused: true` | Squads product owner |
 | `kill.notification-delivery` | all email and push (in-app notifications are unaffected); what was written meanwhile is not sent afterwards | the delivery and digest jobs skip | engineering on-call |
+
+The romance mode also ships **closed** by the flag `romance.enabled` (OFF) and opens only where it, or a city flag `romance.city.<country>-<city>`, is on ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)); its owner is the Trust & Safety lead.
 
 The owner decides when to turn a switch on and off, says so in the incident channel, and writes down why (the flag change itself is in the audit log).
 Turning one on outside an incident needs the owner's or the on-call engineer's agreement.
