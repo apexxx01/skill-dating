@@ -208,8 +208,8 @@ export function generate(): string {
   const alias = (op: ScannedOperation, role: 'body' | 'query', name: string, from: string) => {
     const id = `${op.method.toLowerCase()}${pascal(op.path.replace(/^\/api\//, '').replace(/[{}]/g, ''))}_${role}`
     const routeDir = path.dirname(op.file)
-    const module = from === './schema' ? '@/' + path.join(routeDir.replace(/^src\//, ''), 'schema').split(path.sep).join('/') : from.startsWith('.') ? '@/' + path.relative(path.join(ROOT, 'src'), path.resolve(ROOT, routeDir, from)).split(path.sep).join('/') : from
-    importLines.push(`import { ${name} as ${id} } from '${module}'`)
+    const specifier = from === './schema' ? '@/' + path.join(routeDir.replace(/^src\//, ''), 'schema').split(path.sep).join('/') : from.startsWith('.') ? '@/' + path.relative(path.join(ROOT, 'src'), path.resolve(ROOT, routeDir, from)).split(path.sep).join('/') : from
+    importLines.push(`import { ${name} as ${id} } from '${specifier}'`)
     return id
   }
   const rows = operations.map((op) => {
