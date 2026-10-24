@@ -4,7 +4,8 @@
 # next.js
 /.next/
 # the integration suite's production build (tests/integration/global-setup.ts)
-/.next-test/
+/.next-test
+.next-perf/
 /out/
 
 # production
