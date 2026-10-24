@@ -70,8 +70,8 @@ Everything is written for an idle database: do not run it against one that a ser
 `--scale 10000` keeps the first 400 as above and adds 9,600 **background people**, written in bulk straight into the tables (`prisma/seed/background.ts`) because ten thousand people through the domain
 functions would take hours. They exist to give the busiest queries realistic volumes (docs/PERFORMANCE.md): per person an XP log whose sum is `User.xp` (distinct dedupe keys), projects and project
 updates, posts with Props and comments, follows (a fifth go to a popular few), evidence, a week of drops, sparks, notifications and hackathon registrations. They follow the same shapes and constraints as
-the real ones but do not run the daily caps, pay achievements or hold meaningful streaks, and their drops are drawn, not scored. At 10,000 people the seed makes roughly 350,000 XP events, 40,000 posts,
-250,000 Props and 500,000 follows.
+the real ones but do not run the daily caps, pay achievements or hold meaningful streaks, and their drops are drawn, not scored. At 10,000 people (about six minutes on a laptop) the seed makes roughly 200,000 XP events, 22,000 posts,
+280,000 Props, 50,000 comments, 150,000 follows, 170,000 drops and 135,000 notifications, on top of the 400 people's history.
 
 ## `--with-romance`
 

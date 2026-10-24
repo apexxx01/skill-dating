@@ -20,6 +20,7 @@
     "perf:measure": "tsx scripts/perf/measure.ts",
     "perf:load": "tsx scripts/perf/load.ts",
     "perf:digests": "tsx scripts/perf/digests.ts",
+    "perf:drops": "tsx scripts/perf/drops.ts",
     "db:seed:clerk": "tsx prisma/seed-clerk.ts",
     "sim:progression": "tsx scripts/simulate-progression.ts",
     "bench:matching": "tsx scripts/bench-matching.ts",

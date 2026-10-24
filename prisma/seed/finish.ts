@@ -19,6 +19,9 @@ export async function finish(ctx: Ctx): Promise<void> {
 
   await recomputeRarity(db)
 
+  // What autovacuum does a minute after a bulk load: the planner's statistics. Without them the first queries are planned for tables it believes are empty.
+  await db.$executeRawUnsafe('ANALYZE')
+
   // The numbers: a snapshot for each of the last 30 days that are over (the activity days are filled from the first), as the nightly job would have written them.
   const yesterday = formatDay(new Date(now.getTime() - DAY_MS))
   const days = Math.min(30, ctx.args.days - 1)

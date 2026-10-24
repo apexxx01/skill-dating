@@ -30,7 +30,7 @@ export async function seedBackground(ctx: Ctx): Promise<void> {
   const { db, rng, now, args } = ctx
   const count = args.scale - CORE_PEOPLE
   if (count <= 0) return
-  const people = planPeople(rng, count, now, args.days, CORE_PEOPLE)
+  const people = planPeople(rng, count, now, args.days, CORE_PEOPLE, ctx.people.map((person) => person.username))
   register(ctx, people)
   for (const batch of chunks(people, 2500)) await writePeople(ctx, batch)
   ctx.log(`  ${count} background people written`)

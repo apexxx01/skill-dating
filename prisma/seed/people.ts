@@ -55,9 +55,10 @@ function pickActivity(rng: Rng): { activity: number; streaky: boolean } {
   return { activity: rng.next() * 0.04, streaky: false } // signed up and drifted away
 }
 
-/** Plans `count` people. Pure: the same generator and arguments give the same people. */
-export function planPeople(rng: Rng, count: number, now: Date, historyDays: number, firstIndex = 0): Person[] {
-  const taken = new Set<string>()
+/** Plans `count` people. Pure: the same generator and arguments give the same people. `firstIndex` and `alreadyTaken` continue an earlier plan. */
+export function planPeople(rng: Rng, count: number, now: Date, historyDays: number, firstIndex = 0, alreadyTaken: Iterable<string> = []): Person[] {
+  // Usernames already used by the people planned before (the background people are planned after the core ones and must not take their names).
+  const taken = new Set<string>(alreadyTaken)
   const people: Person[] = []
   const cityWeights = CITIES.map((city) => [city, city.weight] as const)
   const archetypeWeights = ARCHETYPES.map((archetype) => [archetype, archetype.weight] as const)

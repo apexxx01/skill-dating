@@ -28,7 +28,7 @@ const has = (name: string) => argv.includes(`--${name}`)
 
 const LABEL = flag('label', 'run')
 const USERS = Number(flag('users', '10'))
-const ROUNDS = Number(flag('rounds', '30'))
+const ROUNDS = Number(flag('rounds', '25'))
 const PORT = Number(flag('port', '3470'))
 const DATABASE_URL = process.env.PERF_DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/skill_dating_perf?schema=public'
 const DIST = '.next-perf'
@@ -76,10 +76,10 @@ const SCENARIOS: Scenario[] = [
   { name: 'feed: city', group: 'read', method: 'GET', path: () => '/api/feed?tab=city&limit=20' },
   { name: 'feed: campus', group: 'read', method: 'GET', path: () => '/api/feed?tab=campus&limit=20' },
   { name: 'drops: today', group: 'read', method: 'GET', path: () => '/api/drops/today' },
-  { name: 'leaderboard: global weekly', group: 'read', method: 'GET', path: () => '/api/leaderboard?scope=global&period=weekly' },
-  { name: 'leaderboard: global all-time', group: 'read', method: 'GET', path: () => '/api/leaderboard?scope=global&period=all-time' },
-  { name: 'leaderboard: city season', group: 'read', method: 'GET', path: (_w, a) => `/api/leaderboard?scope=city&period=season${a.cityKey && a.countryCode ? `&scopeId=${a.countryCode}:${a.cityKey}` : ''}` },
-  { name: 'leaderboard: campus', group: 'read', method: 'GET', path: (_w, a) => `/api/leaderboard?scope=campus&period=all-time${a.campusKey ? `&scopeId=${a.campusKey}` : ''}` },
+  { name: 'leaderboard: global weekly', group: 'read', method: 'GET', rounds: 12, path: () => '/api/leaderboard?scope=global&period=weekly' },
+  { name: 'leaderboard: global all-time', group: 'read', method: 'GET', rounds: 12, path: () => '/api/leaderboard?scope=global&period=all-time' },
+  { name: 'leaderboard: city season', group: 'read', method: 'GET', rounds: 12, path: (_w, a) => `/api/leaderboard?scope=city&period=season${a.cityKey && a.countryCode ? `&scopeId=${a.countryCode}:${a.cityKey}` : ''}` },
+  { name: 'leaderboard: campus (global for people with none)', group: 'read', method: 'GET', rounds: 12, path: (_w, a) => (a.campusKey ? `/api/leaderboard?scope=campus&period=all-time&scopeId=${a.campusKey}` : '/api/leaderboard?scope=global&period=monthly') },
   { name: 'heatmap', group: 'read', method: 'GET', path: (_w, a) => `/api/users/${a.userId}/heatmap?days=365` },
   { name: 'stats (player card)', group: 'read', method: 'GET', path: (_w, a) => `/api/users/${a.userId}/stats` },
   { name: 'passport (user profile)', group: 'read', method: 'GET', path: (w, _a, i) => `/api/users/${w.foreignUserIds[i % w.foreignUserIds.length]}` },
@@ -241,9 +241,10 @@ async function makeActors(db: PrismaClient, world: World, clerkIds: string[]): P
     const posts = await db.shipPost.findMany({ where: { authorId: row.id, deletedAt: null }, select: { id: true }, take: 5 })
     const project = await db.project.findFirst({ where: { ownerId: row.id, status: { notIn: ['SHIPPED', 'ARCHIVED'] } }, select: { id: true } })
     const notification = await db.notification.findFirst({ where: { userId: row.id, isRead: false }, select: { id: true } })
+    await db.hackathonParticipant.upsert({ where: { userId_hackathonId: { userId: row.id, hackathonId: world.upcomingHackathonId } }, create: { userId: row.id, hackathonId: world.upcomingHackathonId, lookingForTeam: true, openToAutoTeam: true, preferredRoles: ['FULLSTACK'] }, update: { teamId: null, status: 'REGISTERED', lookingForTeam: true } })
+    await db.teamMember.deleteMany({ where: { userId: row.id, team: { hackathonId: world.upcomingHackathonId } } })
     actors.push({ index, userId: row.id, username: row.username, clerkId: clerk.clerkId, sessionId, token: '', mintedAt: 0, admin: index === 0, cityKey: row.cityKey, countryCode: row.countryCode, campusKey: row.campusKey, postIds: posts.map((p) => p.id), projectId: project?.id ?? null, notificationId: notification?.id ?? null })
   }
-  void world
   return actors
 }
 

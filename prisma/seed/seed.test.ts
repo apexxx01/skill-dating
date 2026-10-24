@@ -147,6 +147,15 @@ describe('planning the people', () => {
     expect(plan('world', 10, CORE_PEOPLE).every((p) => p.tier === 'background')).toBe(true)
   })
 
+  it('gives the background people names that the core people do not have', () => {
+    const core = plan('world')
+    const background = planPeople(rngFor('world'), 3000, now, 75, CORE_PEOPLE, core.map((p) => p.username))
+    const names = [...core, ...background].map((p) => p.username)
+    expect(new Set(names).size).toBe(names.length)
+    const github = [...core, ...background].map((p) => p.github).filter((name): name is string => name !== null)
+    expect(new Set(github).size).toBe(github.length)
+  })
+
   it('does not change one person when more are asked for (the first 400 are the same at any scale)', () => {
     const small = plan('world', 50)
     const large = plan('world', 400)
