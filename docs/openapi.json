@@ -3,7 +3,7 @@
   "info": {
     "title": "Skill Dating API",
     "version": "0.1.0",
-    "description": "The HTTP API behind Skill Dating, generated from the code: the routes, the Zod schemas the handlers validate with, the response types of `src/types/api.ts` and the error catalogue. The page-by-page guide is `docs/FRONTEND_CONTRACT.md`.\n\n**Conventions.** JSON in, JSON out. Sign-in is a Clerk session token (`Authorization: Bearer <token>` or the `__session` cookie). Every failure is `{ \"error\": { \"code\", \"message\", \"params?\", \"details?\" } }`: branch on `code` (the catalogue is in `x-error-catalog`, with the status and the placeholders of each message). Lists take `limit` and `cursor` (an opaque string) and answer `nextCursor`; `page` still works. Creating routes honour an `Idempotency-Key` header. Routes that pay XP include a `rewards` envelope (`RewardsEnvelope`): level-ups, tier-ups, achievements, the streak. Read-heavy GETs send `Cache-Control: private, max-age=N` and an `ETag`; send `If-None-Match` and get `304`. Every response carries `X-Request-Id`. Rate limits are per person and per route (`x-rate-limit`); a limited call is `429 RATE_LIMITED` with `params.retryAfter`.\n\n**The romance mode (\"Halves\") ships closed.** Its routes (tag `Halves (post-launch)`) answer `503 ROMANCE_PAUSED` until it is opened for the caller; the only one that works meanwhile is `/api/romance/interest`."
+    "description": "The HTTP API behind Skill Dating, generated from the code: the routes, the Zod schemas the handlers validate with, the response types of `src/types/api.ts` and the error catalogue. The page-by-page guide is `docs/FRONTEND_CONTRACT.md`.\n\n**Conventions.** JSON in, JSON out. Sign-in is a Clerk session token (`Authorization: Bearer <token>` or the `__session` cookie). Every failure is `{ \"error\": { \"code\", \"message\", \"params?\", \"details?\" } }`: branch on `code` (the catalogue is in `x-error-catalog`, with the status and the placeholders of each message). Lists take `limit` and `cursor` (an opaque string) and answer `nextCursor`; `page` still works. Creating routes honour an `Idempotency-Key` header. Routes that pay XP include a `rewards` envelope (`RewardsEnvelope`): level-ups, tier-ups, achievements, the streak. Read-heavy GETs send `Cache-Control: private, max-age=N` and an `ETag`; send `If-None-Match` and get `304`. Every response carries `X-Request-Id`. Rate limits are per person and per route (`x-rate-limit`); a limited call is `429 RATE_LIMITED` with `params.retryAfter`.\n\n**The romance mode ships closed.** Its routes (tag `Romance (post-launch)`) answer `503 ROMANCE_PAUSED` until it is opened for the caller; the only one that works meanwhile is `/api/romance/interest`."
   },
   "servers": [
     {
@@ -69,7 +69,7 @@
       "description": "Public images and their versioned addresses."
     },
     {
-      "name": "Halves (post-launch)",
+      "name": "Romance (post-launch)",
       "description": "The private romance mode. It ships CLOSED: every route here except /api/romance/interest answers 503 ROMANCE_PAUSED until it is opened. Build against it last."
     },
     {
@@ -11965,7 +11965,7 @@
           "Platform"
         ],
         "summary": "This document (development: any signed-in person; elsewhere administrators)",
-        "description": "The OpenAPI 3.1 description of this API (docs/openapi.json, generated from the code: `npm run openapi:build`; a test fails when it is out of date).",
+        "description": "Auth: required, and the `ADMIN` role (any signed-in person in development). The OpenAPI 3.1 description of this API (`docs/openapi.json`), the same document that is committed to the repository: 184 paths, with the request schemas, the response types where they are typed, the error catalogue (`x-error-catalog`), rate limits (`x-rate-limit`), idempotency (`x-idempotent`), cache lifetimes (`x-cache-max-age`), reward envelopes (`x-rewards`) and the post-launch marker on the romance routes (`x-launch`). Cached privately for 60 seconds with an ETag.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IfNoneMatch"
@@ -14847,7 +14847,7 @@
       "get": {
         "operationId": "getRomanceDrop",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "This week’s romance drop (post-launch)",
         "description": "This week's romance drop: one person, chosen for the caller once a local ISO week, from Monday 08:00 in the caller's time zone (the job `romance/drops`; someone who joins midweek gets theirs at the next run). Response: `{ modeLabel, weekKey, active, drop, nextDropAt }`. `active` is false for someone who has not joined, is paused or no longer passes the gate (and then `drop` is null). `drop` is `{ id, score (0-100), reasons (up to 3 lines: \"You're both night-owl builders obsessed with climate tech\"), status (NEW|SPARKED|PASSED|EXPIRED), expiresAt, candidate }`, or null when there is none yet, none this week, or the person left, blocked the caller or is gone. `candidate` is as much as a stranger may see: `{ id, name, username, headline, builderRole, level, tier, skills, proof, profile: { promptObsessed, promptBuild, promptWeekend, ambition, ambitionLabel, direction, rhythm, obsessions }, p",
@@ -14900,7 +14900,7 @@
       "post": {
         "operationId": "postRomanceDropByIdPass",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Pass on this week’s romance drop (post-launch)",
         "description": "Passes on the drop: the person is not shown to the caller again for 120 days. Response: `{ id, status: \"PASSED\" }`; passing twice answers the same. `404 DROP_NOT_FOUND` (also for somebody else's), `409 DROP_NOT_PENDING` for one already sparked or expired.",
@@ -14964,7 +14964,7 @@
       "get": {
         "operationId": "getRomanceDuo",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "The caller’s Duo page (post-launch)",
         "description": "The caller's Duo, a page two people of a romance match share by consent. Response: `{ duo }`, `null` or `{ id, status (\"PENDING\"|\"ACTIVE\"), requestedByMe, partner: { id, name, username, headline }, shared }`. `shared` is set only while ACTIVE: `{ projects: [{ id, name, slug, status, shortDesc }] (projects both are members of), heatmap: { timezone, from, to, items: [{ date, xp, actions }], partnerActivityHidden } }`, the two people's XP per day added up on the caller's own days. A partner who turned \"show activity\" off contributes nothing (`partnerActivityHidden: true`). The Duo page is for the two of them only: it is on no profile, passport, feed or leaderboard.",
@@ -15015,7 +15015,7 @@
       "post": {
         "operationId": "postRomanceDuo",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Ask for or accept a Duo (post-launch)",
         "description": "Honours `Idempotency-Key`. Body: `{ matchId }` (unknown keys refused). Asks the other person of that open romance match to form a Duo, or accepts when they have already asked. Response: `{ id, status }`. `404 MATCH_NOT_FOUND` (not in the match, ended, or not a romance match), `409 DUO_BUSY` (either is in another active Duo).",
@@ -15096,7 +15096,7 @@
       "delete": {
         "operationId": "deleteRomanceDuo",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Dissolve a Duo (post-launch)",
         "description": "Dissolves the caller's Duo, or declines or cancels a pending one, at once and for both. Response: `{ dissolved }`. Ending the match dissolves it too. (Build Dates, the first date as a small collaboration, are Phase 2: only their model exists; no route.)",
@@ -15149,7 +15149,7 @@
       "get": {
         "operationId": "getRomanceInterest",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Have I asked to be told when it opens, is it open for me, may I ask",
         "description": "\"Tell me when it opens\", the one part of the mode that works while it is closed. `GET` answers `{ interested, open, eligible }`: whether the caller has asked, whether the mode is open for them now, and whether they may ask (an adult with a date of birth on file). `POST` asks to be told, idempotently (asking again refreshes the country and city the request is counted under) and answers the same shape; `403 DATING_UNDERAGE` for a minor, `403 DATING_BIRTH_DATE_REQUIRED` with no date of birth, `409 ROMANCE_ALREADY_OPEN` when the mode is open for them already. `DELETE` withdraws it (idempotent). When the mode opens where they are they get one notification (`ROMANCE_OPEN`). Rate limited (60 reads, 20 writes a minute).",
@@ -15194,7 +15194,7 @@
       "post": {
         "operationId": "postRomanceInterest",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Ask to be told when the romance mode opens (adults, idempotent)",
         "description": "\"Tell me when it opens\", the one part of the mode that works while it is closed. `GET` answers `{ interested, open, eligible }`: whether the caller has asked, whether the mode is open for them now, and whether they may ask (an adult with a date of birth on file). `POST` asks to be told, idempotently (asking again refreshes the country and city the request is counted under) and answers the same shape; `403 DATING_UNDERAGE` for a minor, `403 DATING_BIRTH_DATE_REQUIRED` with no date of birth, `409 ROMANCE_ALREADY_OPEN` when the mode is open for them already. `DELETE` withdraws it (idempotent). When the mode opens where they are they get one notification (`ROMANCE_OPEN`). Rate limited (60 reads, 20 writes a minute).",
@@ -15239,7 +15239,7 @@
       "delete": {
         "operationId": "deleteRomanceInterest",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Withdraw the request to be told",
         "description": "\"Tell me when it opens\", the one part of the mode that works while it is closed. `GET` answers `{ interested, open, eligible }`: whether the caller has asked, whether the mode is open for them now, and whether they may ask (an adult with a date of birth on file). `POST` asks to be told, idempotently (asking again refreshes the country and city the request is counted under) and answers the same shape; `403 DATING_UNDERAGE` for a minor, `403 DATING_BIRTH_DATE_REQUIRED` with no date of birth, `409 ROMANCE_ALREADY_OPEN` when the mode is open for them already. `DELETE` withdraws it (idempotent). When the mode opens where they are they get one notification (`ROMANCE_OPEN`). Rate limited (60 reads, 20 writes a minute).",
@@ -15286,7 +15286,7 @@
       "get": {
         "operationId": "getRomanceMatches",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "The caller’s romance matches (post-launch)",
         "description": "The caller's open romance matches, newest first: `{ modeLabel, matches: [{ id, createdAt, conversationId, other }], nextCursor, total }` (`other` as a drop's candidate; `reveal.status` is `NONE`, `PENDING_MINE`, `PENDING_THEIRS`, `ACCEPTED`, `DECLINED` or `REVOKED`). Query: `limit`, `cursor`. To leave: `DELETE /api/matches/{id}`; to report and leave: `POST /api/matches/{id}/report`. Both are final and silent.",
@@ -15365,7 +15365,7 @@
       "get": {
         "operationId": "getRomanceMatchesById",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "One romance match (post-launch)",
         "description": "One open romance match of the caller's; anything else is `404 MATCH_NOT_FOUND`.",
@@ -15429,7 +15429,7 @@
       "post": {
         "operationId": "postRomanceMatchesByIdReveal",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Ask to share photos, or accept (post-launch)",
         "description": "Agrees to share photos with the other person of an open romance match: asks them, or accepts when they have already asked (two asks at the same moment are an agreement). Honours `Idempotency-Key`; safe to repeat. Response: `{ matchId, status }` from the caller's side: `PENDING_MINE` or `ACCEPTED`. Until both have agreed, the other person's photos in every response are placeholders `{ id, position, blurHash, revealed: false }` and their avatar is absent; once `ACCEPTED` they are `{ id, position, blurHash, revealed: true, url (signed, short-lived), width, height }` and `other.image` is present. `404 MATCH_NOT_FOUND` for anyone not in the match, an ended match or a professional one.",
@@ -15495,7 +15495,7 @@
       "delete": {
         "operationId": "deleteRomanceMatchesByIdReveal",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Cancel, decline or revoke the photo reveal (post-launch)",
         "description": "Withdraws: cancels the caller's own ask, declines the other's (`DECLINED`), or revokes an accepted reveal (`REVOKED`), at once and for both. Safe to repeat. Ending the match revokes it too. Either person may ask again later.",
@@ -15559,7 +15559,7 @@
       "post": {
         "operationId": "postRomancePhotos",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Attach a confirmed upload as a romance photo (post-launch)",
         "description": "Honours `Idempotency-Key`. Body (unknown keys refused): `{ assetId, blurHash? }`: attaches a confirmed upload of the caller's (`POST /api/media/uploads` with `purpose: \"ROMANCE_PHOTO\"`, then `/complete`) at the end of their photos; `blurHash` is a BlurHash string the client made, shown in place of the photo to anybody who may not see it. Response `201`: `{ id, position }`. Photos come back to their owner only (`GET /api/romance/profile`). `400 ROMANCE_PROFILE_REQUIRED`, `404 MEDIA_NOT_FOUND` (not the caller's, not ready, or another purpose), `400 ROMANCE_PHOTO_LIMIT` (6), `400 VALIDATION_FAILED`.",
@@ -15655,7 +15655,7 @@
       "delete": {
         "operationId": "deleteRomancePhotosById",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Remove a romance photo (post-launch)",
         "description": "Removes one of the caller's photos and its upload, and closes the gap in the order. `404 MEDIA_NOT_FOUND` for anyone else's.",
@@ -15719,7 +15719,7 @@
       "get": {
         "operationId": "getRomanceProfile",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "The caller’s romance profile (post-launch)",
         "description": "The caller's own romance profile. Response: `{ modeLabel, exists, profile, photos, eligibility, options }`. `profile` is `null` until they join; otherwise `{ promptObsessed, promptBuild, promptWeekend, ambition (1-4), ambitionLabel, direction, rhythm, obsessions[], private: { gender, genderSelfDescribe, interestedIn[], ageMin, ageMax, scope, minEndorsements }, paused, createdAt, updatedAt }`. `profile.private` is returned to its owner and to nobody else, anywhere; its only effect on others is that someone it refuses is never shown. `photos` are the caller's own, with a (signed, short-lived) `url` each. `eligibility` is `{ eligible, blockers[], minAge }` (`BIRTH_DATE_MISSING`, `UNDER_AGE`, `EMAIL_NOT_VERIFIED`, `NO_PHONE_OR_GITHUB`). `options` is the vocabulary of the form (labelled values for `ambition`, `direction`, `rhythm`, `gender`, `scope`, and the `limits`).",
@@ -15770,7 +15770,7 @@
       "put": {
         "operationId": "putRomanceProfile",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Join the romance mode or save the profile (post-launch)",
         "description": "Saves the whole profile (what is left out takes its default); the first call joins the mode (`201`), later ones replace it (`200`). Body (unknown keys refused): `{ promptObsessed, promptBuild, promptWeekend (each 20 to 500 characters), ambition (1-4), direction (\"founder\"|\"craft\"|\"research\"|\"steady-career\"|\"nomad\"|\"open\"), rhythm (\"night-owl\"|\"early-bird\"|\"bursty\"|\"steady\"), obsessions?: string[] (up to 12, 2 to 40 characters each, lower-cased, each once), gender (\"WOMAN\"|\"MAN\"|\"NON_BINARY\"|\"SELF_DESCRIBED\"), genderSelfDescribe? (2 to 40 characters; required exactly when gender is SELF_DESCRIBED), interestedIn: gender[] (at least one, each once), ageMin (18 to 99), ageMax (ageMin to 99), scope (\"CITY\"|\"COUNTRY\"|\"ANYWHERE\"), minEndorsements? (0 to 5, default 0), paused? }`. Errors: `403 DATING_BIRTH_DATE_REQUIRED` / `DATING_UNDERAGE` / `DATING_VERIFICATION_REQUIRED` (the 18+ gate; `detail",
@@ -15965,7 +15965,7 @@
       "delete": {
         "operationId": "deleteRomanceProfile",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Leave the romance mode and delete its data (works while it is closed)",
         "description": "Leaves the mode: the profile, its photos (and their uploads), every drop for or of the caller and every pending romance spark of theirs are removed, and their open romance matches are ended for good and silently (the conversation is closed for both; nobody is notified). Response: `{ left: true, hadProfile, matchesEnded }`. Safe to repeat. Being removed for an admin correction of the date of birth to 16 or 17, or by deleting the account, does the same.",
@@ -16018,7 +16018,7 @@
       "post": {
         "operationId": "postRomanceSparks",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Spark this week’s romance drop (post-launch)",
         "description": "Honours `Idempotency-Key`. Body (unknown keys refused): `{ toId, opener, dropId? }`. Sparks this week's drop, or answers a spark waiting for the caller; when the person had already sparked the caller the two match in the same request (`match` is then the romance match item). The caller must have joined, pass the 18+ gate and be a trusted account (`ROMANCE_PROFILE_REQUIRED`, `DATING_*`, `ROMANCE_ACCOUNT_TOO_NEW`); the person must be one both people's private filters allow, who passes the gate, and whom the caller was shown in an open drop (or who sparked them): every other case is `404 SPARK_TARGET_UNAVAILABLE`, so no filter can be probed. The inbox gate does not apply to a reply. Limits: `ROMANCE_SPARKS_PER_WEEK` (3 for everyone while plans are not enforced; `429 ROMANCE_SPARK_LIMIT_REACHED`) and 8 an hour (`SPARK_THROTTLED`). Also `400 SPARK_OPENER_REJECTED`, `403 USER_BLOCKED`, `404 US",
@@ -16111,7 +16111,7 @@
       "get": {
         "operationId": "getRomanceSparksReceived",
         "tags": [
-          "Halves (post-launch)"
+          "Romance (post-launch)"
         ],
         "summary": "Romance sparks waiting for the caller (post-launch)",
         "description": "Romance sparks waiting for the caller: `{ modeLabel, canSee, count, sparks, nextCursor }`. Who sent them needs `SEE_WHO_SPARKED`; without it `{ canSee: false, count, sparks: [] }`. A sender is shown as a candidate is (no photo, no avatar, nothing private). Query: `limit`, `cursor`.",

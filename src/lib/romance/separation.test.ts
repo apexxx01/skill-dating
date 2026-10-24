@@ -20,6 +20,12 @@ const NAMES_THE_MODE = /romance|Romance|ROMANCE|DATING|Halves/
 const OWN_DIRS = ['lib/romance/', 'app/api/romance/']
 
 const MAY_NAME_THE_MODE: Record<string, string> = {
+  // The description of the whole API (docs/openapi.json) and the client generated from it list every route, the romance ones too, tagged post-launch.
+  'lib/api-client/generated.ts': 'generated from docs/openapi.json: one method per route, the romance ones marked post-launch',
+  'lib/openapi/build.ts': 'the spec builder says in its description that the romance routes ship closed',
+  'lib/openapi/metadata.ts': 'the tag and the post-launch marker of the romance routes',
+  'lib/openapi/operations.generated.ts': 'generated: the table of every route, with the request schemas of the romance routes',
+  'lib/openapi/summaries.ts': 'a one-line summary of every route, the romance ones included',
   'app/api/admin/users/[id]/birthdate/route.ts': 'a correction to 16 or 17 removes the person from the mode (it is 18+)',
   'app/api/admin/queue/schema.ts': 'the queue’s reason filter lists the report reasons, which include the romance mode’s',
   'app/api/sparks/schema.ts': 'a comment: the mode has its own spark route',
@@ -191,6 +197,6 @@ describe('the romance mode stays apart', () => {
 
   it('keeps the romance routes under /api/romance, and no professional route imports them', () => {
     const importers = files.filter((file) => /from '@\/lib\/romance\//.test(read(file)) && !OWN_DIRS.some((dir) => rel(file).startsWith(dir))).map(rel).sort()
-    expect(importers).toEqual(['app/api/admin/flags/[key]/route.ts', 'app/api/admin/flags/route.ts', 'app/api/admin/users/[id]/birthdate/route.ts', 'app/api/notifications/channels/route.ts', 'app/api/notifications/preferences/route.ts', 'app/api/users/me/consents/[type]/route.ts', 'app/api/users/me/consents/route.ts', 'lib/api/errors.ts', 'lib/api/gate.ts', 'lib/flags.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/moderation/targets.ts', 'lib/notification-kinds.ts', 'lib/ops/kill-switches.ts', 'lib/privacy/delete.ts', 'lib/user-sync.ts'])
+    expect(importers).toEqual(['app/api/admin/flags/[key]/route.ts', 'app/api/admin/flags/route.ts', 'app/api/admin/users/[id]/birthdate/route.ts', 'app/api/notifications/channels/route.ts', 'app/api/notifications/preferences/route.ts', 'app/api/users/me/consents/[type]/route.ts', 'app/api/users/me/consents/route.ts', 'lib/api/errors.ts', 'lib/api/gate.ts', 'lib/flags.ts', 'lib/matching/matches.ts', 'lib/matching/score.ts', 'lib/matching/spark-digest.ts', 'lib/moderation/targets.ts', 'lib/notification-kinds.ts', 'lib/openapi/operations.generated.ts', 'lib/ops/kill-switches.ts', 'lib/privacy/delete.ts', 'lib/user-sync.ts'])
   })
 })

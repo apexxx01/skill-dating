@@ -17,7 +17,7 @@ export const API_TAGS = [
   { name: 'Safety', description: 'Reports and appeals.' },
   { name: 'Media', description: 'Uploads.' },
   { name: 'Share cards', description: 'Public images and their versioned addresses.' },
-  { name: 'Halves (post-launch)', description: 'The private romance mode. It ships CLOSED: every route here except /api/romance/interest answers 503 ROMANCE_PAUSED until it is opened. Build against it last.' },
+  { name: 'Romance (post-launch)', description: 'The private romance mode. It ships CLOSED: every route here except /api/romance/interest answers 503 ROMANCE_PAUSED until it is opened. Build against it last.' },
   { name: 'Admin', description: 'Staff only: moderation, metrics, flags, invites, campuses, jobs.' },
   { name: 'Platform', description: 'Health, feature flags, realtime, webhooks and the job runner.' },
 ] as const
@@ -25,7 +25,7 @@ export const API_TAGS = [
 export type TagName = (typeof API_TAGS)[number]['name']
 
 const TAG_RULES: [RegExp, TagName][] = [
-  [/^\/api\/romance(\/|$)/, 'Halves (post-launch)'],
+  [/^\/api\/romance(\/|$)/, 'Romance (post-launch)'],
   [/^\/api\/admin(\/|$)/, 'Admin'],
   [/^\/api\/(auth|users\/me)(\/|$)/, 'Account'],
   [/^\/api\/(webhooks|inngest|health|flags|realtime|openapi\.json)(\/|$)/, 'Platform'],

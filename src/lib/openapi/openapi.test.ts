@@ -153,8 +153,8 @@ describe('docs/openapi.json', () => {
     }
   })
 
-  it('names the Halves routes with a tag that says they are not open', () => {
-    expect(API_TAGS.find((t) => t.name === 'Halves (post-launch)')?.description).toMatch(/503 ROMANCE_PAUSED/)
+  it('names the romance routes with a tag that says they are not open', () => {
+    expect(API_TAGS.find((t) => t.name === 'Romance (post-launch)')?.description).toMatch(/503 ROMANCE_PAUSED/)
   })
 })
 

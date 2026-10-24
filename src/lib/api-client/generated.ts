@@ -4075,7 +4075,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
        */
       deleteProjectsByIdWatch: (args: DeleteProjectsByIdWatchArgs): Promise<ApiResponse<UntypedResponse>> => call<UntypedResponse>('deleteProjectsByIdWatch', args),
     },
-    halves: {
+    romance: {
       /** This week’s romance drop (post-launch)
        * `GET /api/romance/drop`
        * @remarks Post-launch: answers 503 ROMANCE_PAUSED until the mode is opened for the caller.

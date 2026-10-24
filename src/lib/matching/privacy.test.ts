@@ -20,6 +20,8 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/age-policy.ts': 'the age bands (under 16, minor, adult): pure functions of a date they are given',
   'lib/birth-date.ts': 'sets it once under the age policy; reports only whether one is on file, and whether the person may have share cards (an adult), never the date',
   'lib/kpi/compute-ops.ts': 'the demand metrics compare the stored date with the adult cutoff to count adults; selects nobody’s date',
+  'lib/api-client/generated.ts': 'generated from docs/openapi.json: the request types of the routes that take a date of birth; it returns none',
+  'lib/openapi/operations.generated.ts': 'generated: the table of routes, with the request schemas that validate a date of birth',
   'app/api/users/schema.ts': 'the request schema of onboarding: the date of birth is validated as a date in the past; it returns no date',
   'lib/romance/interest.ts': 'asks the age policy whether the caller is an adult before recording a request to be told when the mode opens; returns no date',
   'lib/privacy/cards-notice.ts': 'the note on the 18th birthday: reads the stored date to find who turns 18 today and writes a notification; returns no date',

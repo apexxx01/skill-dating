@@ -124,7 +124,7 @@ export function buildOpenApi(input: BuildInput): Json {
         '',
         '**Conventions.** JSON in, JSON out. Sign-in is a Clerk session token (`Authorization: Bearer <token>` or the `__session` cookie). Every failure is `{ "error": { "code", "message", "params?", "details?" } }`: branch on `code` (the catalogue is in `x-error-catalog`, with the status and the placeholders of each message). Lists take `limit` and `cursor` (an opaque string) and answer `nextCursor`; `page` still works. Creating routes honour an `Idempotency-Key` header. Routes that pay XP include a `rewards` envelope (`RewardsEnvelope`): level-ups, tier-ups, achievements, the streak. Read-heavy GETs send `Cache-Control: private, max-age=N` and an `ETag`; send `If-None-Match` and get `304`. Every response carries `X-Request-Id`. Rate limits are per person and per route (`x-rate-limit`); a limited call is `429 RATE_LIMITED` with `params.retryAfter`.',
         '',
-        '**The romance mode ("Halves") ships closed.** Its routes (tag `Halves (post-launch)`) answer `503 ROMANCE_PAUSED` until it is opened for the caller; the only one that works meanwhile is `/api/romance/interest`.',
+        '**The romance mode ships closed.** Its routes (tag `Romance (post-launch)`) answer `503 ROMANCE_PAUSED` until it is opened for the caller; the only one that works meanwhile is `/api/romance/interest`.',
       ].join('\n'),
     },
     servers: [{ url: '/', description: 'The deployment this document was fetched from.' }],

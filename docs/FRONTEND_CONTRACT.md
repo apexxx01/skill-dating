@@ -59,7 +59,7 @@ await api.shipFeed.postPosts({ body: { kind: 'SHIP', title, body, projectId } })
 ```
 
 - **One method per operation**, named by its `operationId` (`getFeed`, `postPosts`, `putTeamsByIdPledge`) and grouped by area: `account`, `passport`, `matching`, `shipFeed`, `projects`, `squads`, `progress`, `search`,
-  `messaging`, `notifications`, `growth`, `safety`, `media`, `shareCards`, `halves`, `admin`, `platform`. Arguments are `{ path?, query?, body?, idempotencyKey?, fresh?, signal?, headers? }`, typed from the route's own Zod schema.
+  `messaging`, `notifications`, `growth`, `safety`, `media`, `shareCards`, `romance`, `admin`, `platform`. Arguments are `{ path?, query?, body?, idempotencyKey?, fresh?, signal?, headers? }`, typed from the route's own Zod schema.
 - **The result** is `{ data, status, requestId, etag, nextCursor, rewards }`. `rewards` is the `RewardsEnvelope` when the answer has one (also from the body of a creating call), else `null`. A `304` is an answer with `data: null`.
 - **Errors are typed.** A non-2xx answer throws `ApiClientError` (`code`, `status`, `message`, `params`, `details`, `requestId`, plus `retryAfter` for `429` and `fieldErrors` for `VALIDATION_FAILED`);
   `isApiError(e, 'RATE_LIMITED')` narrows by catalogue code, and `e.is('SPARK_LIMIT_REACHED')` does the same on an instance. A network failure or an answer that is not the API's (a gateway page) is `ApiNetworkError` or an

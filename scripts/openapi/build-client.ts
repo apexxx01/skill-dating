@@ -30,7 +30,7 @@ const GROUPS: Record<string, string> = {
   Safety: 'safety',
   Media: 'media',
   'Share cards': 'shareCards',
-  'Halves (post-launch)': 'halves',
+  'Romance (post-launch)': 'romance',
   Admin: 'admin',
   Platform: 'platform',
 }
