@@ -20,7 +20,7 @@
     "openapi:scan": "tsx scripts/openapi/scan-routes.ts",
     "openapi:build": "tsx scripts/openapi/build.ts",
     "openapi:client": "tsx scripts/openapi/build-client.ts",
-    "openapi:check": "tsx scripts/openapi/build.ts --check",
+    "openapi:check": "tsx scripts/openapi/scan-routes.ts --check && tsx scripts/openapi/build.ts --check && tsx scripts/openapi/build-client.ts --check",
     "perf:measure": "tsx scripts/perf/measure.ts",
     "perf:load": "tsx scripts/perf/load.ts",
     "perf:digests": "tsx scripts/perf/digests.ts",

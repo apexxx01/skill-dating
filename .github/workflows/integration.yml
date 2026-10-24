@@ -1,0 +1,84 @@
+name: Integration
+
+# The full integration suite: a production build of the app, a real Postgres, real HTTP, real sessions on a Clerk development
+# instance. It takes the better part of an hour, so it runs where it matters: on pull requests to main, and every night on main
+# (which also catches what moved underneath the code, such as a dependency or the Clerk instance). The fast checks are in ci.yml.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Read by the harness, which recreates the database, applies the migrations, builds the app into its own directory and starts
+      # it on TEST_PORT. The database is a throwaway container: the credentials below are placeholders that mean nothing elsewhere.
+      TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
+      TEST_DB_NAME: skill_dating_ci
+      TEST_PORT: 3459
+      TEST_SERVER_LOG: ${{ runner.temp }}/server.log
+      NEXT_TELEMETRY_DISABLED: 1
+      # The suite creates real users and sessions on a Clerk DEVELOPMENT instance through the Backend API, so it needs that
+      # instance's keys as repository secrets (a dedicated instance: the suite creates and deletes users, and refuses a key that
+      # is not sk_test_). Pull requests from forks do not receive secrets; the suite is skipped there with a warning.
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      # Nothing else is needed: Upstash, Inngest, Ably, Resend, push and storage run as in-memory twins when unset.
+    steps:
+      - name: Skip notice
+        if: env.CLERK_SECRET_KEY == ''
+        run: echo "::warning::CLERK_SECRET_KEY is not available to this run, so the integration suite was skipped."
+      - uses: actions/checkout@v4
+        if: env.CLERK_SECRET_KEY != ''
+      - uses: actions/setup-node@v4
+        if: env.CLERK_SECRET_KEY != ''
+        with:
+          node-version: 20
+          cache: npm
+      - if: env.CLERK_SECRET_KEY != ''
+        uses: actions/cache@v4
+        with:
+          path: .next-test/cache
+          key: next-integration-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'prisma/schema.prisma') }}
+          restore-keys: |
+            next-integration-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+      - if: env.CLERK_SECRET_KEY != ''
+        run: npm ci
+      - if: env.CLERK_SECRET_KEY != ''
+        run: npx prisma generate
+      - name: Integration suite
+        if: env.CLERK_SECRET_KEY != ''
+        run: npm run test:integration
+      # The app's own log, to read why a run failed. It can hold request ids and test addresses, never a secret (the app never logs them).
+      - name: Server log
+        if: failure() && env.CLERK_SECRET_KEY != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log
+          path: ${{ runner.temp }}/server.log
+          retention-days: 7
+          if-no-files-found: ignore

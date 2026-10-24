@@ -1,8 +1,9 @@
 name: CI
 
+# Every push and every pull request runs the fast checks below. The slow one, the full integration suite against a production
+# build, is in integration.yml (pull requests to main, and nightly).
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -66,6 +67,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
+      # Next's compiler cache: a build that changed a few files recompiles only those.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'prisma/schema.prisma') }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
       - run: npm ci
       - run: npx prisma generate
       - run: npm run build
@@ -122,48 +130,18 @@ jobs:
       - run: npx prisma generate
       - run: npx vitest run
 
-  integration:
+  # The API description the frontend builds against. Fails when a route, a request schema or a response type changed and the
+  # generated files were not regenerated (`npm run openapi:scan && npm run openapi:build && npm run openapi:client`).
+  contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      # Read by the integration harness, which recreates the database, applies the
-      # migrations and starts its own server on TEST_PORT.
-      TEST_DB_BASE_URL: postgresql://postgres:postgres@localhost:5432
-      TEST_DB_NAME: skill_dating_ci
-      TEST_PORT: 3459
-      # The suite creates real users and sessions on a Clerk DEVELOPMENT instance
-      # through the Backend API, so it needs that instance's keys as repository
-      # secrets (use a dedicated instance: the suite creates and deletes users).
-      # Pull requests from forks do not receive secrets; the suite is skipped there.
-      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+    timeout-minutes: 10
     steps:
-      - name: Skip notice
-        if: env.CLERK_SECRET_KEY == ''
-        run: echo "::warning::CLERK_SECRET_KEY is not available to this run, so the integration suite was skipped."
       - uses: actions/checkout@v4
-        if: env.CLERK_SECRET_KEY != ''
       - uses: actions/setup-node@v4
-        if: env.CLERK_SECRET_KEY != ''
         with:
           node-version: 20
           cache: npm
-      - if: env.CLERK_SECRET_KEY != ''
-        run: npm ci
-      - if: env.CLERK_SECRET_KEY != ''
-        run: npx prisma generate
-      - if: env.CLERK_SECRET_KEY != ''
-        run: npm run test:integration
+      - run: npm ci
+      - run: npx prisma generate
+      - name: operations.generated.ts, docs/openapi.json and the typed client are up to date
+        run: npm run openapi:check
