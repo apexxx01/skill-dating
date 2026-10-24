@@ -19,6 +19,12 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/age.ts': 'the date arithmetic (parse, age, cutoffs): pure functions of a date they are given',
   'lib/age-policy.ts': 'the age bands (under 16, minor, adult): pure functions of a date they are given',
   'lib/birth-date.ts': 'sets it once under the age policy; reports only whether one is on file, and whether the person may have share cards (an adult), never the date',
+  'lib/kpi/compute-ops.ts': 'the demand metrics compare the stored date with the adult cutoff to count adults; selects nobody’s date',
+  'lib/api-client/generated.ts': 'generated from docs/openapi.json: the request types of the routes that take a date of birth; it returns none',
+  'lib/openapi/operations.generated.ts': 'generated: the table of routes, with the request schemas that validate a date of birth',
+  'app/api/users/schema.ts': 'the request schema of onboarding: the date of birth is validated as a date in the past; it returns no date',
+  'lib/romance/interest.ts': 'asks the age policy whether the caller is an adult before recording a request to be told when the mode opens; returns no date',
+  'lib/privacy/cards-notice.ts': 'the note on the 18th birthday: reads the stored date to find who turns 18 today and writes a notification; returns no date',
   'lib/birth-date-admin.ts': 'the admin correction: writes it and audits old and new; returns no date',
   'lib/api/handler.ts': 'names only the refusal marker (birthDateRefusedAt, a moment, not a date of birth) to close an account refused for its age',
   'lib/romance/candidates.ts': 'the SQL for who may be shown in the romance mode: compares the column with cutoffs, selects nobody’s date',
@@ -60,7 +66,7 @@ describe('the date of birth stays private', () => {
     // A route that returns it would have to name it (above), so this checks the routes among the allowed files. Only the owner's own settings return the date; the
     // others take it in (onboarding, an admin correction) or answer a yes/no, and the integration tests (age-policy.test.ts) check that no response carries it.
     const routes = files.filter((file) => rel(file).startsWith('app/api/') && /birthDate/.test(fs.readFileSync(file, 'utf-8'))).map(rel)
-    expect(routes).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/profile/route.ts', 'app/api/users/route.ts'])
+    expect(routes).toEqual(['app/api/admin/users/[id]/birthdate/route.ts', 'app/api/users/me/profile/route.ts', 'app/api/users/route.ts', 'app/api/users/schema.ts'])
     const returnsIt = routes.filter((route) => /formatBirthDate/.test(fs.readFileSync(path.join(SRC, route), 'utf-8')))
     expect(returnsIt).toEqual(['app/api/users/me/profile/route.ts'])
   })

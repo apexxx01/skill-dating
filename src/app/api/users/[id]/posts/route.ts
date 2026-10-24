@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { userPosts } from '@/lib/posts/timelines'
-
-const query = z.object({ cursor: z.string().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
+import { query } from './schema'
 
 // A person's posts, newest first, including the ones they co-authored; only those the caller may see (visibility, blocks, soft delete).
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -14,4 +12,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (page === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   if (!page) return createApiError('USER_NOT_FOUND')
   return createApiResponse(page)
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:posts' } })
+}, { cache: { maxAge: 10 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:posts' } })

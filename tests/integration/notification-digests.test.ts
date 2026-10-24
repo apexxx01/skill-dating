@@ -208,7 +208,9 @@ describe('notification digests', () => {
       const bounced = await reader()
       const unverified = await reader({ emailVerified: false })
       const deleted = await reader({ deleted: true })
-      const dormant = await reader({ lastActiveDaysAgo: 61 })
+      // Dormant as of the day the digest runs (THURSDAY), not as of the real clock, which moves on.
+      const dormant = await reader()
+      await testPrisma.user.update({ where: { id: dormant.id }, data: { lastActiveAt: new Date(THURSDAY.getTime() - 61 * 24 * 3600_000) } })
       for (const person of [bounced, unverified, deleted, dormant]) await drop(person.id, b.id)
       const bouncedAddress = await addressOf(bounced.id)
       suppressedAddresses.push(bouncedAddress)

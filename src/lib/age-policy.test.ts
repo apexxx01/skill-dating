@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ageBandOf, cardsAllowed, isMinor, adultCutoff, platformCutoff, recruiterVisible } from './age-policy'
+import { ADULT_NOTICE_GRACE_DAYS, adultBirthdayOf, adultNoticeDue, adultNoticeWindow, ageBandOf, cardsAllowed, isMinor, adultCutoff, platformCutoff, recruiterVisible, wasMinorAt } from './age-policy'
 import { ageOn, birthDateCutoffForAge } from './age'
 
 const at = (iso: string) => new Date(`${iso}T12:00:00Z`)
@@ -85,3 +85,90 @@ describe('cardsAllowed', () => {
     expect(cardsAllowed(undefined, now)).toBe(false)
   })
 })
+
+describe('having been a minor', () => {
+  it('is true for an account made before the 18th birthday, even if the person is an adult now', () => {
+    const dob = born('2008-10-23')
+    expect(wasMinorAt(dob, at('2026-10-22'))).toBe(true) // the day before the 18th birthday
+    expect(wasMinorAt(dob, at('2026-10-23'))).toBe(false) // on it
+    expect(wasMinorAt(dob, at('2020-01-01'))).toBe(true)
+  })
+
+  it('says nothing about somebody with no date of birth', () => {
+    expect(wasMinorAt(null, at('2026-10-23'))).toBe(false)
+    expect(wasMinorAt(undefined, at('2026-10-23'))).toBe(false)
+  })
+})
+
+describe('the 18th birthday', () => {
+  it('is the date 18 years after, with 29 February reached on 1 March in a common year', () => {
+    expect(adultBirthdayOf(born('2008-10-23'))).toBe('2026-10-23')
+    expect(adultBirthdayOf(born('2008-02-29'))).toBe('2026-03-01')
+    expect(adultBirthdayOf(born('2004-02-29'))).toBe('2022-03-01')
+    // An ordinary date is the same date 18 years on, in a leap year too.
+    expect(adultBirthdayOf(born('2010-02-28'))).toBe('2028-02-28')
+  })
+
+  it('agrees with ageOn on the day it arrives', () => {
+    for (const iso of ['2008-10-23', '2008-02-29', '2008-12-31', '2008-01-01']) {
+      const dob = born(iso)
+      const birthday = adultBirthdayOf(dob)
+      expect(ageOn(dob, new Date(`${birthday}T00:00:00Z`)), iso).toBe(18)
+      expect(ageOn(dob, new Date(new Date(`${birthday}T00:00:00Z`).getTime() - 1)), iso).toBe(17)
+    }
+  })
+})
+
+describe('when the note about the cards is due', () => {
+  const dob = born('2008-10-23') // 18 on 2026-10-23
+
+  it('is not due the day before, in any zone', () => {
+    const now = new Date('2026-10-22T23:59:00Z')
+    expect(adultNoticeDue(dob, 'UTC', now)).toBe(false)
+    expect(adultNoticeDue(dob, 'Pacific/Kiritimati', now)).toBe(false) // already the 23rd there, but not yet in UTC
+  })
+
+  it('waits for the birthday on the person’s own calendar: later in the west, and not before the UTC birthday in the east', () => {
+    // 2026-10-23T03:00Z is the 23rd in UTC and Berlin, still the 22nd in New York and San Francisco.
+    const early = new Date('2026-10-23T03:00:00Z')
+    expect(adultNoticeDue(dob, 'UTC', early)).toBe(true)
+    expect(adultNoticeDue(dob, 'Europe/Berlin', early)).toBe(true)
+    expect(adultNoticeDue(dob, 'America/New_York', early)).toBe(false)
+    expect(adultNoticeDue(dob, 'America/Los_Angeles', early)).toBe(false)
+    // 04:00Z on the 23rd is midnight in New York (EDT) and 21:00 on the 22nd in Los Angeles.
+    expect(adultNoticeDue(dob, 'America/New_York', new Date('2026-10-23T04:00:00Z'))).toBe(true)
+    expect(adultNoticeDue(dob, 'America/Los_Angeles', new Date('2026-10-23T06:59:00Z'))).toBe(false)
+    expect(adultNoticeDue(dob, 'America/Los_Angeles', new Date('2026-10-23T07:00:00Z'))).toBe(true)
+  })
+
+  it('does not run ahead of the UTC calendar the age policy counts in', () => {
+    // 18:00Z on the 22nd is already the 23rd in Auckland, but the switch would still refuse for another six hours.
+    const now = new Date('2026-10-22T18:00:00Z')
+    expect(localDateKeyOf(now, 'Pacific/Auckland')).toBe('2026-10-23')
+    expect(adultNoticeDue(dob, 'Pacific/Auckland', now)).toBe(false)
+    expect(adultNoticeDue(dob, 'Pacific/Auckland', new Date('2026-10-23T00:00:00Z'))).toBe(true)
+  })
+
+  it('catches up for a week after a missed day, and then stops', () => {
+    expect(adultNoticeDue(dob, 'UTC', new Date(`2026-10-${23 + ADULT_NOTICE_GRACE_DAYS}T12:00:00Z`))).toBe(true)
+    expect(adultNoticeDue(dob, 'UTC', new Date(`2026-10-${23 + ADULT_NOTICE_GRACE_DAYS + 1}T12:00:00Z`))).toBe(false)
+  })
+
+  it('falls back to UTC for a person with no time zone', () => {
+    expect(adultNoticeDue(dob, null, new Date('2026-10-23T00:30:00Z'))).toBe(true)
+  })
+
+  it('looks for the people who can be due with a window of birth dates that holds every one of them', () => {
+    const now = new Date('2026-10-23T12:00:00Z')
+    const { from, to } = adultNoticeWindow(now)
+    expect(from <= '2008-10-14').toBe(true)
+    expect(to >= '2008-10-24').toBe(true)
+    expect(from > '2008-01-01' && to < '2009-01-01').toBe(true)
+    for (const iso of ['2008-10-16', '2008-10-23', '2008-10-24']) expect(iso >= from && iso <= to, iso).toBe(true)
+    expect(adultNoticeDue(born('2008-10-24'), 'Pacific/Kiritimati', now)).toBe(false) // but the 24th is not due yet: the zone check decides, the window only narrows the query
+  })
+})
+
+function localDateKeyOf(instant: Date, zone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant)
+}

@@ -9,6 +9,7 @@ import type { Realtime } from '@/lib/infra/realtime'
 //  - database is the only one the app cannot serve without: if it is down the
 //    status is "down" and the route answers 503, so a load balancer takes the
 //    instance out of rotation.
+//  - a production deployment without mail, push, storage, media scanning or error reporting is "degraded" too, with the names in `missingProviders`.
 //  - cache, jobs and realtime degrade the service but do not stop it (rate limits
 //    fail open, jobs and publishes are retried or skipped), so a failure there is
 //    "degraded" and the route still answers 200. A monitor that wants to page on
@@ -27,6 +28,8 @@ export interface CheckResult {
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'down'
   time: string
+  /** In production: the optional providers that are not configured (mail, push, storage, media-scanning, error-reporting). Names only; any one makes the status "degraded". */
+  missingProviders: string[]
   checks: {
     database: CheckResult
     cache: CheckResult
@@ -41,6 +44,8 @@ export interface HealthDeps {
   cache(): Cache
   jobs(): JobQueue
   realtime(): Realtime
+  /** Names of the providers a production deployment lacks; empty outside production. */
+  missingProviders?(): string[]
 }
 
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000
@@ -92,8 +97,14 @@ export async function runHealthChecks(deps: HealthDeps, options: { timeoutMs?: n
     providerCheck(deps.realtime, 'unknown', (realtime) => realtime.issueToken('health-check', ['user:health-check'], 1_000), timeoutMs),
   ])
 
-  const status = database.status === 'down' ? 'down' : [cache, jobs, realtime].some((check) => check.status === 'down') ? 'degraded' : 'ok'
-  return { status, time: (options.now?.() ?? new Date()).toISOString(), checks: { database, cache, jobs, realtime } }
+  let missing: string[] = []
+  try {
+    missing = deps.missingProviders?.() ?? []
+  } catch {
+    missing = []
+  }
+  const status = database.status === 'down' ? 'down' : [cache, jobs, realtime].some((check) => check.status === 'down') || missing.length > 0 ? 'degraded' : 'ok'
+  return { status, time: (options.now?.() ?? new Date()).toISOString(), missingProviders: missing, checks: { database, cache, jobs, realtime } }
 }
 
 export function healthStatusCode(report: HealthReport): number {

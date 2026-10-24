@@ -10,7 +10,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const found = await getPostFor(prisma, user.id, idOf(request))
   if (!found || found.post.deletedAt) return createApiError('POST_NOT_FOUND')
   return createApiResponse({ post: found.view })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'posts:get' } })
+}, { cache: { maxAge: 10 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'posts:get' } })
 
 // Edits a post: title, body, links, stack tags, visibility. Author only. Each edit counts a revision and marks the post edited; what a post is about (kind, project, crew, co-authors) does not change.
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {

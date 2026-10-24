@@ -128,8 +128,14 @@ export async function runSparkDigest(db: Db, options: DigestRunOptions = {}): Pr
   return result
 }
 
-/** What the hourly job runs: the professional count and the romance one, each on its own. */
+/** What the hourly job runs: the professional count and the romance one, each on its own. The romance one only while the mode is open somewhere (src/lib/romance/launch.ts). */
 export async function runSparkDigestJob(): Promise<{ professional: DigestRunResult; romance: DigestRunResult }> {
   const { prisma } = await import('@/lib/prisma')
-  return { professional: await runSparkDigest(prisma, { mode: 'professional' }), romance: await runSparkDigest(prisma, { mode: 'romance' }) }
+  const { loadFlags } = await import('@/lib/flags')
+  const { romanceOpenAnywhere } = await import('@/lib/romance/launch')
+  const romanceOpen = romanceOpenAnywhere(await loadFlags(prisma))
+  return {
+    professional: await runSparkDigest(prisma, { mode: 'professional' }),
+    romance: romanceOpen ? await runSparkDigest(prisma, { mode: 'romance' }) : { considered: 0, notified: 0, skipped: 0 },
+  }
 }

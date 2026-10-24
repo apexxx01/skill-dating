@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { FLAG_KEY_PATTERN, invalidateFlags } from '@/lib/flags'
+import { announceAfterFlagChange } from '@/lib/romance/announce'
 import { flagResponse, updateFlagSchema } from '@/lib/flags-admin'
 
 const keyFrom = (request: NextRequest): string | null => {
@@ -41,6 +42,7 @@ export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => 
   })
   // Drop the cached set so the change shows on the next request, on every instance.
   await invalidateFlags()
+  await announceAfterFlagChange(flag.key)
 
   return createApiResponse(flagResponse(flag))
 }, { requiredRole: ['ADMIN'], rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'admin:flags-update' } })

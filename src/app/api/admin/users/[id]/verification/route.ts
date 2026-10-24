@@ -1,17 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { requireRecentAuth } from '@/lib/api/recent-auth'
 import { setAdminMarks } from '@/lib/admin-verification'
-
-// PATCH /api/admin/users/{id}/verification { organizationVerified?, portfolioVerified?, identityVerified?, reason }: grants or takes back a mark only an
-// admin can give (the verified-organisation mark among them). The level follows. Needs a session signed in within the last 10 minutes. Audited. Admins only.
-const bodySchema = z
-  .object({ organizationVerified: z.boolean(), portfolioVerified: z.boolean(), identityVerified: z.boolean() })
-  .partial()
-  .extend({ reason: z.string().trim().min(3).max(1000) })
-  .strict()
-  .refine((value) => Object.keys(value).length > 1, 'Change at least one mark')
+import { bodySchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user, session }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

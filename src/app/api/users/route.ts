@@ -1,41 +1,14 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
-import { isValidTimeZone } from '@/lib/time'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
 import { parseBirthDate } from '@/lib/age'
 import { isMinor } from '@/lib/age-policy'
 import { setBirthDate } from '@/lib/birth-date'
 import { MIN_PLATFORM_AGE } from '@/lib/age-policy'
-
-const updateProfileSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  bio: z.string().max(500).optional(),
-  headline: z.string().max(200).optional(),
-  location: z.string().max(100).optional(),
-  // An IANA name such as "Asia/Kolkata": it decides where this person's day starts (caps, streaks).
-  timezone: z.string().max(50).refine(isValidTimeZone, 'must be an IANA time zone such as "Europe/Paris"').optional(),
-  availability: z.string().max(200).optional(),
-  builderRole: z.string().max(100).optional(),
-  website: z.string().max(2048).url().optional().or(z.literal('')),
-  githubUsername: z.string().max(100).optional(),
-  twitterUsername: z.string().max(100).optional(),
-  linkedinUrl: z.string().max(2048).url().optional().or(z.literal('')),
-  // PRIVATE, and required to finish onboarding (docs/SAFETY.md). Set once and then locked; under 16 is refused; nobody but the owner ever reads it back.
-  birthDate: z.string().max(32).refine((value) => parseBirthDate(value) !== null, 'A real date in the past such as 1995-06-15').optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  search: z.string().max(200).optional(),
-  skills: z.string().max(200).optional(),
-  location: z.string().max(200).optional(),
-  cursor: cursorParam,
-})
+import { querySchema, updateProfileSchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)
@@ -119,7 +92,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     nextCursor: result.nextCursor,
     pagination: result.pagination,
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:list' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:list' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(updateProfileSchema)(request)

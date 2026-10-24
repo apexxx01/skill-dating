@@ -1,18 +1,9 @@
 import { NextRequest } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { withAuth, validateBody, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
-import {
-  isValidEmoji,
-  reactionSummary,
-  MAX_DISTINCT_EMOJI_PER_MESSAGE,
-  MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE,
-} from '@/lib/messaging'
-import { z } from 'zod'
+import { reactionSummary, MAX_DISTINCT_EMOJI_PER_MESSAGE, MAX_DISTINCT_EMOJI_PER_USER_PER_MESSAGE } from '@/lib/messaging'
 import { blockGuardAny } from '@/lib/blocks'
-
-const reactSchema = z.object({
-  emoji: z.string().min(1).max(16).refine(isValidEmoji, 'Must be a single emoji'),
-})
+import { reactSchema } from './schema'
 
 function messageIdFrom(request: NextRequest): string | undefined {
   return new URL(request.url).pathname.split('/').slice(-2)[0]

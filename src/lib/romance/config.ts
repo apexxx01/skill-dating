@@ -6,7 +6,7 @@
 
 import { ROMANCE_PHOTO_LIMITS } from '@/lib/media'
 
-export const ROMANCE_MODE_LABEL = 'Kindred'
+export const ROMANCE_MODE_LABEL = 'Halves'
 
 /** The answers a person can give about what they build and who they are. Stored as these strings; the labels are for the interface. */
 export const AMBITION_LEVELS = [
@@ -95,6 +95,11 @@ export const romanceCopy = {
   matchTitle: `It is a ${ROMANCE_MODE_LABEL} match`,
   revealAsked: (name: string) => `${name} would like to share photos`,
   revealAccepted: (name: string) => `${name} agreed to share photos`,
+  /** The one note to people who asked to be told when the mode opens (src/lib/romance/announce.ts). */
+  opened: {
+    title: `${ROMANCE_MODE_LABEL} is open for you`,
+    message: 'You asked us to tell you. It is optional, private and for people who are 18 or older: you choose what to share, and nothing about it appears anywhere else in the app.',
+  },
   duoAsked: (name: string) => `${name} invited you to a Duo`,
   duoAccepted: (name: string) => `${name} accepted your Duo`,
 } as const

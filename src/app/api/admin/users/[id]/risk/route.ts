@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { effectiveLevel } from '@/lib/integrity/risk'
 import { overrideRisk } from '@/lib/integrity/risk-job'
-
-// GET /api/admin/users/{id}/risk: the person's risk score, its parts, and any override. PATCH { level: LOW|ELEVATED|HIGH|null, reason }: an override that
-// wins over the computed level (null clears it). Reversible, audited. Staff only.
-const bodySchema = z.object({ level: z.enum(['LOW', 'ELEVATED', 'HIGH']).nullable(), reason: z.string().trim().min(3).max(1000) }).strict()
+import { bodySchema } from './schema'
 
 const userIdOf = (request: NextRequest) => new URL(request.url).pathname.split('/').slice(-2)[0]
 

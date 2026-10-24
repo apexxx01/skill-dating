@@ -1,14 +1,10 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import { emit, transactWithEvents } from '@/lib/events'
 import { blockGuard } from '@/lib/blocks'
 import { track } from '@/lib/infra/analytics'
 import { addMember, checkJoin } from '@/lib/squads/membership'
-
-const reviewSchema = z.object({
-  status: z.enum(['ACCEPTED', 'REJECTED', 'WITHDRAWN']),
-})
+import { reviewSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

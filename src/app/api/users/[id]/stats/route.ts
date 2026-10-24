@@ -17,4 +17,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
 
   const profile = id === user.id ? null : await prisma.profile.findUnique({ where: { userId: id }, select: { showActivity: true } })
   return createApiResponse(forViewer(card, { isOwner: id === user.id, showActivity: profile?.showActivity ?? true }))
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:stats' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:stats' } })

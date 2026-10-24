@@ -70,6 +70,7 @@ export const ERROR_CATALOG = {
   REPORT_NOT_FOUND: { status: 404, message: 'Report not found' },
   BUILD_NOT_FOUND: { status: 404, message: 'No current build found' },
   FLAG_NOT_FOUND: { status: 404, message: 'Feature flag not found' },
+  SETTING_NOT_FOUND: { status: 404, message: 'Setting not found' },
 
   // --- People ------------------------------------------------------------------
   USER_BLOCKED: { status: 403, message: 'You have blocked this user' },
@@ -237,7 +238,8 @@ export const ERROR_CATALOG = {
   FRAUD_SIGNAL_NOT_FOUND: { status: 404, message: 'Fraud signal not found' },
   REAUTH_REQUIRED: { status: 403, message: 'Sign in again to do this: it needs a session started in the last {maxAgeMinutes} minutes' },
   SIGNUPS_PAUSED: { status: 503, message: 'New accounts are paused for a short while. Try again later' },
-  ROMANCE_PAUSED: { status: 503, message: '{mode} is paused for a short while. Try again later' },
+  ROMANCE_PAUSED: { status: 503, message: '{mode} is not open for you yet' },
+  ROMANCE_ALREADY_OPEN: { status: 409, message: '{mode} is already open for you' },
   MESSAGING_PAUSED: { status: 503, message: 'Messaging is paused for a short while. Try again later' },
   POSTING_PAUSED: { status: 503, message: 'Posting is paused for a short while. Try again later' },
   EXTERNAL_HACKATHONS_PAUSED: { status: 503, message: 'Adding hackathons from other sites is paused for a short while' },

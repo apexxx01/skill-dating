@@ -1,20 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership, checkOwnership } from '@/lib/api/handler'
-import { z } from 'zod'
 import { blockGuardAny } from '@/lib/blocks'
-import { cursorParam, paginate, withNextCursor } from '@/lib/api/pagination'
+import { paginate, withNextCursor } from '@/lib/api/pagination'
 import { capacityOf, hackathonLimits, isLocked } from '@/lib/squads/membership'
-
-const listQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(100),
-  cursor: cursorParam,
-})
-
-const applySchema = z.object({
-  message: z.string().max(1000).optional(),
-  // The open slot applied for; accepting fills it.
-  slotId: z.string().min(1).max(64).optional(),
-})
+import { applySchema, listQuerySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

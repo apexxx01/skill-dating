@@ -1,21 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { track } from '@/lib/infra/analytics'
-import { squadRoleSchema } from '@/lib/squads/schemas'
-
-// PATCH /api/hackathons/{id}/participation: the caller's place in the hackathon's solo pool (docs/SQUADS.md): looking for a team (the squad builder
-// and the board draw from these people), the roles they would like to play, and whether the automatic squads two days before the registration
-// deadline may place them.
-const bodySchema = z
-  .object({
-    lookingForTeam: z.boolean(),
-    preferredRoles: z.array(squadRoleSchema).max(4),
-    openToAutoTeam: z.boolean(),
-  })
-  .partial()
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, 'Send at least one field')
+import { bodySchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

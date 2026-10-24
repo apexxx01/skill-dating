@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { reportMatch } from '@/lib/matching/matches'
-
-const REPORT_REASONS = ['SPAM', 'HARASSMENT', 'INAPPROPRIATE_CONTENT', 'FAKE_PROFILE', 'SCAM', 'COPYRIGHT', 'OTHER'] as const
-
-const bodySchema = z.object({ reason: z.enum(REPORT_REASONS), description: z.string().max(5000).optional() }).strict()
+import { bodySchema } from './schema'
 
 // Unmatch and report in one call: the match ends exactly as for DELETE /api/matches/{id}, and a report against the other person goes into the
 // same queue as POST /api/reports. A pending report from the caller against them is kept rather than duplicated.

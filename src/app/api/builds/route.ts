@@ -1,16 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-import { z } from 'zod'
+import { paginate } from '@/lib/api/pagination'
 import { blockedUserIds } from '@/lib/blocks'
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  hackathonId: z.string().max(64).optional(),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

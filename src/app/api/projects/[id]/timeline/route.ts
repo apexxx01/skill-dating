@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { projectTimeline } from '@/lib/posts/timelines'
-
-const query = z.object({ cursor: z.string().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
+import { query } from './schema'
 
 // A project's posts, newest first: its ships, updates, devlogs and demos that the caller may see. A private project's timeline is for its members; for anyone else it does not exist.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
@@ -14,4 +12,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (page === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   if (!page) return createApiError('PROJECT_NOT_FOUND')
   return createApiResponse(page)
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'projects:timeline' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'projects:timeline' } })

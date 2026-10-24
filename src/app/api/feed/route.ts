@@ -10,4 +10,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const feed = await loadFeed(prisma, user.id, query.data)
   if (feed === 'INVALID_CURSOR') return createApiError('INVALID_CURSOR')
   return createApiResponse(feed)
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'feed' } })
+}, { cache: { maxAge: 5 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'feed' } })

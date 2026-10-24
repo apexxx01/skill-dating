@@ -30,6 +30,35 @@ describe('runHealthChecks', () => {
     expect(healthStatusCode(report)).toBe(200)
   })
 
+  it('is degraded in production while an optional provider is missing, with the names and nothing else', async () => {
+    const report = await runHealthChecks(deps({ missingProviders: () => ['email', 'media-scanning'] }), { now })
+    expect(report.status).toBe('degraded')
+    expect(report.missingProviders).toEqual(['email', 'media-scanning'])
+    expect(healthStatusCode(report)).toBe(200)
+    // Every check itself still answers: the degradation is the missing providers, not a dependency being down.
+    for (const check of Object.values(report.checks)) expect(check.status).toBe('ok')
+    expect(JSON.stringify(report)).not.toMatch(/RESEND|VAPID|STORAGE|SENTRY|MODERATION|https?:\/\//)
+  })
+
+  it('is ok with no missing providers, and always carries the list', async () => {
+    expect((await runHealthChecks(deps({ missingProviders: () => [] }), { now })).missingProviders).toEqual([])
+    const without = await runHealthChecks(deps(), { now })
+    expect(without.status).toBe('ok')
+    expect(without.missingProviders).toEqual([])
+  })
+
+  it('stays down, and 503, when the database is down even with providers missing', async () => {
+    const report = await runHealthChecks(deps({ pingDatabase: async () => { throw new Error('refused') }, missingProviders: () => ['push'] }), { now })
+    expect(report.status).toBe('down')
+    expect(healthStatusCode(report)).toBe(503)
+  })
+
+  it('survives a failure while working out the missing providers', async () => {
+    const report = await runHealthChecks(deps({ missingProviders: () => { throw new Error('boom') } }), { now })
+    expect(report.status).toBe('ok')
+    expect(report.missingProviders).toEqual([])
+  })
+
   it('is down, and answers 503, when the database does not answer', async () => {
     const report = await runHealthChecks(deps({ pingDatabase: async () => Promise.reject(new Error('connection refused')) }), { now })
     expect(report.status).toBe('down')

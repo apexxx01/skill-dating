@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { requireRecentAuth } from '@/lib/api/recent-auth'
-
-// PATCH /api/admin/users/{id}/role { role: USER|MODERATOR|ADMIN, reason }: who is staff. Admins only, with a session signed in within the last 10 minutes;
-// an admin cannot change their own role (so the last admin cannot lock everyone out by mistake). Audited.
-const bodySchema = z.object({ role: z.enum(['USER', 'MODERATOR', 'ADMIN']), reason: z.string().trim().min(3).max(1000) }).strict()
+import { bodySchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user, session }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

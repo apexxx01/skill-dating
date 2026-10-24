@@ -221,6 +221,34 @@ export function inMemoryFallbacks(config: Env): string[] {
   )
 }
 
+/**
+ * Providers the app can start without, because each has a stand-in or refuses the feature that needs it, and that a production deployment still needs: a missing one is
+ * not an error at boot, so it is reported loudly instead (the startup warning in src/lib/boot.ts and GET /api/health, which says "degraded" with these names).
+ * `settings` are variable names, never values.
+ */
+export interface MissingProvider {
+  name: string
+  settings: string[]
+  effect: string
+}
+
+const OPTIONAL_PROVIDERS: { name: string; settings: Setting[]; effect: string }[] = [
+  { name: 'email', settings: ['RESEND_API_KEY'], effect: 'no mail is sent: notifications and digests stay in an in-memory outbox' },
+  { name: 'push', settings: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'], effect: 'no web push is sent: pushes are only recorded' },
+  { name: 'storage', settings: ['STORAGE_ENDPOINT', 'STORAGE_BUCKET', 'STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'], effect: 'uploads are refused with 503 STORAGE_UNAVAILABLE' },
+  { name: 'media-scanning', settings: ['MEDIA_MODERATION_URL', 'MEDIA_MODERATION_TOKEN'], effect: 'avatar and romance photo uploads are refused (fail closed, never served unscanned)' },
+  { name: 'error-reporting', settings: ['SENTRY_DSN'], effect: 'errors are only written to the log: nothing reaches Sentry' },
+]
+
+/** The optional providers this configuration has not set up (a provider counts as missing when any of its settings is unset). Names and setting names only. */
+export function missingProviders(config: Env): MissingProvider[] {
+  return OPTIONAL_PROVIDERS.filter((provider) => provider.settings.some((name) => config[name as keyof Env] === undefined)).map((provider) => ({
+    name: provider.name,
+    settings: provider.settings.filter((name) => config[name as keyof Env] === undefined),
+    effect: provider.effect,
+  }))
+}
+
 export class EnvValidationError extends Error {
   constructor(readonly problems: string[]) {
     super(`Invalid environment configuration:\n${problems.map((problem) => `  - ${problem}`).join('\n')}`)

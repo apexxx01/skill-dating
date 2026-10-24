@@ -172,6 +172,8 @@ them. Handlers import their module lazily, so the registry stays light.
 | `digests/daily` | hourly (:10) | `src/lib/notify/digest.ts`: the daily digest email, once a local day an hour after each person's drop time; skipped when there is nothing worth sending; continues itself in batches of 500 |
 | `digests/weekly` | hourly (:20) | the weekly digest email, Monday from 09:00 local |
 | `invites/qualify` | hourly (:45) | `src/lib/invites/invites.ts`: moves open invites forward, and pays an inviter through the rewards engine when the checks pass ([INVITES.md](INVITES.md)) |
+| `romance/announce` | hourly (:35), and after a launch flag changes | `src/lib/romance/announce.ts`: tells the people who asked, once, that the romance mode opened where they are; does nothing while it is closed ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)) |
+| `cards/adult-notice` | hourly (:40) | `src/lib/privacy/cards-notice.ts`: tells someone who was a minor on the platform, once, on their 18th birthday (their own calendar), that their share cards are still off ([PRIVACY.md](PRIVACY.md)) |
 | `metrics/snapshot` | 01:20 daily | `src/lib/kpi/snapshot.ts`: records who was active, measures every metric for the day that ended, writes the rows ([METRICS.md](METRICS.md)) |
 
 To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and

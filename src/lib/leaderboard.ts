@@ -18,18 +18,10 @@ export async function liveRank(
   const xp = aggregate._sum.amount ?? 0
   if (xp <= 0) return { xp, rank: null }
 
-  const exclude = excludeUserIds.length
-    ? Prisma.sql`WHERE "userId" NOT IN (${Prisma.join(excludeUserIds)})`
-    : Prisma.empty
+  // User.xp is the cache of the log's total (it changes only in grant(), in the same transaction), so "people with more XP" is a count on an index, not a sum of the whole log.
+  const exclude = excludeUserIds.length ? Prisma.sql`AND "id" NOT IN (${Prisma.join(excludeUserIds)})` : Prisma.empty
   const rows = await db.$queryRaw<{ rank: bigint }[]>`
-    SELECT COUNT(*) + 1 AS rank
-    FROM (
-      SELECT "userId", SUM("amount") AS total
-      FROM "XPEvent"
-      ${exclude}
-      GROUP BY "userId"
-      HAVING SUM("amount") > ${xp}
-    ) AS ahead
+    SELECT COUNT(*) + 1 AS rank FROM "User" WHERE "xp" > ${xp} ${exclude}
   `
   return { xp, rank: Number(rows[0]?.rank ?? 0) }
 }

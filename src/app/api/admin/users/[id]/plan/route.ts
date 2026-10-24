@@ -1,14 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { requireRecentAuth } from '@/lib/api/recent-auth'
-
-// PUT /api/admin/users/{id}/plan { plan, until?, reason }: an entitlement override (a comped plan, a correction after a billing problem). It writes the
-// person's Subscription with provider "admin", so a later billing integration can tell it apart. Admins only, with a session signed in within the last
-// 10 minutes. Audited with the old and the new plan.
-const bodySchema = z
-  .object({ plan: z.enum(['FREE', 'PRO', 'CREW_PRO', 'ORG']), until: z.string().max(40).datetime().optional(), reason: z.string().trim().min(3).max(1000) })
-  .strict()
+import { bodySchema } from './schema'
 
 export const PUT = withAuth(async (request: NextRequest, { prisma, user, session }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

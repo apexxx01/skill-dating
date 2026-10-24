@@ -1,6 +1,5 @@
 import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { getCache } from '@/lib/infra/cache'
 import { getJobQueue } from '@/lib/infra/jobs'
@@ -8,6 +7,7 @@ import { log } from '@/lib/log'
 import { createPost, createPostSchema, getPostFor } from '@/lib/posts/posts'
 import { bumpShipDayCounter } from '@/lib/posts/ship-day'
 import { userPosts } from '@/lib/posts/timelines'
+import { listQuery } from './schema'
 
 // Creates a post: a SHIP (the one ship gate: it ships the project once and pays once), an UPDATE or DEVLOG (counts as a project update, with its existing XP and daily cap) or a DEMO.
 // The author must be a member of the project or crew it is about; co-authors must be members too. Made on the author's Friday it carries the Ship Day tag. Creating, so it honours Idempotency-Key.
@@ -32,8 +32,6 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const found = await getPostFor(prisma, user.id, post.id)
   return createApiResponse({ post: found?.view ?? null, shipped: result.shipped }, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'posts:create' } })
-
-const listQuery = z.object({ cursor: z.string().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
 
 // The caller's own posts, newest first. Anyone else's are at /api/users/{id}/posts.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

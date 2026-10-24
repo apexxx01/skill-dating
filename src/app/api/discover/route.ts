@@ -1,18 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, decodeOffsetCursor, offsetPage } from '@/lib/api/pagination'
+import { decodeOffsetCursor, offsetPage } from '@/lib/api/pagination'
 import { recommendationsFor } from '@/lib/matching/recommend'
-import { z } from 'zod'
 import { blockedUserIds } from '@/lib/blocks'
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  search: z.string().max(200).optional(),
-  skills: z.string().max(200).optional(),
-  location: z.string().max(200).optional(),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 // Compatibility is the matching engine's score (src/lib/matching/score.ts), the same one the daily drops and the dashboard use, computed per-request against
 // a candidate pool, not stored, so ranking the entire user table by score on every call isn't
@@ -98,4 +89,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
         }
       : {}),
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'discover:list' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'discover:list' } })

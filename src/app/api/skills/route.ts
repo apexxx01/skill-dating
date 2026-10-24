@@ -1,32 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginateOffset } from '@/lib/api/pagination'
-
-const createSkillSchema = z.object({
-  name: z.string().min(1).max(100),
-  slug: z.string().min(1).max(100).optional(),
-  category: z.string().min(1).max(50),
-  subcategory: z.string().max(50).optional(),
-  description: z.string().max(1000).optional(),
-  icon: z.string().max(100).optional(),
-  color: z.string().max(50).optional(),
-})
-
-const addUserSkillSchema = z.object({
-  skillId: z.string().max(64),
-  level: z.number().min(1).max(5).default(1),
-  yearsExperience: z.number().min(0).max(50).optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(50),
-  category: z.string().max(200).optional(),
-  search: z.string().max(200).optional(),
-  cursor: cursorParam,
-})
+import { paginateOffset } from '@/lib/api/pagination'
+import { createSkillSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)
@@ -86,7 +62,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     nextCursor: result.nextCursor,
     pagination: result.pagination,
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'skills:list' } })
+}, { cache: { maxAge: 300 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'skills:list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') {

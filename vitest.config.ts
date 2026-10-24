@@ -4,7 +4,7 @@ import path from 'path'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'prisma/**/*.test.ts'],
     // Dummy values for the settings src/lib/env.ts requires, so modules that read
     // `env` can be exercised without a .env file. Nothing here is a real credential.
     env: {

@@ -1,18 +1,8 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, authorize, checkOwnership, checkMembership } from '@/lib/api/handler'
-import { z } from 'zod'
+import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
 import { replaceOpenSlotsFromLookingFor } from '@/lib/squads/membership'
 import { canonicalTracks, tracksOf, unknownTracks } from '@/lib/squads/tracks'
-
-const updateTeamSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  description: z.string().max(5000).optional(),
-  maxSize: z.number().min(2).max(10).optional(),
-  lookingFor: z.array(z.string().max(50)).max(20).optional(),
-  isRecruiting: z.boolean().optional(),
-  // The hackathon tracks the squad goes for (by name, as the hackathon has them); the squad builder's template follows them.
-  targetTracks: z.array(z.string().trim().min(1).max(80)).max(5).optional(),
-})
+import { updateTeamSchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
@@ -53,7 +43,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   }
 
   return createApiResponse({ ...team, isOwner, isMember })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'teams:get' } })
+}, { cache: { maxAge: 20 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'teams:get' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

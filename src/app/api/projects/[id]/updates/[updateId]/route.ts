@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import type { ProjectAccess } from '@/lib/progress'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import {
@@ -9,13 +8,7 @@ import {
   loadProjectAccess,
   projectIdFromPath,
 } from '@/lib/progress'
-
-const editUpdateSchema = z
-  .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    content: z.string().trim().min(1).max(10000).optional(),
-  })
-  .refine((v) => v.title !== undefined || v.content !== undefined, { message: 'Nothing to update' })
+import { editUpdateSchema } from './schema'
 
 const updateSelect = {
   id: true,

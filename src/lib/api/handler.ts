@@ -12,6 +12,7 @@ import { MAX_BODY_BYTES } from '@/lib/api/limits'
 import { gateRequest } from '@/lib/api/gate'
 import type { SessionInfo } from '@/lib/api/recent-auth'
 import { recordThrottleHit } from '@/lib/integrity/risk-job'
+import { applyHttpCache, type CachePolicy } from '@/lib/api/http-cache'
 
 /**
  * What a person refused for being under the platform's minimum age (User.birthDateRefusedAt) can still do: see who they are, ask for a correction of
@@ -67,6 +68,11 @@ export interface WithAuthOptions {
    * (src/lib/api/idempotency.ts). Ignored for other methods and when no key is sent.
    */
   idempotent?: boolean
+  /**
+   * For GET routes whose answer may be reused for a few seconds: `Cache-Control: private, max-age=N` and an ETag (a 304 when the client already has the body). See
+   * src/lib/api/http-cache.ts. Leave it out for anything the request itself changes (today's drops mark themselves as seen) or that must always be current.
+   */
+  cache?: CachePolicy
 }
 
 export function withAuth(handler: ApiHandler, options: WithAuthOptions = {}): RouteHandler {
@@ -170,7 +176,8 @@ async function handleAuthenticated(
   if (options.idempotent && request.method === 'POST') {
     return withIdempotency(request, user.id, getCache(), () => handler(request, context))
   }
-  return handler(request, context)
+  const answer = await handler(request, context)
+  return options.cache ? applyHttpCache(request, answer, options.cache) : answer
 }
 
 /**

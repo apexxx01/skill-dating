@@ -116,6 +116,9 @@ export default async function setup() {
   const setup = new PrismaClient({ datasources: { db: { url: TEST_DATABASE_URL } } })
   try {
     await setup.featureFlag.update({ where: { key: 'quests' }, data: { enabled: false } })
+    // The romance mode ships closed (the migration creates its launch flag off). Most of the suite tests the mode itself, so it is opened here the way an operator would;
+    // tests/integration/romance-launch.test.ts closes it for its own run and opens it again.
+    await setup.featureFlag.update({ where: { key: 'romance.enabled' }, data: { enabled: true } })
   } finally {
     await setup.$disconnect()
   }

@@ -1,0 +1,459 @@
+{
+  "label": "after",
+  "measuredAt": "2026-10-24T12:35:53.636Z",
+  "machine": {
+    "cpu": "Apple M5",
+    "cores": 10,
+    "memoryGb": 16,
+    "node": "v26.8.1"
+  },
+  "database": {
+    "name": "skill_dating_perf",
+    "counts": {
+      "User": 10001,
+      "XPEvent": 214523,
+      "ShipPost": 26313,
+      "Prop": 288464,
+      "Comment": 52476,
+      "Follow": 149966,
+      "Notification": 152573,
+      "Drop": 176888,
+      "Spark": 30969,
+      "Project": 14885,
+      "HackathonParticipant": 9366,
+      "ActivityDay": 110765
+    }
+  },
+  "method": {
+    "users": 10,
+    "roundsPerUser": 25,
+    "concurrency": 3,
+    "server": "next start (production build), in-memory cache and job queue",
+    "timingNote": "wall time of the HTTP request from the same machine, body included"
+  },
+  "scenarios": {
+    "feed: for-you": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 15.3,
+        "p95": 20.7,
+        "p99": 43,
+        "max": 51.6,
+        "mean": 15.7
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "feed: following": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 16.2,
+        "p95": 23.4,
+        "p99": 26.3,
+        "max": 28.6,
+        "mean": 16.5
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "feed: city": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 15.4,
+        "p95": 32,
+        "p99": 42.2,
+        "max": 43.6,
+        "mean": 16.6
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "feed: campus": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 9,
+        "p95": 13.4,
+        "p99": 19.3,
+        "max": 19.4,
+        "mean": 9.4
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "drops: today": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 9.7,
+        "p95": 12,
+        "p99": 13.2,
+        "max": 13.8,
+        "mean": 9.6
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "leaderboard: global weekly": {
+      "group": "read",
+      "stats": {
+        "n": 120,
+        "p50": 30.3,
+        "p95": 43.3,
+        "p99": 43.9,
+        "max": 44.2,
+        "mean": 31.5
+      },
+      "ok": 120,
+      "statuses": {
+        "200": 120
+      }
+    },
+    "leaderboard: global all-time": {
+      "group": "read",
+      "stats": {
+        "n": 120,
+        "p50": 40.5,
+        "p95": 47.3,
+        "p99": 49.7,
+        "max": 68.7,
+        "mean": 39.7
+      },
+      "ok": 120,
+      "statuses": {
+        "200": 120
+      }
+    },
+    "leaderboard: city season": {
+      "group": "read",
+      "stats": {
+        "n": 120,
+        "p50": 9,
+        "p95": 11,
+        "p99": 12.3,
+        "max": 13.9,
+        "mean": 9
+      },
+      "ok": 120,
+      "statuses": {
+        "200": 120
+      }
+    },
+    "leaderboard: campus (global for people with none)": {
+      "group": "read",
+      "stats": {
+        "n": 120,
+        "p50": 19.6,
+        "p95": 22.9,
+        "p99": 24.6,
+        "max": 26.2,
+        "mean": 19
+      },
+      "ok": 120,
+      "statuses": {
+        "200": 120
+      }
+    },
+    "heatmap": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 7.3,
+        "p95": 9,
+        "p99": 27,
+        "max": 27.1,
+        "mean": 7.9
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "stats (player card)": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 5,
+        "p95": 12.9,
+        "p99": 22.6,
+        "max": 26,
+        "mean": 5.8
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "passport (user profile)": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 16.7,
+        "p95": 28.2,
+        "p99": 31.2,
+        "max": 35.5,
+        "mean": 17.5
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "discover": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 64.4,
+        "p95": 80.8,
+        "p99": 95.6,
+        "max": 104.4,
+        "mean": 65.1
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "discover: text search": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 50.6,
+        "p95": 80.6,
+        "p99": 88.8,
+        "max": 90,
+        "mean": 50.2
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "search (command palette)": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 22.9,
+        "p95": 133.6,
+        "p99": 192.3,
+        "max": 252.2,
+        "mean": 39.3
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "lfg board": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 21.1,
+        "p95": 26,
+        "p99": 27.9,
+        "max": 35.1,
+        "mean": 21.5
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "hackathons list": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 9.4,
+        "p95": 12.1,
+        "p99": 12.8,
+        "max": 14.4,
+        "mean": 9.5
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "notifications list": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 6.1,
+        "p95": 9.3,
+        "p99": 11.3,
+        "max": 11.9,
+        "mean": 6.4
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "dashboard (today)": {
+      "group": "read",
+      "stats": {
+        "n": 250,
+        "p50": 40,
+        "p95": 54.7,
+        "p99": 71.6,
+        "max": 74.4,
+        "mean": 40
+      },
+      "ok": 250,
+      "statuses": {
+        "200": 250
+      }
+    },
+    "moderation queue": {
+      "group": "read",
+      "stats": {
+        "n": 25,
+        "p50": 2.7,
+        "p95": 3.1,
+        "p99": 3.1,
+        "max": 3.1,
+        "mean": 2.6
+      },
+      "ok": 25,
+      "statuses": {
+        "200": 25
+      }
+    },
+    "admin metrics": {
+      "group": "read",
+      "stats": {
+        "n": 25,
+        "p50": 32.9,
+        "p95": 35.1,
+        "p99": 35.8,
+        "max": 35.8,
+        "mean": 31.6
+      },
+      "ok": 25,
+      "statuses": {
+        "200": 25
+      }
+    },
+    "squad builder (propose)": {
+      "group": "compute",
+      "stats": {
+        "n": 20,
+        "p50": 247.7,
+        "p95": 252.6,
+        "p99": 254.9,
+        "max": 254.9,
+        "mean": 247.9
+      },
+      "ok": 20,
+      "statuses": {
+        "201": 20
+      }
+    },
+    "write: post an update": {
+      "group": "write",
+      "stats": {
+        "n": 120,
+        "p50": 18,
+        "p95": 30.8,
+        "p99": 36.9,
+        "max": 41.2,
+        "mean": 19.9
+      },
+      "ok": 120,
+      "statuses": {
+        "201": 120
+      }
+    },
+    "write: give Props": {
+      "group": "write",
+      "stats": {
+        "n": 180,
+        "p50": 18.6,
+        "p95": 57.3,
+        "p99": 96.4,
+        "max": 121,
+        "mean": 23.5
+      },
+      "ok": 180,
+      "statuses": {
+        "201": 180,
+        "403": 20
+      }
+    },
+    "write: comment": {
+      "group": "write",
+      "stats": {
+        "n": 150,
+        "p50": 15.1,
+        "p95": 20.4,
+        "p99": 38.6,
+        "max": 39.6,
+        "mean": 15.5
+      },
+      "ok": 150,
+      "statuses": {
+        "201": 150
+      }
+    },
+    "write: mark a notification read": {
+      "group": "write",
+      "stats": {
+        "n": 50,
+        "p50": 7.5,
+        "p95": 9,
+        "p99": 10.1,
+        "max": 10.1,
+        "mean": 7.4
+      },
+      "ok": 50,
+      "statuses": {
+        "200": 50
+      }
+    },
+    "write: follow": {
+      "group": "write",
+      "stats": {
+        "n": 115,
+        "p50": 10.2,
+        "p95": 15.4,
+        "p99": 19.4,
+        "max": 22.1,
+        "mean": 10
+      },
+      "ok": 115,
+      "statuses": {
+        "200": 107,
+        "201": 8,
+        "400": 5
+      }
+    },
+    "write: solo pool preferences": {
+      "group": "write",
+      "stats": {
+        "n": 60,
+        "p50": 6.7,
+        "p95": 9.1,
+        "p99": 9.6,
+        "max": 9.6,
+        "mean": 7.1
+      },
+      "ok": 60,
+      "statuses": {
+        "200": 60
+      }
+    }
+  }
+}

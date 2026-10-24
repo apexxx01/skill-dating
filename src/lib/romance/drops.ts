@@ -14,6 +14,7 @@ import { findRomanceCandidateIds, type RomanceViewer } from './candidates'
 import { ROMANCE_CONFIG, romanceCopy, type Gender, type Scope } from './config'
 import { countCharacterEndorsers } from './endorsers'
 import { loadRomanceScoringProfiles, type RomanceProfileCache } from './loader'
+import { romanceOpenForMany } from './launch'
 
 // The weekly romance drop: ONE person, once a local ISO week, chosen for you.
 //
@@ -212,11 +213,20 @@ export interface RomanceDispatchResult {
 
 const hourKey = (now: Date) => now.toISOString().slice(0, 13)
 
-export async function dispatchRomanceDrops(db: Db, queue: JobQueue, now: Date = new Date(), batchSize: number = ROMANCE_CONFIG.drop.userBatch): Promise<RomanceDispatchResult> {
+export async function dispatchRomanceDrops(
+  db: Db,
+  queue: JobQueue,
+  now: Date = new Date(),
+  batchSize: number = ROMANCE_CONFIG.drop.userBatch,
+  /** Narrows the people who are due to the ones the mode is open for (the job passes the launch gate; a test of the dispatching itself passes nothing). */
+  open?: (userIds: readonly string[]) => Promise<ReadonlySet<string>>
+): Promise<RomanceDispatchResult> {
   const zones = await dueRomanceByZone(db, now)
   const result: RomanceDispatchResult = { due: 0, zones: zones.length, batches: 0 }
   for (const zone of zones) {
-    const ids = shuffledForDay(zone.ids, now)
+    const allowed = open ? await open(zone.ids) : null
+    const ids = shuffledForDay(allowed ? zone.ids.filter((id) => allowed.has(id)) : zone.ids, now)
+    if (ids.length === 0) continue
     result.due += ids.length
     const zoneKey = (zone.timezone ?? 'UTC').replace(/[^A-Za-z0-9_+-]/g, '_')
     for (const [index, userIds] of chunk(ids, batchSize).entries()) {
@@ -228,16 +238,20 @@ export async function dispatchRomanceDrops(db: Db, queue: JobQueue, now: Date = 
   return result
 }
 
-/** What the hourly job runs. With `userIds` it generates for those people right away; otherwise it dispatches the batches. */
+/**
+ * What the hourly job runs. With `userIds` it generates for those people right away; otherwise it dispatches the batches. Only for the people the mode is open for (the launch gate,
+ * ./launch.ts): while it is closed everywhere the job does nothing at all.
+ */
 export async function runRomanceDropsJob(data: { userIds?: string[] } = {}): Promise<RomanceRunResult | RomanceDispatchResult> {
   const { prisma } = await import('@/lib/prisma')
-  if (data.userIds) return runRomanceDropGeneration(prisma, { userIds: data.userIds })
+  const open = (userIds: readonly string[]) => romanceOpenForMany(prisma, userIds)
+  if (data.userIds) return runRomanceDropGeneration(prisma, { userIds: [...(await open(data.userIds))] })
   const { getJobQueue } = await import('@/lib/infra/jobs')
-  return dispatchRomanceDrops(prisma, getJobQueue())
+  return dispatchRomanceDrops(prisma, getJobQueue(), new Date(), ROMANCE_CONFIG.drop.userBatch, open)
 }
 
-/** What one batch runs: the people of it who are still due. Safe to run twice. */
+/** What one batch runs: the people of it who are still due and the mode is open for. Safe to run twice. */
 export async function runRomanceBatchJob(data: { userIds: string[] }): Promise<RomanceRunResult> {
   const { prisma } = await import('@/lib/prisma')
-  return runRomanceDropGeneration(prisma, { userIds: data.userIds, force: false })
+  return runRomanceDropGeneration(prisma, { userIds: [...(await romanceOpenForMany(prisma, data.userIds))], force: false })
 }

@@ -282,6 +282,24 @@ export const jobs = {
     concurrency: 1,
     handler: async ({ data }) => (await import('@/lib/kpi/snapshot')).runSnapshotJob(data),
   }),
+  // Tells the people who asked, once, that the romance mode has opened where they are (src/lib/romance/announce.ts). Hourly, and enqueued when an admin changes a launch flag;
+  // does nothing while the mode is closed; safe to repeat.
+  'romance/announce': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '35 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/romance/announce')).runRomanceAnnounceJob(),
+  }),
+  // Tells someone who was a minor on the platform, once, on their 18th birthday (on their own calendar), that their share cards are still off and what the switch is
+  // (src/lib/privacy/cards-notice.ts). Hourly; safe to repeat: a person is told once.
+  'cards/adult-notice': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '40 * * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => (await import('@/lib/privacy/cards-notice')).runAdultCardsNoticeJob(),
+  }),
   // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
   'media/scan': defineJob({
     schema: z.object({ assetId: z.string().min(1).max(64) }),

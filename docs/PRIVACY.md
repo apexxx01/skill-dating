@@ -52,7 +52,7 @@ version in force of each document is config, `src/config/legal-versions.json`.
 | `invisibleMode` | left out of people search (`GET /api/users`) and discovery (`GET /api/discover`) |
 | `whoCanMessage` | `EVERYONE`, `CONNECTIONS` or `NOBODY` may start a direct conversation (`403 MESSAGING_NOT_ALLOWED`); rooms already shared stay open |
 | `showActivity` | whether others see the heatmap and the streak |
-| `showCardsOnWeb` | "Show my cards on the web": whether the public share images may be drawn for the person. On by default for an adult; never in force for a minor (16 or 17) or an account with no date of birth yet, who cannot turn it on (`400 CARDS_NOT_AVAILABLE`) |
+| `showCardsOnWeb` | "Show my cards on the web": whether the public share images may be drawn for the person. On by default for an adult who was never a minor on the platform; stored off for anyone who was (until they turn it on); never in force for a minor (16 or 17) or an account with no date of birth yet, who cannot turn it on (`400 CARDS_NOT_AVAILABLE`) |
 
 ## Export (`src/lib/privacy/export.ts`)
 
@@ -187,6 +187,7 @@ own in `delete.ts`).
 | Email and push delivery log (`NotificationDelivery`) | 90 days | rows deleted in batches; no message content is in them |
 | Activity days (`ActivityDay`) | 25 months | rows deleted. The metrics built from them hold no person and are kept |
 | Campus verifications (`CampusVerification`) | an hour after the code expired | rows deleted, and the campus e-mail address in them with them |
+| "Tell me when it opens" for the romance mode (`RomanceInterest`) | 180 days after the person was told (a request nobody has been told about is kept until they withdraw it) | rows deleted. Holds the country and city of the profile when they asked; seen by nobody but the admin metrics, as counts by city of at least 3 people. NEEDS LEGAL REVIEW: wanting a dating mode is personal data, and in some countries more |
 | Blocked uploads | the hash, verdict and labels only; the object is deleted at once | needs legal review: some countries require keeping evidence of child sexual abuse material for the authorities for a set period |
 
 Everything else is kept while the account exists and handled by the deletion rules above when it is deleted. The audit trail, moderation records and
@@ -220,7 +221,8 @@ A share card (`/api/og/...`) is a public image: anyone with the link can fetch i
 
 - **Never**: e-mail, bio, links, location, the date of birth, the romance mode, anything of a private or hidden thing.
 - **The switch.** "Show my cards on the web" (`showCardsOnWeb`, `PATCH /api/users/me/privacy`) is on by default for an adult, and turning it off removes every card of the person (passport, their posts, their achievements, and their name on a squad recap) from a fresh request.
-- **A minor (16 or 17), or an account with no date of birth yet, has no cards at all**, whatever the switch says; they cannot turn it on. (`cardsAllowed` in `src/lib/age-policy.ts`: the switch is checked in `holderOf`, `src/lib/og/data.ts`.) The switch is not changed on someone's 18th birthday: if they never turned it off, their cards begin then, as for any adult.
+- **A minor (16 or 17), or an account with no date of birth yet, has no cards at all**, whatever the switch says; they cannot turn it on. (`cardsAllowed` in `src/lib/age-policy.ts`: the switch is checked in `holderOf`, `src/lib/og/data.ts`.) **Turning 18 does not publish anything.** An account that was under 18 at any point (a minor now, or an account made before the 18th birthday) has the switch **stored off**, and it stays off until the person turns it on themselves: the date writers (`setBirthDate`, the admin correction) store it off (`keepCardsOff`, `src/lib/birth-date.ts`), and the migration `20261024000100_cards_for_former_minors` did the same for existing accounts. A person who joined as an adult is on by default. On the 18th birthday they are told once what the switch is (below).
+- **The note on the 18th birthday.** The hourly job `cards/adult-notice` (`src/lib/privacy/cards-notice.ts`) writes one in-app notification (`CARDS_ADULT`, link `/settings/privacy`) to a person who was under 18 on the platform: from the 18th birthday on their own calendar, and not before the UTC calendar the age policy counts in has also reached it, so the note never says "you can turn it on" while the switch still refuses. A job that was down catches up for 7 days. It is keyed `cards:adult` per person, so it is written once; a person who joined as an adult, a deleted account and an account with no date get none. NEEDS LEGAL REVIEW: the wording and the default for former minors.
 - **Fields**: the headline and builder role only when they are `PUBLIC` (which in the app means "everyone signed in"); the name is shown only if the fonts can draw it, else the username.
 - **No card at all** (the same `404` as for a card that never existed) for an account that is deleted, age-closed, suspended, banned, in invisible mode or at a high risk level; for a post that is not public or
   was hidden or removed; for a squad before its hackathon ends; for an achievement not earned.

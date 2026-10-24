@@ -1,12 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { canManageTeam } from '@/lib/squads/access'
 import { keepBuilding } from '@/lib/squads/space'
-
-// POST /api/teams/{id}/keep-building: once the results are in or the hackathon is over, whoever runs the squad turns it into a permanent crew,
-// keeping its members and roles, with its project (linked, or created from the chosen idea).
-const bodySchema = z.object({ projectName: z.string().trim().min(1).max(100).optional() }).strict()
+import { bodySchema } from './schema'
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').slice(-2)[0]

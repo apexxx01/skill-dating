@@ -1,9 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { listFollows } from '@/lib/posts/social'
-
-const query = z.object({ cursor: z.string().min(1).max(200).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
+import { query } from './schema'
 
 // The people who follow this person, newest first. People the caller has a block with are left out.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

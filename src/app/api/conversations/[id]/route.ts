@@ -1,29 +1,13 @@
 import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
-import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
-import { boundedJson } from '@/lib/api/limits'
 import { markMessagesRead } from '@/lib/messaging'
 import { emit, transactWithEvents } from '@/lib/events'
 import { advisoryLock } from '@/lib/progress'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-const sendMessageSchema = z.object({
-  content: z.string().min(1).max(10000),
-  type: z.enum(['TEXT', 'IMAGE', 'FILE', 'CODE', 'LINK_PREVIEW']).default('TEXT'),
-  replyToId: z.string().max(64).optional(),
-  metadata: boundedJson(2048).optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(50),
-  before: z.string().datetime().optional(),
-  // Older messages: the nextCursor of the previous (newer) page.
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { querySchema, sendMessageSchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

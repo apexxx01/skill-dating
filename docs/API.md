@@ -1,6 +1,9 @@
 # API Reference
 
-Generated from the actual route handlers in `src/app/api/`. Every route except
+Generated from the actual route handlers in `src/app/api/`. The same routes are described in machine-readable form in [`openapi.json`](openapi.json) (OpenAPI 3.1, built from the routes, their Zod request
+schemas and the response types of `src/types/api.ts`; a test fails when it is out of date), and `src/lib/api-client` is a typed client generated from it. A route's request schemas live in a `schema.ts` beside
+its `route.ts` (a Next.js route may export only its handlers). This file is the long form: rules, limits and every error.
+ Every route except
 `GET /api/auth/session`, `GET /api/health`, `POST /api/webhooks/clerk`, `POST /api/webhooks/email`, `/api/inngest`, the signed links in emails (`/api/notifications/unsubscribe`,
 `/api/notifications/open/{token}`) and the share cards (`/api/og/...`) requires an authenticated
 Clerk session: a session token sent as `Authorization: Bearer <token>` or in the
@@ -810,7 +813,7 @@ The design is in [PRIVACY.md](PRIVACY.md).
 `{ fieldVisibility: { bio|headline|location|website|githubUsername|twitterUsername|linkedinUrl|availability|builderRole|timezone: PUBLIC|CONNECTIONS|PRIVATE },
 hideFromLeaderboards, hideFromRecruiters, matchingPaused, invisibleMode, whoCanMessage: EVERYONE|CONNECTIONS|NOBODY, showActivity, showCardsOnWeb, cardsAvailable }`. PATCH takes any
 subset (unknown keys refused; `cardsAvailable` is read-only) and returns all of them. Audited. `showCardsOnWeb` ("Show my cards on the web") is whether the public share images may be drawn for the caller:
-on by default for an adult. `cardsAvailable` is false for a minor (16 or 17) and for an account with no date of birth yet; their `showCardsOnWeb` reads `false`, and turning it on is `400 CARDS_NOT_AVAILABLE` (turning it off is always fine).
+on by default for an adult who has never been a minor on the platform; an account that was under 18 at any point has it stored off until its owner turns it on (turning 18 does not turn it on, and the owner is told once, on the birthday). `cardsAvailable` is false for a minor (16 or 17) and for an account with no date of birth yet; their `showCardsOnWeb` reads `false`, and turning it on is `400 CARDS_NOT_AVAILABLE` (turning it off is always fine).
 
 ### `POST /api/users/me/export` and `GET /api/users/me/export`
 POST honours `Idempotency-Key`; 5 a day. Starts building an export of everything held about the caller; **`202`** `{ export }` (an export already being
@@ -856,6 +859,15 @@ One of the caller's own uploads and where it stands (`url` once `READY`). `404 M
 Development only: the "bucket" of the in-memory storage stand-in (404 `MEDIA_NOT_FOUND` whenever a real bucket is configured or in production). Body: the file's bytes, with its `Content-Type`; the key must start `posts/<callerId>/` or `romance/<callerId>/`. Only the size and type are kept.
 
 ## Romance
+
+> **Post-launch.** The romance mode ships **closed**: every route below except `/api/romance/interest` (and leaving, `DELETE /api/romance/profile`) answers `503 ROMANCE_PAUSED` until it is opened for the caller
+> (the flag `romance.enabled`, or a city's `romance.city.<country>-<city>`; [ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)). Build the interface against it last.
+
+### `GET /api/romance/interest`, `POST /api/romance/interest`, `DELETE /api/romance/interest`
+"Tell me when it opens", the one part of the mode that works while it is closed. **`GET`** answers `{ interested, open, eligible }`: whether the caller has asked, whether the mode is open for them now, and whether they
+may ask (an adult with a date of birth on file). **`POST`** asks to be told, idempotently (asking again refreshes the country and city the request is counted under) and answers the same shape; `403
+DATING_UNDERAGE` for a minor, `403 DATING_BIRTH_DATE_REQUIRED` with no date of birth, `409 ROMANCE_ALREADY_OPEN` when the mode is open for them already. **`DELETE`** withdraws it (idempotent). When the mode opens where
+they are they get one notification (`ROMANCE_OPEN`). Rate limited (60 reads, 20 writes a minute).
 
 The romance mode (docs/ROMANCE.md): opt-in, 18+, work first with private filters underneath. Its name in the interface comes from one constant (`modeLabel`, `ROMANCE_MODE_LABEL` in `src/lib/romance/config.ts`); the routes, tables and analytics say "romance". Nothing here is ever part of a professional response (docs/SAFETY.md).
 
@@ -1165,9 +1177,14 @@ Any other name, a wildcard, or a channel the caller may not read refuses the **w
 
 ## Platform
 
+### `GET /api/openapi.json`
+**Auth:** required, and the `ADMIN` role (any signed-in person in development). The OpenAPI 3.1 description of this API (`docs/openapi.json`), the same document that is committed to the repository: 184 paths, with the
+request schemas, the response types where they are typed, the error catalogue (`x-error-catalog`), rate limits (`x-rate-limit`), idempotency (`x-idempotent`), cache lifetimes (`x-cache-max-age`), reward envelopes
+(`x-rewards`) and the post-launch marker on the romance routes (`x-launch`). Cached privately for 60 seconds with an ETag.
+
 ### `GET /api/health`
-**Auth: none.** For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails (still `200`, since the app keeps serving); or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached.
-**Response:** `{ status: 'ok' | 'degraded' | 'down', time, checks: { database, cache, jobs, realtime } }`, each check `{ status: 'ok' | 'down', provider: 'postgres' | 'memory' | 'upstash' | 'inngest' | 'ably', latencyMs? }`. The jobs check reports its configuration only, since probing it would mean enqueueing real work.
+**Auth: none.** For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails, **or, in production, when an optional provider is not configured** (mail, push, storage, media scanning, error reporting: see `missingProviders`); both are still `200`, since the app keeps serving; or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached.
+**Response:** `{ status: 'ok' | 'degraded' | 'down', time, missingProviders: string[], checks: { database, cache, jobs, realtime } }`. `missingProviders` is empty outside production (a preview and development run on the stand-ins by design) and otherwise names, from `email`, `push`, `storage`, `media-scanning` and `error-reporting`, each provider with an unset setting: provider names only, no value of any setting. The same providers are listed, with the settings that are unset and what is lost, in a warning at startup. Media scanning stays fail-closed: without it avatar and romance photo uploads are refused. `checks` has one entry per dependency, each `{ status: 'ok' | 'down', provider: 'postgres' | 'memory' | 'upstash' | 'inngest' | 'ably', latencyMs? }`. The jobs check reports its configuration only, since probing it would mean enqueueing real work.
 
 ### `GET /api/flags`
 Every feature flag with its answer for the caller: `{ flags: { "new-feed": true, ... } }`. Only keys and booleans: rollout percentages and allowlists stay with the admins. Read once per session; answers can be up to 30 seconds old on a deployment with several instances.
@@ -1186,6 +1203,12 @@ Every feature flag with its answer for the caller: `{ flags: { "new-feed": true,
 
 ### `DELETE /api/admin/flags/[key]`
 **Auth:** `ADMIN`. **Response:** `{ success: true }`. Audited.
+
+### `GET /api/admin/settings`
+**Auth:** `ADMIN`. The values an administrator can change without a deploy (`src/lib/settings.ts`). **Response:** `{ settings: [{ key, description, value, default, isDefault, updatedById, updatedAt }] }`. A setting no one has changed has its default (`isDefault: true`, `updatedAt: null`). Today there is one, `romance.launch-threshold`: `{ minInterestedAdults: 250, minPairingSharePercent: 30 }`, the rule for when a city is ready for the romance mode ([ROMANCE.md](ROMANCE.md#where-to-open-it-first)).
+
+### `PUT /api/admin/settings/[key]`
+**Auth:** `ADMIN`. **Body:** `{ value }`, checked against the schema of that setting (for the threshold: `minInterestedAdults` an integer 1 to 1,000,000, `minPairingSharePercent` an integer 0 to 50, no other keys): `400 VALIDATION_FAILED` with `details.value` listing what is wrong. **Response:** the setting as in the list. `404 SETTING_NOT_FOUND` for a key that is not a setting. Audited (`PLATFORM_SETTING_UPDATED`, old and new value).
 
 A flag is **on for a user** when they are on its `allowUserIds` (even while it is disabled), or it is `enabled` and the user falls inside the rollout: `rolloutPercent` 100 is everyone, a lower value is a stable share of users chosen by a hash of the flag key and the user id. Raising the percentage only adds users. A flag that does not exist is off.
 
@@ -1326,6 +1349,7 @@ and a unit test fails if a code is missing here.
 | `HACKATHON_TEAM_TOO_LARGE` | 400 | Team exceeds this hackathon's max team size of {max} |
 | `HACKATHON_TEAM_TOO_SMALL` | 400 | Team is below this hackathon's min team size of {min} |
 | `FLAG_NOT_FOUND` | 404 | Feature flag not found |
+| `SETTING_NOT_FOUND` | 404 | Setting not found |
 | `FLAG_EXISTS` | 409 | A feature flag with this key already exists |
 | `JOB_NOT_FOUND` | 404 | No such job |
 | `COSMETIC_NOT_OWNED` | 403 | You have not earned this cosmetic |
@@ -1416,7 +1440,8 @@ and a unit test fails if a code is missing here.
 | `FRAUD_SIGNAL_NOT_FOUND` | 404 | Fraud signal not found |
 | `REAUTH_REQUIRED` | 403 | Sign in again to do this: it needs a session started in the last {maxAgeMinutes} minutes |
 | `SIGNUPS_PAUSED` | 503 | New accounts are paused for a short while. Try again later |
-| `ROMANCE_PAUSED` | 503 | {mode} is paused for a short while. Try again later |
+| `ROMANCE_PAUSED` | 503 | {mode} is not open for you yet |
+| `ROMANCE_ALREADY_OPEN` | 409 | {mode} is already open for you |
 | `MESSAGING_PAUSED` | 503 | Messaging is paused for a short while. Try again later |
 | `POSTING_PAUSED` | 503 | Posting is paused for a short while. Try again later |
 | `EXTERNAL_HACKATHONS_PAUSED` | 503 | Adding hackathons from other sites is paused for a short while |

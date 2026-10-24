@@ -9,4 +9,4 @@ import type { AchievementsResponse } from '@/types/api'
 export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
   const achievements = await loadAchievementItems(prisma, user.id)
   return createApiResponse<AchievementsResponse>({ achievements, earned: achievements.filter((item) => item.earned).length, total: achievements.length })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'achievements:list' } })
+}, { cache: { maxAge: 60 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'achievements:list' } })

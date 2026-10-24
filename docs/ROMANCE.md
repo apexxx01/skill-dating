@@ -1,10 +1,48 @@
 # The romance mode
 
 Builder-first romance: people are matched on what they build, how they live and what they are obsessed with, and photos come last. The product name is not final: every label a
-person reads comes from one constant, `ROMANCE_MODE_LABEL` in `src/lib/romance/config.ts` (today "Kindred"; API responses carry it as `modeLabel`, error messages as `{mode}`).
+person reads comes from one constant, `ROMANCE_MODE_LABEL` in `src/lib/romance/config.ts` (today "Halves"; API responses carry it as `modeLabel`, error messages as `{mode}`).
 Everything else (code, routes, tables, analytics events, docs) says **romance**, so renaming the mode is that one line. The storage key of the old model stays `DATING` (the
 `MatchType` and `ConnectionType` value, and the `Match` and `Spark` rows made with it); nobody ever sees it. Routes are in [API.md](API.md#romance), the 18+ gate and the
 separation rules in [SAFETY.md](SAFETY.md).
+
+## Launch: it ships closed (post-launch)
+
+**The romance mode is OFF at launch, in every environment.** Nothing is switched on by default and nothing leaks while it is off:
+
+- **Routes.** Every `/api/romance/*` route answers `503 ROMANCE_PAUSED` (the request gate, `src/lib/api/gate.ts`), except two things that must work: leaving it (`DELETE /api/romance/profile`) and asking to be
+  told when it opens (`/api/romance/interest`, below).
+- **No trace elsewhere.** The ROMANCE_MODE consent is not listed in `GET /api/users/me/consents` and cannot be given; the `ROMANCE_*` notification kinds are not in `GET /api/notifications/preferences`
+  or `/channels`; `GET /api/flags` leaves its flags out; search, the passport, the feed and every professional response never carried it; the weekly drop and its notifications do not run; the contract
+  documents mark every page of it **post-launch**.
+- **It opens with feature flags**, all audited, all changed with `PATCH /api/admin/flags/{key}` (an admin; the cache is dropped on every instance):
+
+  | Flag | Opens the mode for |
+  |---|---|
+  | `romance.enabled` (created OFF by the migration) | everyone it is enabled for: 100% is everybody, a lower rollout is a stable share, the allowlist (`allowUserIds`) opens it for named testers while it is off |
+  | `romance.city.<country>-<city>`, for example `romance.city.in-pune` (created by an admin with `POST /api/admin/flags`) | the people whose profile says that country and city (the codes in the profile: `IN`, `pune`), with the same rollout and allowlist rules |
+  | `kill.romance` | **closes it everywhere, at once**, whatever else is on (the emergency stop; owner: Trust & Safety lead) |
+
+  A flag that does not exist is off, and a flag store that cannot be read means closed. The rule is `src/lib/romance/launch.ts` (a pure function over the flags, unit-tested).
+- **Opening is a launch decision**, not a deploy: see "Turning on Halves (post-launch)" in [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md): interest by city, the media-scanning provider live, the legal review, moderation
+  capacity, then the city flags one by one.
+
+### Where to open it first
+
+A city is ready when at least 250 adults there asked to be told **and** each side of the interested-in pairing is at least 30% of that pool (the setting `romance.launch-threshold`, changed by an administrator with `PUT /api/admin/settings/romance.launch-threshold`, audited). The admin metrics mark
+the cities that reach the first number (`romance_interest`, `detail.meetsInterestThreshold`); the interest list holds no gender or preference, so the second is evidenced outside the product ([LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md#turning-on-halves-post-launch)).
+
+### Asking to be told when it opens
+
+`GET`/`POST`/`DELETE /api/romance/interest` ([API.md](API.md#romance)) is the demand signal. An **adult with a date of birth on file** (a minor is `403 DATING_UNDERAGE`, an unknown age
+`403 DATING_BIRTH_DATE_REQUIRED`, the codes of the mode itself) asks, idempotently, to be told; the request keeps their **country and city** from the profile as they were when they asked
+(`RomanceInterest`: refreshed by asking again; nothing else, nothing shown to anybody else). `DELETE` withdraws it; deleting the account removes it; the retention job removes a request 180
+days after the person was told. If the mode is already open for the person there is nothing to wait for (`409 ROMANCE_ALREADY_OPEN`).
+
+When the mode opens where they are, they get **one** notification (`ROMANCE_OPEN`, the neutral line outside the app like every romance kind): the job `romance/announce` runs hourly and is queued right
+after an admin creates or changes a launch flag; it does nothing while the mode is closed, and writes the note once per person (a notification keyed `romance:open`).
+
+The admin metrics ([METRICS.md](METRICS.md#demand)) show the demand: `romance_interest` (everybody and by city, only cities of at least 3 people) and `romance_interest_share_of_adult_actives` (the same, divided by the adults active in the last 30 days in the same place).
 
 ## What it is made of
 
@@ -72,7 +110,7 @@ inbox gate unless it is a reply) and the sender must have been **shown** them in
 8-an-hour throttle. A mutual pair makes a **romance match**: a conversation (system icebreaker built from the reasons the score found, then both openers), a notification each and a realtime
 push. It **announces no event**: no `MATCH_CREATED`, so it counts toward no achievement, no counter and no XP. Unmatch and report reuse `DELETE /api/matches/{id}` and
 `POST /api/matches/{id}/report`; both are final and silent. Notifications follow the professional rules: per spark with the sender for a plan that shows who, one daily count ("N people sparked
-you in Kindred") for one that does not, both switchable (`ROMANCE_SPARK`, `ROMANCE_SPARK_DIGEST`).
+you in Halves") for one that does not, both switchable (`ROMANCE_SPARK`, `ROMANCE_SPARK_DIGEST`).
 
 ## Photos and the reveal
 

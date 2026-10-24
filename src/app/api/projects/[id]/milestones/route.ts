@@ -1,21 +1,9 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { advisoryLock, isValidId, loadProjectAccess, projectIdFromPath } from '@/lib/progress'
-import { cursorParam, paginateOffset } from '@/lib/api/pagination'
-import { MAX_MILESTONES_PER_PROJECT, dueDateSchema, milestoneResponse, milestoneSelect } from '@/lib/milestones'
-
-const createMilestoneSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(5000).optional(),
-  dueDate: dueDateSchema.optional(),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { paginateOffset } from '@/lib/api/pagination'
+import { MAX_MILESTONES_PER_PROJECT, milestoneResponse, milestoneSelect } from '@/lib/milestones'
+import { createMilestoneSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const projectId = projectIdFromPath(request)

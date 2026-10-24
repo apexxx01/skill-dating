@@ -1,15 +1,8 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-// GET /api/admin/fraud-signals?status=&cursor=: groups the nightly collusion run flagged (src/lib/integrity), newest first. Staff only.
-const querySchema = z.object({
-  status: z.enum(['OPEN', 'CONFIRMED', 'DISMISSED']).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const query = validateQuery(querySchema)(request)

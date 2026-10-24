@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client'
+import { adultCutoff } from '@/lib/age-policy'
 import { MEANINGFUL_EVENTS, OWN_ACTION_XP_TYPES } from './activity'
 import { addDays, dateParam, endOf, startOf, windowStart } from './days'
+import { romanceLaunchThreshold } from '@/lib/settings'
 import { inScope, num, ratio, row, type Db, type MetricRow, type MetricsScope } from './types'
 
 // The numbers about reaching people, keeping them safe, where they come from and who brings them (docs/METRICS.md, "Notifications", "Safety", "Growth", "Invites").
@@ -111,6 +113,49 @@ export async function growthMetrics(db: Db, day: string, scope?: MetricsScope): 
       out.push(...row('users_by_place', num(entry.total), undefined, entry.place))
       if (num(entry.recent) > 0) out.push(...row('signups_7d_by_place', num(entry.recent), undefined, entry.place))
     }
+  }
+  return out
+}
+
+// --- Demand for the romance mode -------------------------------------------------------------------------------------------
+
+/**
+ * Who has asked to be told when the romance mode opens (POST /api/romance/interest), the demand signal that decides where it opens first: the total, by city (the country and city
+ * kept with the request; 50 largest, and only cities of at least PLACE_MINIMUM people, as with every place), and each as a share of the ADULTS who were active in the last 30 days
+ * in the same place. The share can pass 1: a person can ask without having been active lately. These are the only numbers that mention the mode; they read one table and no
+ * activity of the mode, which has none yet.
+ */
+export async function demandMetrics(db: Db, day: string, scope?: MetricsScope): Promise<MetricRow[]> {
+  const adults = Prisma.sql`u."birthDate" IS NOT NULL AND u."birthDate" <= ${adultCutoff(new Date(`${day}T12:00:00Z`))}::date`
+  const [totals] = await db.$queryRaw<{ interested: bigint; actives: bigint }[]>(Prisma.sql`
+    SELECT
+      (SELECT COUNT(*) FROM "RomanceInterest" i JOIN "User" u ON u."id" = i."userId" WHERE u."deletedAt" IS NULL AND i."createdAt" < ${endOf(day)} AND ${inScope(scope, 'u')}) AS "interested",
+      (SELECT COUNT(DISTINCT a."userId") FROM "ActivityDay" a JOIN "User" u ON u."id" = a."userId"
+        WHERE a."day" >= ${dateParam(windowStart(day, 30))} AND a."day" <= ${dateParam(day)} AND u."deletedAt" IS NULL AND ${adults} AND ${inScope(scope, 'u')}) AS "actives"
+  `)
+  const out: MetricRow[] = [
+    ...row('romance_interest', num(totals.interested)),
+    ...row('romance_interest_share_of_adult_actives', ratio(num(totals.interested), num(totals.actives)), { interested: num(totals.interested), adultActives: num(totals.actives) }),
+  ]
+  const cities = await db.$queryRaw<{ place: string; interested: bigint; actives: bigint }[]>(Prisma.sql`
+    WITH asked AS (
+      SELECT 'city:' || i."countryCode" || ':' || i."cityKey" AS "place", COUNT(*) AS "interested"
+      FROM "RomanceInterest" i JOIN "User" u ON u."id" = i."userId"
+      WHERE u."deletedAt" IS NULL AND i."createdAt" < ${endOf(day)} AND i."countryCode" IS NOT NULL AND i."cityKey" IS NOT NULL AND ${inScope(scope, 'u')}
+      GROUP BY 1 HAVING COUNT(*) >= ${PLACE_MINIMUM} ORDER BY COUNT(*) DESC, 1 ASC LIMIT ${PLACES_PER_KIND}
+    )
+    SELECT asked."place", asked."interested",
+      (SELECT COUNT(DISTINCT a."userId") FROM "ActivityDay" a JOIN "User" u ON u."id" = a."userId" JOIN "Profile" p ON p."userId" = u."id"
+        WHERE a."day" >= ${dateParam(windowStart(day, 30))} AND a."day" <= ${dateParam(day)} AND u."deletedAt" IS NULL AND ${adults}
+          AND 'city:' || p."countryCode" || ':' || p."cityKey" = asked."place" AND ${inScope(scope, 'u')}) AS "actives"
+    FROM asked ORDER BY asked."interested" DESC, asked."place" ASC
+  `)
+  // Whether each city has reached the number of interested adults the launch checklist asks for (an admin setting, src/lib/settings.ts). The other half of the rule, the balance of the
+  // interested-in pairing, is not measurable here: the interest list holds no gender or preference.
+  const threshold = await romanceLaunchThreshold(db)
+  for (const entry of cities) {
+    out.push(...row('romance_interest', num(entry.interested), { minInterestedAdults: threshold.minInterestedAdults, meetsInterestThreshold: num(entry.interested) >= threshold.minInterestedAdults ? 1 : 0 }, entry.place))
+    out.push(...row('romance_interest_share_of_adult_actives', ratio(num(entry.interested), num(entry.actives)), { interested: num(entry.interested), adultActives: num(entry.actives) }, entry.place))
   }
   return out
 }

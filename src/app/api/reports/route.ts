@@ -1,16 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
+import { paginate } from '@/lib/api/pagination'
 import { createReportSchema, fileReport } from '@/lib/moderation/reports'
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  status: z.enum(['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED']).optional(),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 const userSummarySelect = { id: true, name: true, username: true, image: true } as const
 

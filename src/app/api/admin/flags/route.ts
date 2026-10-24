@@ -1,15 +1,11 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, decodeKeysetCursor, keysetOrderBy, keysetPage, keysetWhere } from '@/lib/api/pagination'
+import { decodeKeysetCursor, keysetOrderBy, keysetPage, keysetWhere } from '@/lib/api/pagination'
 import { invalidateFlags } from '@/lib/flags'
+import { announceAfterFlagChange } from '@/lib/romance/announce'
 import { createFlagSchema, flagResponse } from '@/lib/flags-admin'
-
-const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 // Admin only. Flags are ordered by key, so a cursor is the last key returned.
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
@@ -47,6 +43,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     data: { userId: user.id, action: 'FEATURE_FLAG_CREATED', targetType: 'FEATURE_FLAG', targetId: flag.key, newValue: flagResponse(flag) as unknown as Prisma.InputJsonValue },
   })
   await invalidateFlags()
+  await announceAfterFlagChange(flag.key)
 
   return createApiResponse(flagResponse(flag), 201)
 }, { requiredRole: ['ADMIN'], idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 30, keyPrefix: 'admin:flags-create' } })

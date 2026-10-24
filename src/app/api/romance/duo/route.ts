@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import { dissolveDuo, loadDuo, requestDuo } from '@/lib/romance/duo'
+import { requestDuoSchema } from './schema'
 
 // The caller's Duo: a page two people of a romance match share by consent, with their joint projects and a combined heatmap. It is for the two of them only.
 //   GET     `{ duo }`: null, or `{ id, status (PENDING|ACTIVE), requestedByMe, partner, shared }`; `shared` is set only while ACTIVE.
@@ -12,7 +12,7 @@ export const GET = withAuth(async (_request: NextRequest, { prisma, user }) => {
 }, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'romance:duo-get' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
-  const body = await validateBody(z.object({ matchId: z.string().min(1).max(64) }).strict())(request)
+  const body = await validateBody(requestDuoSchema)(request)
   if (body instanceof Response) return body
   const result = await requestDuo(prisma, user.id, body.data.matchId)
   if (result.kind === 'NOT_FOUND') return createApiError('MATCH_NOT_FOUND')

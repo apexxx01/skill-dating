@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { getCache, type Cache } from '@/lib/infra/cache'
 import { log } from '@/lib/log'
+import { isLaunchGateFlag } from '@/lib/romance/launch-keys'
 
 // Feature flags: switches that can be changed at runtime, without a deploy.
 // A flag is on for a user when
@@ -93,8 +94,11 @@ export async function isEnabled(db: FlagDb, key: string, userId: string | null |
   return evaluateFlag(flags.find((flag) => flag.key === key), userId)
 }
 
-/** Every flag with the answer for this user, for the interface to read in one call. */
+/**
+ * Every flag with the answer for this user, for the interface to read in one call. The flags that gate the romance mode (its launch flags and its kill switch) are left out: the
+ * interface learns whether the mode is open from GET /api/romance/interest, and a closed mode appears in no list.
+ */
 export async function flagsFor(db: FlagDb, userId: string | null | undefined, cache?: Cache): Promise<Record<string, boolean>> {
   const flags = await loadFlags(db, cache)
-  return Object.fromEntries(flags.map((flag) => [flag.key, evaluateFlag(flag, userId)]))
+  return Object.fromEntries(flags.filter((flag) => !isLaunchGateFlag(flag.key)).map((flag) => [flag.key, evaluateFlag(flag, userId)]))
 }

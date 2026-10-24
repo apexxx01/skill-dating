@@ -146,4 +146,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     blockedByMe: relation === 'BLOCKED_BY_ME',
     reliableTeammate: reliability?.badge ?? false,
   })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })
+}, { cache: { maxAge: 30 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'users:get' } })

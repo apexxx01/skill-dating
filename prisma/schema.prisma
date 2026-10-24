@@ -400,6 +400,7 @@ model User {
   followers           Follow[]                 @relation("Followers")
   watches             Watch[]
   romanceProfile      RomanceProfile?
+  romanceInterest     RomanceInterest?
   risk                UserRisk?
   dataExports         DataExport[]
   consents            ConsentRecord[]
@@ -425,6 +426,11 @@ model User {
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
   @@index([usernameSkeleton])
+  @@index([xp])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
+  @@index([username(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_username_trgm_idx")
+  @@index([headline(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_headline_trgm_idx")
+  @@index([bio(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_bio_trgm_idx")
 }
 
 model Account {
@@ -573,6 +579,8 @@ model SkillEvidence {
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@index([userId, skillId])
 }
 
 model Project {
@@ -597,6 +605,8 @@ model Project {
   shippedAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  // The text vector of the project, computed by the database (migration 20261024000300): search reads it instead of building it for every candidate.
+  searchVec   Unsupported("tsvector")? @default(dbgenerated("search_vec(VARIADIC ARRAY[name, \"shortDesc\", search_join(\"techStack\"), \"left\"(description, 2000)])"))
 
   owner        User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   members      ProjectMember[]
@@ -609,6 +619,9 @@ model Project {
   activities   Activity[]
   posts        ShipPost[]
   watchers     Watch[]
+
+  @@index([ownerId, updatedAt])
+  @@index([searchVec], type: Gin)
 }
 
 model ProjectMember {
@@ -1265,6 +1278,7 @@ model Notification {
 
   @@unique([userId, coalesceKey])
   @@index([userId, isRead])
+  @@index([userId, createdAt])
   // The sweep: notifications not yet looked at, oldest first.
   @@index([sweptAt, createdAt])
 }
@@ -1611,6 +1625,16 @@ model FeatureFlag {
   updatedAt      DateTime @updatedAt
 }
 
+// A value an administrator can change without a deploy (src/lib/settings.ts holds the known keys, their schema and their defaults; a key with no row has its default).
+// Changes are audited. Nothing here is about a person.
+model PlatformSetting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // Product analytics (see src/lib/infra/analytics.ts). props never holds personal data.
 // userId is set to null when the user is deleted, so the counts survive but the link does not.
 model ProductEvent {
@@ -1855,6 +1879,24 @@ enum RomanceScope {
   ANYWHERE
 }
 
+// "Tell me when it opens": an adult's request to be told when the romance mode opens where they are (POST /api/romance/interest). Country and city are the profile's own at the
+// time of the request (a snapshot, refreshed by asking again); they are what the admin metrics count by, never shown to anybody else. `notifiedAt` is set when the opening note was
+// written, so it is sent once. Removed with the account, by DELETE /api/romance/interest, and by the retention job 180 days after the note.
+model RomanceInterest {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  countryCode String?   @db.VarChar(2)
+  cityKey     String?
+  city        String?
+  notifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([countryCode, cityKey])
+  @@index([notifiedAt])
+}
+
 // A person's romance profile. 1:1 with User, created by opting in (PUT /api/romance/profile, behind the 18+ gate). The first half is what a match sees; the
 // PRIVATE FILTERS below it are returned to the owner and to nobody else, and only ever decide who is shown to whom.
 model RomanceProfile {
@@ -2064,6 +2106,8 @@ model ShipPost {
   // Set when a moderator hid or removed it (with deletedAt); a hide can be undone, a removal also blanks the text.
   moderatedAt     DateTime?
   deletedAt       DateTime?
+  // The text vector of the post, computed by the database (migration 20261024000300): search reads it instead of building it for every candidate.
+  searchVec       Unsupported("tsvector")? @default(dbgenerated("search_vec(VARIADIC ARRAY[title, \"left\"(body, 4000), search_join(\"stackTags\")])"))
 
   author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
   project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -2076,6 +2120,7 @@ model ShipPost {
   @@index([createdAt])
   @@index([shipDayKey])
   @@index([coAuthorIds], type: Gin)
+  @@index([searchVec], type: Gin)
 }
 
 // One builder's respect for one post. Unique per pair. `weight` is fixed when it is given (src/lib/posts/props-weight.ts); 0 for a giver the trust gate does not trust.

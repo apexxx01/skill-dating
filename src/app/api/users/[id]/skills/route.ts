@@ -1,25 +1,9 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam, paginateOffset, withNextCursor } from '@/lib/api/pagination'
-import { z } from 'zod'
+import { paginateOffset, withNextCursor } from '@/lib/api/pagination'
 import { blockRelation } from '@/lib/blocks'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
-
-const listQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(100),
-  cursor: cursorParam,
-})
-
-const addUserSkillSchema = z.object({
-  skillId: z.string().max(64),
-  level: z.number().min(1).max(5).default(1),
-  yearsExperience: z.number().min(0).max(50).optional(),
-})
-
-const updateUserSkillSchema = z.object({
-  level: z.number().min(1).max(5).optional(),
-  yearsExperience: z.number().min(0).max(50).optional(),
-})
+import { addUserSkillSchema, listQuerySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { blockRelation } from '@/lib/blocks'
 import { heatmapRange, loadHeatmap, MAX_HEATMAP_DAYS } from '@/lib/heatmap'
@@ -7,8 +6,7 @@ import { getCache } from '@/lib/infra/cache'
 import { isValidId } from '@/lib/progress'
 import { HEATMAP_TTL_MS, heatmapVersionKey } from '@/lib/xp-views'
 import type { HeatmapDay, HeatmapResponse } from '@/types/api'
-
-const querySchema = z.object({ days: z.coerce.number().int().min(1).max(MAX_HEATMAP_DAYS).default(MAX_HEATMAP_DAYS) })
+import { querySchema } from './schema'
 
 // GET /api/users/{id}/heatmap?days=365
 //
@@ -49,4 +47,4 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const items = await loadHeatmap(prisma, id, range)
   await cache.set(key, JSON.stringify(items), { ttlMs: HEATMAP_TTL_MS })
   return createApiResponse<HeatmapResponse>({ ...base, hidden: false, items })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:heatmap' } })
+}, { cache: { maxAge: 60 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'users:heatmap' } })

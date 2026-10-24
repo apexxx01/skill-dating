@@ -1,13 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
-import { cursorParam } from '@/lib/api/pagination'
 import { loadReceivedSparks } from '@/lib/matching/matches'
-
-const querySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-  cursor: cursorParam,
-})
+import { querySchema } from './schema'
 
 // The sparks the caller has been sent and not answered. With the SEE_WHO_SPARKED entitlement: the list, newest first. Without it: only the number.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

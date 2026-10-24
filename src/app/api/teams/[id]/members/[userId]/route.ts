@@ -1,17 +1,8 @@
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership, checkMembership } from '@/lib/api/handler'
-import { z } from 'zod'
+import { withAuth, validateBody, createApiResponse, createApiError, checkOwnership } from '@/lib/api/handler'
 import { hackathonLimits, isLocked, removeMember } from '@/lib/squads/membership'
-import { squadRoleSchema } from '@/lib/squads/schemas'
 import { getJobQueue } from '@/lib/infra/jobs'
-
-// `role` is the member's permissions (owner only); `squadRole` (+ `roleLabel` for OTHER) is what they do on the squad, which a member may declare
-// for themselves and the owner for anyone.
-const updateMemberSchema = z.object({
-  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
-  squadRole: squadRoleSchema.nullable().optional(),
-  roleLabel: z.string().trim().min(1).max(40).nullable().optional(),
-}).refine((value) => value.role !== undefined || value.squadRole !== undefined, 'Send role or squadRole')
+import { updateMemberSchema } from './schema'
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)

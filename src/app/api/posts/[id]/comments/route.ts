@@ -1,12 +1,10 @@
 import { contentRejection, recordFlag, screenText } from '@/lib/safety/screen'
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { commentSchema, createComment, listComments } from '@/lib/posts/comments'
+import { listQuery } from './schema'
 
 const postIdOf = (request: NextRequest) => new URL(request.url).pathname.split('/').slice(-2)[0] ?? ''
-
-const listQuery = z.object({ cursor: z.string().min(1).max(64).optional(), limit: z.coerce.number().int().min(1).max(50).default(20) })
 
 // The comments on a post, oldest first, each with up to a few replies (one level only). Authors the caller has a block with are left out.
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {

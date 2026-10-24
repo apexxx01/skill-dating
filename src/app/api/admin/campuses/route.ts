@@ -1,20 +1,7 @@
 import { NextRequest } from 'next/server'
-import { z } from 'zod'
 import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { campusColumns, campusSlug } from '@/lib/campus/campus'
-
-// Campuses, managed by admins (docs/INVITES.md). A campus has a slug (the key its leaderboard is called by), a name, the e-mail domains of the college, and where it is.
-const createSchema = z
-  .object({
-    name: z.string().trim().min(2).max(120),
-    slug: z.string().trim().max(80).optional(),
-    emailDomains: z.array(z.string().trim().max(253)).min(1).max(20),
-    city: z.string().max(100).nullable().optional(),
-    countryCode: z.string().max(2).nullable().optional(),
-  })
-  .strict()
-
-const listSchema = z.object({ q: z.string().max(100).optional(), includeDisabled: z.enum(['true', 'false']).default('true'), limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(64).optional() })
+import { createSchema, listSchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma }) => {
   const query = validateQuery(listSchema)(request)

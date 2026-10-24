@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { log } from '@/lib/log'
 import { activityMetrics, activationMetrics, fillActivityDay, onboardingRate, retentionMetrics } from './compute-activity'
-import { deliveryMetrics, growthMetrics, inviteMetrics, safetyMetrics } from './compute-ops'
+import { deliveryMetrics, demandMetrics, growthMetrics, inviteMetrics, safetyMetrics } from './compute-ops'
 import { feedMetrics, matchingMetrics, squadMetrics } from './compute-product'
 import { addDays, daysBetween, formatDay, isDay, parseDay, yesterday } from './days'
 import type { MetricRow, MetricsScope } from './types'
@@ -25,6 +25,7 @@ const GROUPS: { name: string; run: (db: PrismaClient, day: string, scope?: Metri
   { name: 'safety', run: safetyMetrics },
   { name: 'growth', run: growthMetrics },
   { name: 'invites', run: inviteMetrics },
+  { name: 'demand', run: demandMetrics },
 ]
 
 export interface MeasureResult {

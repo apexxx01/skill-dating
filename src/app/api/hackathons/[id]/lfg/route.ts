@@ -24,7 +24,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const { posts, total } = await listLfg(prisma, { hackathonId: id, viewerId: user.id, role: query.data.role, stack: query.data.stack, tz: query.data.tz, kind: query.data.kind, offset, limit: query.data.limit })
   const next = offset + query.data.limit
   return createApiResponse({ posts, nextCursor: next < total ? encodeOffsetCursor(next) : null })
-}, { rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:lfg-list' } })
+}, { cache: { maxAge: 10 }, rateLimit: { windowMs: 60000, maxRequests: 60, keyPrefix: 'hackathons:lfg-list' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = hackathonIdOf(request)

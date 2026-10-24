@@ -1,30 +1,11 @@
 import { mayMessage } from '@/lib/privacy/messaging'
 import { NextRequest } from 'next/server'
-import { withAuth, validateBody, validateQuery, createApiResponse, createApiError, checkMembership } from '@/lib/api/handler'
+import { withAuth, validateBody, validateQuery, createApiResponse, createApiError } from '@/lib/api/handler'
 import { unreadCountsByConversation, totalUnread } from '@/lib/messaging'
-import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { blockGuardAny } from '@/lib/blocks'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-
-// Only person-to-person and ad-hoc group conversations are created here.
-// Team, project and hackathon conversations are created atomically with the
-// resource itself; letting a client create one bound to an arbitrary
-// teamId/projectId/hackathonId would let anyone squat (or crash on) the single
-// conversation slot those resources have.
-const createConversationSchema = z.object({
-  type: z.enum(['DIRECT', 'GROUP']).default('DIRECT'),
-  name: z.string().max(100).optional(),
-  participantIds: z.array(z.string().min(1).max(64)).min(1).max(50),
-})
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  type: z.enum(['DIRECT', 'GROUP', 'PROJECT', 'TEAM', 'HACKATHON']).optional(),
-  search: z.string().trim().min(1).max(100).optional(),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { createConversationSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)

@@ -1,16 +1,8 @@
 import { NextRequest } from 'next/server'
 import { withAuth, validateQuery, validateBody, createApiResponse, createApiError } from '@/lib/api/handler'
 import type { Prisma } from '@prisma/client'
-import { cursorParam, paginate } from '@/lib/api/pagination'
-import { z } from 'zod'
-
-const querySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(50).default(20),
-  unreadOnly: z.coerce.boolean().default(false),
-  type: z.string().max(200).optional(),
-  cursor: cursorParam,
-})
+import { paginate } from '@/lib/api/pagination'
+import { markAllSchema, querySchema } from './schema'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const queryResult = validateQuery(querySchema)(request)
@@ -42,13 +34,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
   return createApiResponse({ notifications: result.items, unreadCount, nextCursor: result.nextCursor, pagination: result.pagination })
-}, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'notifications:list' } })
-
-// Bulk mark-as-read on the collection route. Path-segment tricks like
-// PATCH /api/notifications/read-all don't reach this file at all (no such
-// route exists), so "mark all" is a body flag instead; a single notification
-// is marked read via PATCH /api/notifications/[id].
-const markAllSchema = z.object({ all: z.literal(true) })
+}, { cache: { maxAge: 0 }, rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'notifications:list' } })
 
 export const PATCH = withAuth(async (request: NextRequest, { prisma, user }) => {
   const bodyResult = await validateBody(markAllSchema)(request)
