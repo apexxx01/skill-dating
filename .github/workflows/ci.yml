@@ -145,3 +145,14 @@ jobs:
       - run: npx prisma generate
       - name: operations.generated.ts, docs/openapi.json and the typed client are up to date
         run: npm run openapi:check
+
+  # Lints the workflow files themselves (syntax, expressions, contexts). Shellcheck integration is off. A pinned release, fetched by its tag.
+  workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+      - name: Lint .github/workflows
+        run: ./actionlint -color -shellcheck=
