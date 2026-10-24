@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   integration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     services:
       postgres:
@@ -52,15 +52,15 @@ jobs:
       - name: Skip notice
         if: env.CLERK_SECRET_KEY == ''
         run: echo "::warning::CLERK_SECRET_KEY is not available to this run, so the integration suite was skipped."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.CLERK_SECRET_KEY != ''
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: env.CLERK_SECRET_KEY != ''
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
       - if: env.CLERK_SECRET_KEY != ''
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .next-test/cache
           key: next-integration-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'prisma/schema.prisma') }}
@@ -76,7 +76,7 @@ jobs:
       # The app's own log, to read why a run failed. It can hold request ids and test addresses, never a secret (the app never logs them).
       - name: Server log
         if: failure() && env.CLERK_SECRET_KEY != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: server-log
           path: ${{ runner.temp }}/server.log
