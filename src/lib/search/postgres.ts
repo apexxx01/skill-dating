@@ -83,7 +83,9 @@ async function users(db: Db, query: SearchQuery, scope: SearchScope): Promise<Ra
     ), scored AS (
       SELECT u."id", u."username", u."name", u."image", ${visible('headline', 'headline')} AS "headline", ${rounded(raw)} AS "score"
       FROM candidates c
-      JOIN "User" u ON u."id" = c."id"
+      -- One lookup per candidate (OFFSET 0 keeps the planner from turning this into a scan of every person joined to the list): the filters and the score are worked out for the
+      -- few hundred people who may match, not for everybody.
+      JOIN LATERAL (SELECT * FROM "User" WHERE "id" = c."id" OFFSET 0) u ON true
       LEFT JOIN "Profile" p ON p."userId" = u."id"
       WHERE u."deletedAt" IS NULL AND u."birthDateRefusedAt" IS NULL
         AND u."id" <> ${scope.viewerId} AND NOT (u."id" = ANY(${pgArray(scope.hiddenUserIds)}))
@@ -103,7 +105,8 @@ async function users(db: Db, query: SearchQuery, scope: SearchScope): Promise<Ra
 
 async function projects(db: Db, query: SearchQuery, scope: SearchScope): Promise<RankedHit[]> {
   const { q, tsq, like } = partsOf(query)
-  const vec = sql`search_vec(pr."name", pr."shortDesc", search_join(pr."techStack"), left(pr."description", 2000))`
+  // The stored vector (Project."searchVec", generated from the same function and columns): read, not rebuilt for every candidate.
+  const vec = sql`pr."searchVec"`
   const ts = sql`to_tsquery('simple', ${tsq})`
   const raw = textScore(vec, ts, sql`search_norm(pr."name")`, q, like)
   const rows = await db.$queryRaw<{ id: string; slug: string; name: string; summary: string | null; status: string; isPublic: boolean; score: number }[]>(sql`
@@ -175,7 +178,8 @@ async function hackathons(db: Db, query: SearchQuery, _scope: SearchScope): Prom
 
 async function posts(db: Db, query: SearchQuery, scope: SearchScope): Promise<RankedHit[]> {
   const { q, tsq, like } = partsOf(query)
-  const vec = sql`search_vec(sp."title", left(sp."body", 4000), search_join(sp."stackTags"))`
+  // The stored vector (ShipPost."searchVec", generated from the same function and columns): read, not rebuilt for every candidate.
+  const vec = sql`sp."searchVec"`
   const ts = sql`to_tsquery('simple', ${tsq})`
   // A little for being recent (half-life 30 days) and for the respect it got, so of two equal matches the fresher, better-received post comes first.
   const raw = sql`${textScore(vec, ts, sql`search_norm(sp."title")`, q, like)}
