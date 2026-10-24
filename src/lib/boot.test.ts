@@ -97,16 +97,67 @@ describe('validateEnvOrExit', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  const required = {
+    VERCEL_ENV: 'production',
+    CLERK_WEBHOOK_SECRET: 'whsec_x',
+    UPSTASH_REDIS_REST_URL: 'https://x.upstash.io',
+    UPSTASH_REDIS_REST_TOKEN: 't',
+    INNGEST_EVENT_KEY: 'e',
+    INNGEST_SIGNING_KEY: 's',
+    ABLY_API_KEY: 'a.b:c',
+  }
+  const optional = {
+    RESEND_API_KEY: 're_x',
+    EMAIL_FROM: 'App <hello@example.com>',
+    APP_URL: 'https://app.example.com',
+    VAPID_PUBLIC_KEY: 'B'.repeat(87),
+    VAPID_PRIVATE_KEY: 'p'.repeat(43),
+    VAPID_SUBJECT: 'mailto:ops@example.com',
+    STORAGE_ENDPOINT: 'https://s3.example.com',
+    STORAGE_BUCKET: 'b',
+    STORAGE_ACCESS_KEY_ID: 'k',
+    STORAGE_SECRET_ACCESS_KEY: 's',
+    MEDIA_MODERATION_URL: 'https://scan.example.com/scan',
+    MEDIA_MODERATION_TOKEN: 't',
+    SENTRY_DSN: 'https://abc@o1.ingest.sentry.io/1',
+  }
+  const noOptional = Object.fromEntries(Object.keys(optional).map((key) => [key, undefined]))
+
+  it('warns loudly in production about each optional provider that is missing, by name and never by value', async () => {
+    const loaded = await load('production', { ...valid, ...required, ...noOptional })
+    restore = loaded.restore
+    const exit = vi.fn() as never
+    const warn = vi.fn()
+    loaded.boot.validateEnvOrExit(exit, () => {}, warn)
+    expect(exit).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const message = warn.mock.calls[0][0] as string
+    expect(message).toContain('WARNING: 5 providers are not configured in PRODUCTION')
+    for (const name of ['email', 'push', 'storage', 'media-scanning', 'error-reporting']) expect(message).toContain(`- ${name} (`)
+    for (const setting of ['RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'STORAGE_ENDPOINT', 'MEDIA_MODERATION_URL', 'SENTRY_DSN']) expect(message).toContain(setting)
+    expect(message).toContain('fail closed')
+    expect(message).not.toContain(valid.CLERK_SECRET_KEY)
+    expect(message).not.toContain('whsec_x')
+  })
+
+  it('names only the providers that are missing', async () => {
+    const loaded = await load('production', { ...valid, ...required, ...optional, SENTRY_DSN: undefined, VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined, VAPID_SUBJECT: undefined })
+    restore = loaded.restore
+    const warn = vi.fn()
+    loaded.boot.validateEnvOrExit(vi.fn() as never, () => {}, warn)
+    const message = warn.mock.calls[0][0] as string
+    expect(message).toContain('WARNING: 2 providers are not configured')
+    expect(message).toContain('- push (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT not set)')
+    expect(message).toContain('- error-reporting (SENTRY_DSN not set)')
+    expect(message).not.toContain('- email (')
+    expect(message).not.toContain('- media-scanning (')
+  })
+
   it('does not warn when production has every service', async () => {
     const loaded = await load('production', {
       ...valid,
-      VERCEL_ENV: 'production',
-      CLERK_WEBHOOK_SECRET: 'whsec_x',
-      UPSTASH_REDIS_REST_URL: 'https://x.upstash.io',
-      UPSTASH_REDIS_REST_TOKEN: 't',
-      INNGEST_EVENT_KEY: 'e',
-      INNGEST_SIGNING_KEY: 's',
-      ABLY_API_KEY: 'a.b:c',
+      ...required,
+      ...optional,
     })
     restore = loaded.restore
     const warn = vi.fn()

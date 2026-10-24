@@ -12,11 +12,15 @@ Contents: [Providers](#1-providers-real-and-smoke-tested) · [Identity](#2-ident
 
 ## 1. Providers: real and smoke-tested
 
-Boot refuses a production start without Upstash, Inngest, Ably and the Clerk webhook secret. **The others fall back silently** (mail goes to an in-memory outbox, pushes are recorded and not
-sent, uploads are refused or, for scanning, refused for avatars and romance photos), so a missing key is not caught for you: these are the checks that catch it.
+Boot refuses a production start without Upstash, Inngest, Ably and the Clerk webhook secret. The others do not stop the server (mail goes to an in-memory outbox, pushes are recorded and not
+sent, uploads are refused, and avatars and romance photos are refused without a scanner), but they are **reported**: the startup log carries a boxed warning listing each missing provider, and in production
+`GET /api/health` answers `status: "degraded"` with `missingProviders` naming them. **The first check of this section: `GET /api/health` on production says `"status": "ok"` and `"missingProviders": []`.** The checks below prove each provider
+really works, which a configured key does not.
 
 | ☐ | Item | How to verify |
 | --- | --- | --- |
+| ☐ | **No provider is reported missing** | `GET /api/health` → `status: "ok"`, `missingProviders: []` (no `email`, `push`, `storage`, `media-scanning` or `error-reporting`), and no `WARNING: ... providers are not configured` block in the startup log of the production deployment. |
+
 | ☐ | **Upstash Redis** holds rate limits, boards and the flag cache | `GET /api/health` → `checks.cache.provider` is `"upstash"`, not `"memory"`. Send more requests in a minute than a limited route allows (60 for the leaderboard, for example) from one session: the next one is `429` with `Retry-After`, and the count is shared when the app runs on more than one instance. `npm run postdeploy -- --production --dry-run` ends without a warning about the cache. |
 | ☐ | **Inngest** runs the scheduled work | `GET /api/health` → `checks.jobs.provider` is `"inngest"`. In the Inngest dashboard the app is synced (`/api/inngest`) and lists every function in `src/lib/infra/jobs.ts`; run one by hand (`POST /api/admin/jobs/metrics/snapshot`, or any name from the list) and see the run complete. Confirm the next scheduled `notifications/deliver` (every 3 minutes) shows in the run history. |
 | ☐ | **Ably** delivers realtime | `GET /api/health` → `checks.realtime.provider` is `"ably"`. `POST /api/realtime/token` returns a `tokenRequest` with your app's `keyName` (not the unsigned stand-in). With two accounts in two browsers: one sparks the other's drop after the second sparked first; `match.created` arrives on `user:{id}` in the first within seconds. |

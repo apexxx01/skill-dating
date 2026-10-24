@@ -8421,7 +8421,7 @@
           "Platform"
         ],
         "summary": "Is the API up (public)",
-        "description": "Auth: none. For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails (still `200`, since the app keeps serving); or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached. Response: `{ status: 'ok' | 'degraded' | 'down', time, checks: { database, cache, jobs, realtime } }`, each check `{ status: 'ok' | 'down', provider: 'postgres' | 'memory' | 'upstash' | 'inngest' | 'ably', latencyMs? }`. The jobs check reports its configuration only, since probing it would mean enqueueing real work.",
+        "description": "Auth: none. For uptime monitors and load balancers. Reports whether each dependency answers and which implementation is in use, and nothing else (no hosts, keys or versions). `status` is `ok`; `degraded` when the cache, jobs or realtime check fails, or, in production, when an optional provider is not configured (mail, push, storage, media scanning, error reporting: see `missingProviders`); both are still `200`, since the app keeps serving; or `down` when the database does not answer (`503`). Each check has 2 seconds. Limited to 300 requests a minute per client address. Responses are never cached. Response: `{ status: 'ok' | 'degraded' | 'down', time, missingProviders: string[], checks: { database, cache, jobs, realtime } }`. `missingProviders` is empty outside production (a preview and development run on the stand-ins by design) and otherwise names, from `email`, `push`, `storage`, `medi",
         "responses": {
           "200": {
             "description": "HealthResponse",
@@ -25756,6 +25756,13 @@
           "time": {
             "$ref": "#/components/schemas/IsoDate"
           },
+          "missingProviders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "In production: optional providers that are not configured (`email`, `push`, `storage`, `media-scanning`, `error-reporting`); any one makes `status` \"degraded\". Empty elsewhere."
+          },
           "checks": {
             "type": "object",
             "properties": {
@@ -25864,6 +25871,7 @@
         "required": [
           "status",
           "time",
+          "missingProviders",
           "checks"
         ],
         "additionalProperties": false,
@@ -29995,7 +30003,7 @@
         ]
       },
       "SendMessageResponse": {
-        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60423",
+        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60638",
         "description": "POST /api/conversations/[id]: the message just sent plus the sender's rewards (5 XP for a first message to a connection)."
       },
       "SendSparkResponse": {
@@ -32541,7 +32549,7 @@
         ],
         "description": "A mutation response that also reports what it earned."
       },
-      "WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60423": {
+      "WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-60638": {
         "type": "object",
         "additionalProperties": false,
         "properties": {

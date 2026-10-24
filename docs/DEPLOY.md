@@ -104,6 +104,10 @@ event-driven `privacy/export` and `media/scan`. Its migrations are additive (new
 
 ## Stage 1H: what a deploy needs
 
+**Missing optional providers are reported, not silent.** Mail (Resend), web push (VAPID), object storage, media scanning and error reporting (Sentry) have stand-ins or refuse their feature, so the server starts without
+them. A deployed process (production or preview) that lacks any of them prints a boxed `WARNING: n providers are not configured` at startup listing each by name, the settings that are unset (names only) and what is lost; and
+in production `GET /api/health` answers `status: "degraded"` (still `200`) with `missingProviders: [...]` until they are set. Point the uptime monitor at the body, not just the status code. Media scanning stays fail-closed.
+
 No new setting. Three migrations (`20261024000100_cards_for_former_minors`, `20261024000200_romance_launch_gate`, `20261024000300_performance_indexes`) are applied by the usual `npm run db:migrate:deploy`:
 
 - **The romance mode is closed.** `romance.enabled` is created OFF and the `RomanceInterest` table is added; nothing opens by itself, in any environment ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)).

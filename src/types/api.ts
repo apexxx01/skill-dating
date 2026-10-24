@@ -1008,6 +1008,8 @@ export interface ProfileSettings {
 export interface HealthResponse {
   status: 'ok' | 'degraded' | 'down'
   time: IsoDate
+  /** In production: optional providers that are not configured (`email`, `push`, `storage`, `media-scanning`, `error-reporting`); any one makes `status` "degraded". Empty elsewhere. */
+  missingProviders: string[]
   checks: Record<'database' | 'cache' | 'jobs' | 'realtime', { status: 'ok' | 'down'; provider: string; latencyMs?: number }>
 }
 

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getCache } from '@/lib/infra/cache'
 import { getJobQueue } from '@/lib/infra/jobs'
 import { getRealtime } from '@/lib/infra/realtime'
+import { env, missingProviders, requiresProductionConfig } from '@/lib/env'
 import { healthStatusCode, runHealthChecks } from '@/lib/health'
 import { clientIp, consumeSafely, tooManyRequests } from '@/lib/rate-limiter'
 import { log, requestIdFrom, runWithRequestId } from '@/lib/log'
@@ -25,6 +26,8 @@ export async function GET(request: NextRequest) {
       cache: getCache,
       jobs: getJobQueue,
       realtime: getRealtime,
+      // Only a production deployment is held to having them; a preview and development run on the stand-ins by design.
+      missingProviders: () => (requiresProductionConfig(process.env) ? missingProviders(env).map((provider) => provider.name) : []),
     })
     if (report.status !== 'ok') log.warn('health check not ok', { status: report.status, checks: report.checks })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { parseEnv, requiresProductionConfig, inMemoryFallbacks, prismaQueryLog, EnvValidationError } from './env'
+import { parseEnv, requiresProductionConfig, inMemoryFallbacks, missingProviders, prismaQueryLog, EnvValidationError } from './env'
 
 const base = {
   DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/skill_dating?schema=public',
@@ -222,6 +222,34 @@ describe('deployment tiers', () => {
     expect(preview.join('\n')).toContain('INNGEST_EVENT_KEY / INNGEST_SIGNING_KEY not set')
     expect(preview.join('\n')).toContain('CLERK_WEBHOOK_SECRET not set')
     expect(preview.join('\n')).not.toContain('ABLY_API_KEY not set')
+  })
+})
+
+describe('missingProviders', () => {
+  it('lists the optional providers a configuration has not set up, with the setting names that are unset', () => {
+    const missing = missingProviders(parseEnv(production))
+    expect(missing.map((provider) => provider.name)).toEqual(['email', 'push', 'storage', 'media-scanning', 'error-reporting'])
+    expect(missing.find((provider) => provider.name === 'email')?.settings).toEqual(['RESEND_API_KEY'])
+    for (const provider of missing) expect(provider.effect.length).toBeGreaterThan(10)
+  })
+
+  it('stops listing a provider once it is set up', () => {
+    const configured = parseEnv({
+      ...production,
+      RESEND_API_KEY: 're_x',
+      EMAIL_FROM: 'App <hello@example.com>',
+      APP_URL: 'https://app.example.com',
+      SENTRY_DSN: 'https://abc@o1.ingest.sentry.io/1',
+      MEDIA_MODERATION_URL: 'https://scan.example.com/scan',
+      MEDIA_MODERATION_TOKEN: 't',
+    })
+    expect(missingProviders(configured).map((provider) => provider.name)).toEqual(['push', 'storage'])
+  })
+
+  it('never carries a value: the answer holds names and fixed sentences only', () => {
+    const text = JSON.stringify(missingProviders(parseEnv({ ...production, CLERK_SECRET_KEY: 'sk_test_SECRETVALUE999' })))
+    expect(text).not.toContain('SECRETVALUE999')
+    expect(text).not.toMatch(/postgres(ql)?:\/\//)
   })
 })
 

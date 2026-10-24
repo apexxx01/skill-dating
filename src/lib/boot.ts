@@ -1,4 +1,4 @@
-import { EnvValidationError, inMemoryFallbacks, nodeEnv, validateEnv, type Env } from '@/lib/env'
+import { EnvValidationError, inMemoryFallbacks, missingProviders, nodeEnv, requiresProductionConfig, validateEnv, type Env } from '@/lib/env'
 
 // Called once when the server starts (src/instrumentation.ts).
 //
@@ -13,20 +13,27 @@ import { EnvValidationError, inMemoryFallbacks, nodeEnv, validateEnv, type Env }
 // missing a service can only be a Vercel preview, since production requires
 // them all. It is allowed to run on the in-memory stand-ins, but not quietly.
 // Development and tests use the stand-ins by design and are not warned.
+// A deployment that has every required service can still lack the optional ones (mail, push, storage, media scanning, error reporting): they have stand-ins or refuse
+// the feature, so nothing stops, and a quiet start would hide it. They are listed by name with what is lost (never a value). In production GET /api/health says "degraded"
+// while any is missing.
 function warnOnFallbacks(config: Env, warn: (message: string) => void) {
   if (config.NODE_ENV !== 'production') return
   const fallbacks = inMemoryFallbacks(config)
-  if (fallbacks.length === 0) return
+  const missing = missingProviders(config)
+  if (fallbacks.length === 0 && missing.length === 0) return
   const rule = '='.repeat(72)
-  warn(
-    [
-      rule,
-      `WARNING: starting on in-memory fallbacks (VERCEL_ENV=${config.VERCEL_ENV ?? 'unset'}).`,
-      ...fallbacks.map((line) => `  - ${line}`),
-      'Acceptable for a preview deployment only: a production deployment refuses to start without these.',
-      rule,
-    ].join('\n')
-  )
+  const lines = [rule]
+  if (fallbacks.length > 0) {
+    lines.push(`WARNING: starting on in-memory fallbacks (VERCEL_ENV=${config.VERCEL_ENV ?? 'unset'}).`, ...fallbacks.map((line) => `  - ${line}`))
+    lines.push('Acceptable for a preview deployment only: a production deployment refuses to start without these.')
+  }
+  if (missing.length > 0) {
+    const production = requiresProductionConfig({ VERCEL_ENV: config.VERCEL_ENV, NODE_ENV: config.NODE_ENV })
+    lines.push(`WARNING: ${missing.length} provider${missing.length === 1 ? ' is' : 's are'} not configured${production ? ' in PRODUCTION (GET /api/health reports "degraded" until they are)' : ''}:`)
+    lines.push(...missing.map((provider) => `  - ${provider.name} (${provider.settings.join(', ')} not set): ${provider.effect}`))
+  }
+  lines.push(rule)
+  warn(lines.join('\n'))
 }
 
 export function validateEnvOrExit(
