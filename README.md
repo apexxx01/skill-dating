@@ -1,100 +1,139 @@
 # Skill Dating
 
-A builder-first social network. Find the right people to build with — hackathon
-teammates, collaborators, mentors — matched on demonstrated skills instead of static
-profiles, then take the whole journey inside one product: form a team, chat, build,
-ship, and earn reputation.
+**A social network for people who build.** Find the right people to build with (a co-founder, a hackathon teammate, a collaborator, a mentor), matched on what they have
+shipped instead of what their profile claims, then do the whole journey in one place: team up, build, ship, and earn a reputation that is made of proof.
 
-> Status: pre-launch. The backend is functional end to end; the interface is a
-> functional placeholder while the visual design is being built separately.
+> **Status: pre-launch.** The backend is complete and tested end to end; the interface is being designed separately and talks to the API through a generated, typed client.
+> The private romance mode ("Halves") is built and **ships closed**; see [Halves](#halves-the-romance-mode-ships-closed).
 
-## The core loop
+## What makes it different
 
+- **Proof, not profiles.** A passport of skills backed by evidence (projects, links, endorsements from verified peers), a Ship Feed of what people actually made, and XP that is only paid for real actions.
+- **Matching that explains itself.** A handful of daily drops with the reasons they were chosen, a spark that needs a real opener (no "hey"), and one match leading to a conversation, not a swipe pile.
+- **Squads for hackathons.** A squad builder that proposes a balanced team (roles, skills, time zones), a solo pool that auto-forms teams before the deadline, a looking-for-group board, pledges, peer reviews and a reliability signal.
+- **Built to be trusted.** Age policy (16+, minors get a narrower product), reporting and appeals, content safety, consent records, data export and deletion, and a kill switch for every risky feature.
+
+## Feature map
+
+| Area | What it does | Docs |
+| --- | --- | --- |
+| **Passport** | Skills with levels, evidence and endorsements, current build, achievements, streak, live rank, cosmetics, a share card | [GAMIFICATION](docs/GAMIFICATION.md), [PRIVACY](docs/PRIVACY.md) |
+| **Drops & Sparks** | Daily and weekly matching drops for five professional connection types, scored on skills, goals and rhythm; sparks with opener rules; matches with a conversation | [MATCHING](docs/MATCHING.md) |
+| **Squads** | Hackathons (native and from other platforms), squad builder, solo pool, LFG board, team space (pledges, ideas, checklist), peer reviews | [SQUADS](docs/SQUADS.md) |
+| **Crews & projects** | Teams with applications and invitations, projects with milestones and updates, "what I am building now" | [API](docs/API.md) |
+| **Ship Feed** | Posts (ship, update, devlog, demo), Props, comments, follows, a ranked feed per city and campus, Ship Day every Friday | [FEED](docs/FEED.md) |
+| **Progress** | XP and levels, quests (daily and weekly), 40 achievements, seasons, leaderboards by place and crew | [GAMIFICATION](docs/GAMIFICATION.md) |
+| **Search** | One command-palette search over people, projects, crews, hackathons and posts, with typo tolerance | [SEARCH](docs/SEARCH.md) |
+| **Reach** | Email and web push with a channel policy, quiet hours, digests, one-click unsubscribe; share cards; invites; verified campus chapters | [NOTIFICATIONS](docs/NOTIFICATIONS.md), [INVITES](docs/INVITES.md) |
+| **Safety & privacy** | Reports, moderation queue, appeals, blocks and mutes, consent, export, delete, age policy, fraud signals | [SAFETY](docs/SAFETY.md), [PRIVACY](docs/PRIVACY.md), [SECURITY](docs/SECURITY.md) |
+| **Admin** | Queue, people, flags and kill switches, audit log, metrics with one definition per number | [METRICS](docs/METRICS.md) |
+| **Halves** | The opt-in private romance mode, **closed at launch** | [ROMANCE](docs/ROMANCE.md) |
+
+### Halves, the romance mode (ships closed)
+
+Built, tested and switched off. Until an operator opens it for a city every romance route answers `503 ROMANCE_PAUSED` and nothing about it appears in onboarding, search, notifications or the contract.
+Adults can ask to be told when it opens (`POST /api/romance/interest`); the admin metrics show the interest by city. How and when to open it: [Turning on Halves](docs/LAUNCH_CHECKLIST.md#turning-on-halves-post-launch).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Client
+    UI[Web app]
+    SDK[Typed API client<br/>src/lib/api-client]
+  end
+  subgraph Next["Next.js 15 (one deployable)"]
+    MW[Middleware<br/>page redirects]
+    Routes["Route handlers<br/>withAuth: auth, gate, limits,<br/>idempotency, caching"]
+    Domain["Domain code (src/lib)<br/>matching, squads, feed, safety"]
+    Events["emit + subscribers<br/>grant(): the only XP writer"]
+    Jobs[Job functions<br/>digests, drops, metrics, sweeps]
+  end
+  PG[(PostgreSQL<br/>Prisma, migrations only)]
+  Clerk[Clerk<br/>identity, sessions]
+  subgraph Adapters["Adapters (in-memory twins in dev and tests)"]
+    Redis[Upstash Redis<br/>limits, boards, cache]
+    Inngest[Inngest<br/>scheduling]
+    Ably[Ably<br/>realtime tokens]
+    Mail[Resend + web push<br/>delivery]
+    Store[S3-compatible<br/>media]
+    Scan[Media scanning]
+    Sentry[Sentry]
+  end
+  UI --> SDK --> Routes
+  UI --> MW
+  Routes --> Domain --> PG
+  Domain --> Events --> PG
+  Routes --> Clerk
+  Routes --> Redis
+  Inngest --> Jobs --> Domain
+  Jobs --> Mail
+  Routes --> Ably
+  Routes --> Store
+  Store --> Scan
+  Routes --> Sentry
+  Spec[docs/openapi.json<br/>generated from routes and Zod] -.-> SDK
+  Routes -.-> Spec
 ```
-Discover → Connect → Team up → Chat → Build → Ship → Compete → Win → Reputation
-```
 
-1. **Discover** builders ranked by skill compatibility with you, and **connect** with
-   a typed request (teammate, collaborator, mentor, friend, network, or dating) that
-   unlocks a DM the moment it's accepted.
-2. **Team up.** Teams are open or closed to applications, capped by size, and joined
-   through an apply/accept flow — either direction: apply to a recruiting team, or get
-   invited directly by its owner.
-3. **Coordinate.** Every team, project and hackathon gets a conversation, and members
-   are added to it the moment they join.
-4. **Build and ship** projects, or post a "currently building" status others can browse.
-5. **Compete** in hackathons as a team, submit for judging, and **win** — placements
-   award XP and a permanent achievement to every member of the winning team.
-6. **Reputation.** XP, an activity feed, achievements, and a live leaderboard.
-
-## What's implemented
-
-| Area | Details |
-| --- | --- |
-| Auth | Sign-in, sign-up, passwords and social login belong to [Clerk](https://clerk.com). Every API route verifies the Clerk session token itself (bearer header or the `__session` cookie) and maps it to a local `User` row, created or linked on first sight; middleware only does redirects and is not trusted for security. A verified email raises `verificationLevel` to `EMAIL` and a connected GitHub account to `GITHUB`, never downgrading. A signed webhook keeps the row in step and turns a deleted Clerk account into an anonymised tombstone instead of erasing its content. See [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md). |
-| Rate limiting | Every API route is limited per signed-in user, with `429` and `Retry-After`; signed-out traffic shares a per-address flood bucket. The limiter sits behind an interface (in-memory today, swappable for a shared store), bounds its own memory, and keeps serving if its store fails. See [Rate limiting and proxies](#rate-limiting-and-proxies). |
-| Onboarding | Route-level gating: an account can't reach the app until it has a headline and at least one skill. |
-| Discovery | `GET /api/discover` — paginated, excludes yourself, ranked by a shared, unit-tested skill-compatibility score. |
-| Connections | Typed connection requests in either direction, checked both ways for conflicts, no self-connect. Accepting one atomically creates the shared DM conversation. |
-| Teams | Create, browse and filter (recruiting, hackathon, free text, skill match), apply, accept or reject, withdraw your own application, invite someone directly, leave, remove members, promote/demote roles, transfer ownership, delete. |
-| Team integrity | Team and (independently) project size caps are enforced atomically inside the accept transaction, so simultaneous accepts can never overfill either one. A sole owner can't abandon a team with no owner left — they transfer ownership first. |
-| Projects | Public showcase listing with correct visibility rules for private and member projects (owner, member, or public — not just public). Status lifecycle through to shipped. Delete cascades cleanly. |
-| Current builds | Post a "what I'm building right now" status (`PUT /api/builds/me`), browsable as a public feed, optionally scoped to a hackathon. |
-| Hackathons | Browse by status, register, form or join a team, min/max team size enforced independently of the team's own cap, submit a project for judging, and record final placements — which award win XP and an achievement to every member of the winning team. Status moves forward only (upcoming → active → ended, or cancelled). |
-| Messaging | Direct, group, team, project and hackathon conversations. Send, edit and delete with soft-delete masking, pagination, per-conversation unread counts and a total, mark-as-read (all or up to a message), emoji reactions, and list filtering by type and search. Clients cannot bind a conversation to a team, project or hackathon. |
-| Blocking | Block and unblock a user. Blocking severs the connection and withdraws pending applications and invitations in one transaction, and is enforced in both directions across discovery, lists, the leaderboard, recommendations, profiles, messaging, applications and endorsements. The blocked user is never told. |
-| Notifications | Written on applications, decisions, invitations, connections, messages, removals, registrations and hackathon wins. The UI reads real data, supports mark-read and mark-all-read, and keeps an unread count. |
-| Moderation | Report a user (deduped, no self-reporting), moderator/admin review queue with forward-only status transitions, each resolution logged as a moderation action and an audit event. |
-| Reputation | Shared XP award logic, a real activity feed, achievements (granted idempotently, defined in one place), and a live leaderboard computed from the XP event log. |
-| Profiles | Skills, XP, a live rank, achievements, owned and joined projects, owned and joined teams, an activity feed (`GET /api/activity`), and your own email on your own profile only. |
-| Skill evidence | Attach evidence (portfolio, GitHub project, certification, contribution) to a skill on your profile, and endorse other people's evidence, once each. Endorsements are stored as evidence rows of their own type. The XP and achievement for being endorsed only count endorsements from verified accounts, never your own or across a block, with daily caps per endorser and per recipient. |
-| Project progress | Project updates and milestones, with a members-only write path, per-user posting limits, notifications to teammates, and achievements for a first update and first completed milestone. |
-| Dashboard | `GET /api/dashboard` returns everything the dashboard shows through the same rules as the rest of the API, including block filtering. |
-| My applications | `GET /api/teams/applications` — a user's own applications and their status, including invitations sent to them. |
-| Demo data | `npm run db:seed` populates a small, clearly-fake community (users, projects, teams in different states, hackathons, messages, applications, skill evidence and endorsements, project updates and milestones, connections, read state and reactions) — idempotent, safe to re-run. |
-
-Ownership and membership checks live in shared helpers, so authorization is not
-re-implemented per route. Every route is documented in
-[`docs/API.md`](docs/API.md), generated from the actual handler code. Response
-types for the interface are exported from `src/types/api.ts`, and
-[`docs/FRONTEND_CONTRACT.md`](docs/FRONTEND_CONTRACT.md) maps each page to the
-endpoints it should call, including the mock fields that have no API behind them.
+Everything outside Postgres sits behind an interface with an in-memory twin, so the whole product runs on a laptop with three settings and the test suite needs no third-party account but Clerk's development instance.
+How the parts fit and why: [ARCHITECTURE](docs/ARCHITECTURE.md).
 
 ## Stack
 
-Next.js 15 (App Router) · React 19 · TypeScript · PostgreSQL · Prisma · Clerk · Zod ·
-Tailwind CSS · Radix UI · React Query · react-three-fiber · Vitest
+Next.js 15 (App Router) · React 19 · TypeScript · PostgreSQL 16 · Prisma 5 · Clerk · Zod · Vitest · Tailwind CSS · Radix UI · React Query · react-three-fiber
 
-## Getting started
+## Local setup in five commands
 
-Requirements: Node 20+ and PostgreSQL 13 or newer.
+Requirements: Node 20+ and PostgreSQL 13 or newer running locally, and a [Clerk](https://clerk.com) **development** instance (free).
 
 ```bash
-git clone https://github.com/apexxx01/skill-dating.git
-cd skill-dating
+git clone https://github.com/apexxx01/skill-dating.git && cd skill-dating
 npm install
-
-cp .env.example .env.local
-# set DATABASE_URL and the three Clerk values from your Clerk development
-# instance (dashboard, API keys): NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY and
-# CLERK_SECRET_KEY, plus CLERK_WEBHOOK_SECRET once you have created the webhook
-# endpoint (see docs/AUTH_MIGRATION.md, "Open items")
-
-npm run db:migrate:deploy   # applies prisma/migrations to an empty database
-npm run db:seed         # optional — populates a small demo community
-npm run db:seed:clerk   # optional — creates the matching Clerk users so the demo accounts can sign in
-npm run dev
+cp .env.example .env.local        # then set DATABASE_URL and the two Clerk keys (NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY)
+npm run db:migrate:deploy         # builds the schema from prisma/migrations
+npm run seed:demo -- --username you && npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. `seed:demo` builds a small world of builders (a few minutes the first time), then adds a polished account named `you`: a passport with proof, a 45-day streak,
+a squad before a hackathon deadline with one seat open, matches and drops. To sign in as it, run `npm run db:seed:clerk` once (it creates the Clerk accounts for the demo domain only; password `DemoPass123!`),
+or simply sign up. A bigger world, a reset, and a 10,000-person benchmark world: [docs/SEED.md](docs/SEED.md). The seed refuses to run in production.
 
-Configuration lives in environment variables, all documented in `.env.example`.
-See [Configuration](#configuration) for the ones that matter when deploying.
+Every setting is documented in `.env.example`; the ones that matter in a deployment are under [Configuration](#configuration). Upstash, Inngest, Ably, Resend, push and storage are optional locally.
 
-`/signin` and `/signup` render Clerk's `<SignIn />` and `<SignUp />` with path routing, so the
-sign-in methods offered (password, Google, GitHub, and so on) are whatever the Clerk instance enables
-in its dashboard. Returning users go to `/dashboard`, new accounts to `/onboarding`. The rest of the
-frontend is unchanged; see [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md#frontend-files-that-need-changes).
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` / `build` / `start` | Develop, build and run the app |
+| `npm run typecheck` / `lint` | Type-check; lint (CI blocks on the backend directories) |
+| `npm test` | Unit tests: fast, no database, no network |
+| `npm run test:integration` | The full integration suite: a production build, a disposable Postgres, real HTTP and real Clerk development sessions (about half an hour) |
+| `npm run seed` | Build the seeded world: about 400 builders in 12 cities; `-- --scale 10000`, `-- --reset`, `-- --with-romance` ([SEED](docs/SEED.md)) |
+| `npm run seed:demo -- --username <name>` | Add one polished demo account (refuses to run in production) |
+| `npm run db:seed:clerk` | Create the Clerk users for the demo domain so those accounts can sign in (development keys only) |
+| `npm run db:migrate` / `db:migrate:deploy` / `db:migrate:status` | Create a migration (development); apply pending migrations (CI and production); show what is applied |
+| `npm run db:baseline` | One-off for a database created with the old `db push`: record the baseline as applied |
+| `npm run db:studio` | Browse the database in Prisma Studio |
+| `npm run openapi:scan` / `openapi:build` / `openapi:client` | Regenerate the route table, `docs/openapi.json` and the typed client; `openapi:check` fails if any is stale (CI runs it) |
+| `npm run perf:measure` / `perf:load` / `perf:digests` / `perf:drops` | Measure the hottest endpoints at 10,000 people, drive them with autocannon (also against a preview), time the digests and the daily drops ([PERFORMANCE](docs/PERFORMANCE.md)) |
+| `npm run postdeploy` | After every deploy: a season is running, leaderboards rebuilt, earned cosmetics granted, production dependencies present |
+| `npm run sim:progression`, `bench:matching` | Simulate how long XP levels take; benchmark the matching engine |
+
+## Documentation
+
+| Read | For |
+| --- | --- |
+| [FRONTEND_CONTRACT](docs/FRONTEND_CONTRACT.md) | **Start here to build a page**: one section per page, with endpoints, types, realtime, states and the moments to celebrate |
+| [openapi.json](docs/openapi.json) | The machine-readable API (OpenAPI 3.1), generated from the routes; the typed client is `src/lib/api-client` |
+| [API](docs/API.md) | Every route: auth, limits, bodies, responses and errors |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | How the backend is put together, and why |
+| [DEPLOY](docs/DEPLOY.md), [LAUNCH_CHECKLIST](docs/LAUNCH_CHECKLIST.md) | Deploying, the flags, and everything that must be true before a public launch |
+| [PERFORMANCE](docs/PERFORMANCE.md), [SEED](docs/SEED.md) | Measurements at 10,000 users with before and after; the seeded world |
+| [SECURITY](docs/SECURITY.md), [PRIVACY](docs/PRIVACY.md), [SAFETY](docs/SAFETY.md) | Threat model and controls; what is collected and for how long; age policy, reports and moderation |
+| [MATCHING](docs/MATCHING.md), [SQUADS](docs/SQUADS.md), [FEED](docs/FEED.md), [GAMIFICATION](docs/GAMIFICATION.md), [SEARCH](docs/SEARCH.md), [NOTIFICATIONS](docs/NOTIFICATIONS.md), [INVITES](docs/INVITES.md), [METRICS](docs/METRICS.md), [ROMANCE](docs/ROMANCE.md) | One document per feature area |
+| [AUTH_MIGRATION](docs/AUTH_MIGRATION.md) | How authentication moved to Clerk |
+| [CHANGELOG](CHANGELOG.md), [PRODUCT](PRODUCT.md) | What arrived stage by stage; the product vision |
 
 ## Configuration
 
@@ -105,10 +144,20 @@ frontend is unchanged; see [`docs/AUTH_MIGRATION.md`](docs/AUTH_MIGRATION.md#fro
 | `CLERK_WEBHOOK_SECRET` | in production | The signing secret of the webhook endpoint that points at `/api/webhooks/clerk`. Without it the route answers `503` and processes nothing. |
 | `CLERK_AUTHORIZED_PARTIES` | set it in production | Comma separated origins allowed to mint session tokens (for example `https://app.example.com`). Unset skips the authorized-party check. |
 | `TRUSTED_PROXY_HOPS` | set it when deploying | Number of reverse proxies you run in front of the app. `0` (the default) means the client address is unknown, so **all signed-out callers share one rate-limit bucket**. Behind a single load balancer set `1`. Details below. |
-
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | in production | Upstash Redis (REST). Holds rate-limit counters, leaderboards, presence. Set both or neither. |
 | `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | in production | Inngest, for background jobs (served at `/api/inngest`). Set both or neither. |
 | `ABLY_API_KEY` | in production | Ably (`appId.keyId:secret`), for realtime. Used only on the server; browsers get tokens from `POST /api/realtime/token`. |
+| `APP_URL` | with email | Where the app is served, no trailing slash: the absolute links in emails and share cards. |
+| `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_WEBHOOK_SECRET` | to send real mail (not enforced at boot) | Email through Resend, and the webhook that marks bounced and complained addresses undeliverable. Without them an in-memory outbox keeps what would have been sent. |
+| `NOTIFICATION_SIGNING_SECRET` | where mail is real | 32+ random characters; signs the unsubscribe links. Without it a key is derived from `CLERK_SECRET_KEY`, so rotating that breaks links in mail already sent. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | to send real pushes (not enforced at boot) | Web push. Without them pushes are recorded and not sent. |
+| `STORAGE_*` (endpoint, bucket, region, access key, secret; optional public base URL) | to accept uploads (not enforced at boot) | S3-compatible object storage. Set together; without them production refuses uploads with `503 STORAGE_UNAVAILABLE`. |
+| `MEDIA_MODERATION_URL`, `MEDIA_MODERATION_TOKEN` | to accept avatars and romance photos | The media scanning provider. Without one, production refuses those uploads (fail closed); development treats everything as safe. |
+| `SENTRY_DSN` (and the build-time `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN`) | recommended | Error reporting with personal data scrubbed. Without a DSN nothing is sent. |
+| `POSTHOG_KEY`, `POSTHOG_HOST` | optional | Forward product events to PostHog (they are always stored in the database). |
+| `BIRTH_DATE_REQUIRED`, `ENTITLEMENTS_ENFORCED`, `LOG_LEVEL` | optional | Age gate in onboarding (default on); plan limits (default off); log level. |
+
+The **romance mode is not a setting**: it is the database flag `romance.enabled` (plus a flag per city), created **off** by a migration and changed only by an administrator (`/api/admin/flags`), so no environment can turn it on by accident.
 
 Sign-in providers (Google, GitHub, and so on) are configured in the Clerk dashboard, not here.
 
@@ -168,70 +217,37 @@ reviewed, replayed or rolled forward elsewhere.
 `prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script`. Applied
 to an empty database it produces exactly the schema `db push` produced.
 
-## Scripts
-
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Start the dev server |
-| `npm run build` | Production build |
-| `npm run typecheck` | Type-check the project |
-| `npm test` | Run the unit tests (fast, mocked Prisma, no DB needed) |
-| `npm run test:integration` | Run the integration suite against a real, disposable database — builds the app into `.next-test` and spins up its own `next start` server (`TEST_SERVER=dev` for `next dev`; `TEST_SKIP_BUILD=1` reuses the last build), no manual setup beyond a reachable Postgres **and a Clerk development secret key** (`CLERK_SECRET_KEY` in the environment or `.env.local`): the tests create real users and sessions on your development instance through the Backend API and delete them afterwards. It needs network access and refuses a non-development key. Configure with `TEST_PORT` (default 3459), `TEST_DB_NAME` (default `skill_dating_integration`) and `TEST_DB_BASE_URL` (default `postgresql://postgres:postgres@localhost:5432`). It refuses an occupied port and refuses to use the `skill_dating` database, so it cannot touch development data. Runs that share a machine need separate checkouts, since two servers cannot share one build directory. The Clerk development instance allows 100 users: two full runs at once can exceed it. |
-| `npm run db:seed` | Populate a small idempotent demo community (legacy rows: no password, no Clerk id) |
-| `npm run db:seed:clerk` | Create the matching Clerk users for the seeded accounts (password `DemoPass123!`) and store their ids. Idempotent; refuses a non-development key |
-| `npm run db:migrate` | Create and apply a migration after editing `prisma/schema.prisma` (development only; review the SQL it writes before committing) |
-| `npm run db:migrate:deploy` | Apply every pending migration. This is what to run in CI and in production |
-| `npm run db:migrate:status` | Show which migrations the database has applied |
-| `npm run db:baseline` | One-off for a database that already has the current schema (created with the old `prisma db push`): mark the baseline migration as applied without running it |
-| `npm run db:studio` | Browse the database in Prisma Studio |
-| `npm run postdeploy` | Run after every deploy: makes sure a season is running, rebuilds the leaderboards, grants the cosmetics already earned, and fails if production has no Upstash Redis. Idempotent; `-- --dry-run` changes nothing. See [docs/DEPLOY.md](docs/DEPLOY.md) |
-| `npm run sim:progression` | Simulate casual, active, power and cap-maximising users against the real XP rules and level curve, and print how many days each takes to reach each level. Its output is in [docs/GAMIFICATION.md](docs/GAMIFICATION.md#how-long-it-takes-the-progression-simulation) |
-
 ## Project layout
 
 ```
-prisma/schema.prisma   data model
-prisma/migrations/     SQL migrations; the only way the schema changes
-prisma/seed.ts         idempotent demo data
-scripts/               developer scripts (the progression simulator)
-src/app/api/           route handlers
-src/app/(dashboard)/   authenticated app pages
-src/lib/               scoring, XP, activity/achievements, auth, shared API helpers
-src/lib/env.ts         validated, typed environment (the only reader of process.env)
-src/lib/api/errors.ts  the error codes and the { error: { code, message } } contract
-src/lib/infra/         cache (Redis), jobs (Inngest) and realtime (Ably) behind interfaces
-src/instrumentation.ts validates the environment when the server starts
-src/hooks/             client data hooks
-tests/integration/     real-server, real-database integration tests
-docs/API.md            full route reference and the error code list
-docs/ARCHITECTURE.md   how it fits together and why
-docs/FRONTEND_CONTRACT.md  page-by-page endpoint and response contract for the interface
-src/types/api.ts       shared response types
+prisma/schema.prisma     data model          prisma/migrations/   SQL migrations; the only way the schema changes
+prisma/seed.ts, seed/    the seeded world    prisma/seed-demo.ts  the polished demo account
+scripts/openapi/         route scan, spec and client generators      scripts/perf/   measurement and load scripts
+src/app/api/             route handlers (a schema.ts beside each holds its request schemas)
+src/lib/                 domain code: matching, squads, feed, rewards, safety, notify, search, openapi
+src/lib/api/             withAuth, the error catalogue, the request gate, idempotency and HTTP caching
+src/lib/api-client/      the typed client (generated.ts is generated; runtime.ts is hand-written)
+src/lib/infra/           cache, jobs, realtime behind interfaces, with in-memory twins
+src/lib/env.ts          validated, typed environment (the only reader of process.env)
+src/types/api.ts         response types shared with the interface
+tests/integration/       real-server, real-database tests
+docs/                    the documents above
 ```
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push: type-check, backend lint (blocking),
-whole-repository lint (report only, so interface lint issues do not block backend
-work), a production build, unit tests, a check that `prisma/schema.prisma` and
-`prisma/migrations` agree, and the integration suite against a Postgres 16 service
-container, which builds its database from the migrations.
+`.github/workflows/ci.yml` runs on every push and pull request: type-check, backend lint (blocking) and whole-repository lint (report only), a production build, unit tests, a check that
+`prisma/schema.prisma` and the migrations agree, and a check that `docs/openapi.json` and the typed client are up to date. `.github/workflows/integration.yml` runs the full integration suite
+against a Postgres 16 service container and a production build on pull requests to `main` and every night. Workflows hold placeholders only; the integration run needs the keys of a Clerk
+**development** instance as repository secrets (`CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`) and is skipped with a warning where they are not available (forks).
 
 ## Roadmap
 
-- Challenges (would need sandboxed code execution — a security decision, not a
-  route) and full skill-evidence verification beyond the GitHub sign-in signal
-  are modelled in the schema but have no further API routes yet.
-- Muting (blocking is done).
-- A dedicated endorsement table, and an index on activity by project, if evidence or
-  activity volume grows: both need a schema change. Endorsements currently live as
-  evidence rows of their own type, matched through JSON metadata.
-- Presence, typing indicators, project stars and forks, followers and streaks: the
-  interface mocks show them, but no data model or API exists yet (see
-  `docs/FRONTEND_CONTRACT.md`).
-- Real-time delivery. The Ably adapter and the subscription token endpoint exist, but nothing
-  publishes yet, so notifications still refresh by polling.
-- Real jobs. The Inngest pipeline is in place with a single `system/ping` job.
-- Full interface design.
+Backend: Phase 1 is complete with Stage 1H. Before a public launch, see [LAUNCH_CHECKLIST](docs/LAUNCH_CHECKLIST.md): real providers smoke-tested, legal reviews, backups tested.
+
+- **The interface.** The full design, built against the typed client and the page contract. Sentry's global error boundary belongs to that phase.
+- **Realtime events beyond matches.** The channels for conversations and squads are authorised but nothing publishes there yet; the interface refetches instead.
+- **Halves.** Opened city by city after launch, once the interest, the media scanning, the legal review and the moderation capacity are there.
+- **Not planned yet:** challenges (they need sandboxed code execution, a security decision), project stars and forks, presence and typing indicators, team logos.
 
 See [PRODUCT.md](PRODUCT.md) for the product vision and principles.
