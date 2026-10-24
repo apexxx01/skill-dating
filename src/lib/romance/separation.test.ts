@@ -21,6 +21,8 @@ const OWN_DIRS = ['lib/romance/', 'app/api/romance/']
 
 const MAY_NAME_THE_MODE: Record<string, string> = {
   // The description of the whole API (docs/openapi.json) and the client generated from it list every route, the romance ones too, tagged post-launch.
+  'lib/settings.ts': 'the admin settings: the rule for when a city is ready for the mode (the launch threshold) is one of them',
+  'app/api/admin/settings/[key]/schema.ts': 'the request schema of an admin setting: the launch threshold of the mode',
   'lib/api-client/generated.ts': 'generated from docs/openapi.json: one method per route, the romance ones marked post-launch',
   'lib/openapi/build.ts': 'the spec builder says in its description that the romance routes ship closed',
   'lib/openapi/metadata.ts': 'the tag and the post-launch marker of the romance routes',

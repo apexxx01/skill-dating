@@ -6,7 +6,7 @@ import { log } from '@/lib/log'
 // with no row (or a row that no longer parses) has its default, so a fresh environment works and a bad edit cannot break what reads it.
 
 /**
- * When a city is ready for the romance mode to be opened there (docs/LAUNCH_CHECKLIST.md, "Turning on Halves"): at least `minInterestedAdults` adults asked to be told (the
+ * When a city is ready for the romance mode to be opened there (docs/LAUNCH_CHECKLIST.md, "Turning on the romance mode"): at least `minInterestedAdults` adults asked to be told (the
  * admin metrics count them by city), and, of that pool, each side of the interested-in pairing is at least `minPairingSharePercent` percent. The interest list holds only a
  * country and a city, never a gender or a preference, so the first number is measured by the metrics (`romance_interest`, whose city rows carry `meetsInterestThreshold`) and
  * the second has to be evidenced another way (the checklist says how); the product does not collect it.
