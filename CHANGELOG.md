@@ -3,6 +3,16 @@
 What changed, stage by stage. The newest stage is first. Each stage was built on its own branch and merged into `main` once its tests were green; the dates are the days
 the work landed. Behaviour is described in the documents under [docs/](docs/); this file only says what arrived and why it matters.
 
+## Stage 2.0: CI repair (2026-10-24)
+
+- **`npm ci` works again.** Every CI job died at `npm ci` ("package.json and package-lock.json not in sync"): npm 10, the npm that ships with CI's Node, wanted the optional `vite` peer of
+  `@sentry/cloudflare` (vite 8, rolldown, lightningcss) in the lockfile, and the lock written by npm 11 did not list it. The lockfile is regenerated with npm 10 (32 packages added, none
+  changed or removed, no top-level version moved) and a project `.npmrc` pins `legacy-peer-deps=false`.
+- **Node 22 everywhere.** `.nvmrc`, `engines` (a range, not enforced) and both workflows (`node-version-file`); the workflows run on `ubuntu-24.04` with `checkout@v7`, `setup-node@v7`,
+  `cache@v6` and `upload-artifact@v7`, all on Node 24.
+- **The integration workflow is valid again.** The runner context is not available in job-level `env`; the server log path is now set in the first step, and the log is uploaded on failure.
+- **Workflow files are linted** by a pinned actionlint in CI.
+
 ## Stage 1H: seed, performance, API contract, CI and polish (2026-10-23 to 2026-10-24)
 
 - **Halves is off at launch.** The romance mode answers `503 ROMANCE_PAUSED` on every route until it is explicitly opened (the flag `romance.enabled`, or a city's flag
