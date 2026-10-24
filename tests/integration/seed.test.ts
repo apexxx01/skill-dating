@@ -6,6 +6,9 @@ import { INTEGRATION_DB_ADMIN_URL, INTEGRATION_DB_NAME } from './config'
 
 // The seed (prisma/seed): run for real, as a person would, against a database of its own, never the suite's. It builds the world, does nothing on a second run, builds the same people again
 // after --reset, makes the synthetic romance people only when asked, builds a polished demo account, and refuses to touch production or a database that is not on this machine.
+/** An environment without the keys that are undefined (a spawned process would receive them as the text "undefined"). */
+const cleanEnv = (env: Record<string, string | undefined>): NodeJS.ProcessEnv => Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined)) as NodeJS.ProcessEnv
+
 describe('the seed', () => {
   const root = path.resolve(__dirname, '../..')
   const dbName = `${INTEGRATION_DB_NAME}_seed`
@@ -18,7 +21,7 @@ describe('the seed', () => {
       cwd: root,
       encoding: 'utf-8',
       timeout: 600_000,
-      env: { ...process.env, DATABASE_URL: url, NODE_ENV: undefined, VERCEL_ENV: undefined, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_seed', CLERK_SECRET_KEY: 'sk_test_seed', ...env } as NodeJS.ProcessEnv,
+      env: cleanEnv({ ...process.env, DATABASE_URL: url, NODE_ENV: undefined, VERCEL_ENV: undefined, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_seed', CLERK_SECRET_KEY: 'sk_test_seed', ...env }),
     })
 
   beforeAll(async () => {
@@ -178,8 +181,8 @@ describe('the seed', () => {
       expect(user.xp).toBeGreaterThan(2000)
       expect(user.githubConnected).toBe(true)
       expect(user.profile?.showCardsOnWeb).toBe(true)
-      const projects = await db.project.groupBy({ by: ['status'], where: { ownerId: user.id } })
-      expect(projects.find((p) => p.status === 'SHIPPED')?._count).toBe(3)
+      expect(await db.project.count({ where: { ownerId: user.id, status: 'SHIPPED' } })).toBe(3)
+      expect(await db.project.count({ where: { ownerId: user.id, status: { not: 'SHIPPED' } } })).toBe(1)
       expect(await db.userAchievement.count({ where: { userId: user.id } })).toBeGreaterThan(10)
       expect(await db.skillEvidence.count({ where: { userId: user.id, type: 'PEER_ENDORSEMENT' } })).toBeGreaterThan(5)
       expect(await db.follow.count({ where: { followeeId: user.id } })).toBeGreaterThan(50)
