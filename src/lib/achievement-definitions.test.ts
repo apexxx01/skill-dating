@@ -6,10 +6,10 @@ const MATCH_ACHIEVEMENTS: string[] = ['first-match', 'matches-10', 'match-teamed
 const defs = ACHIEVEMENT_SLUGS.map((slug) => ({ slug, def: ACHIEVEMENT_DEFINITIONS[slug] as AchievementDefinition }))
 
 describe('the achievement catalog', () => {
-  it('has 51 achievements, 6 of them secret', () => {
-    expect(defs).toHaveLength(51)
-    expect(defs.filter(({ def }) => def.isSecret)).toHaveLength(6)
-    expect(ACHIEVEMENT_SLUGS.filter(isSecretAchievement)).toHaveLength(6)
+  it('has 54 achievements, 7 of them secret', () => {
+    expect(defs).toHaveLength(54)
+    expect(defs.filter(({ def }) => def.isSecret)).toHaveLength(7)
+    expect(ACHIEVEMENT_SLUGS.filter(isSecretAchievement)).toHaveLength(7)
   })
 
   it('keeps the slugs the first ten achievements always had', () => {
@@ -28,8 +28,8 @@ describe('the achievement catalog', () => {
       expect(Number.isInteger(def.xpReward) && def.xpReward > 0, slug).toBe(true)
       orders.add(def.order)
     }
-    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 51 }, (_, index) => index + 1))
-    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(51)
+    expect([...orders].sort((a, b) => a - b)).toEqual(Array.from({ length: 54 }, (_, index) => index + 1))
+    expect(new Set(defs.map(({ def }) => def.name)).size).toBe(54)
   })
 
   it('files every secret achievement under SECRET and nothing else there', () => {
@@ -44,7 +44,7 @@ describe('the achievement catalog', () => {
       if ('metric' in criteria) expect([...METRICS, 'streak_days'], slug).toContain(criteria.metric)
       else secretRules.add(criteria.secret)
     }
-    expect([...secretRules].sort()).toEqual(['clean-run', 'comeback', 'gold-vouch', 'hat-trick', 'night-owl-ship', 'weekend-shipper'])
+    expect([...secretRules].sort()).toEqual(['archaeologist', 'clean-run', 'comeback', 'gold-vouch', 'hat-trick', 'night-owl-ship', 'weekend-shipper'])
   })
 
   describe('tiered series', () => {

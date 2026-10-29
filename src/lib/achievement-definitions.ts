@@ -15,7 +15,7 @@ import type { Metric } from '@/lib/metrics'
 // engine is the only code that grants. Adding an achievement unlocks it for anyone whose counter
 // already meets it the next time that counter moves (and never earlier).
 
-export type SecretRule = 'night-owl-ship' | 'hat-trick' | 'clean-run' | 'gold-vouch' | 'weekend-shipper' | 'comeback'
+export type SecretRule = 'night-owl-ship' | 'hat-trick' | 'clean-run' | 'gold-vouch' | 'weekend-shipper' | 'comeback' | 'archaeologist'
 
 export type AchievementCriteria =
   | { metric: Metric; target: number }
@@ -533,6 +533,37 @@ export const ACHIEVEMENT_DEFINITIONS = {
     xpReward: 50,
     criteria: { metric: 'reunions', target: 1 },
     order: 51,
+  },
+
+  // --- Proof (the evidence engine, docs/PROOF.md) ---------------------------------
+  // A GitHub sync pays no XP for history; these three are the only rewards it can lead to, once each.
+  receipts: {
+    name: 'Receipts',
+    description: 'Got your first verified receipt: your own work, matched to you on GitHub and signed.',
+    icon: 'receipt',
+    category: 'REPUTATION',
+    xpReward: 25,
+    criteria: { metric: 'receipts_verified', target: 1 },
+    order: 52,
+  },
+  upstream: {
+    name: 'Upstream',
+    description: 'Had a pull request merged by another maintainer into a project you do not own.',
+    icon: 'git-merge',
+    category: 'REPUTATION',
+    xpReward: 50,
+    criteria: { metric: 'upstream_merges', target: 1 },
+    order: 53,
+  },
+  archaeologist: {
+    name: 'Archaeologist',
+    description: 'Evidenced work whose first commit is at least five years old.',
+    icon: 'pickaxe',
+    category: 'SECRET',
+    xpReward: 50,
+    criteria: { secret: 'archaeologist', target: 1 },
+    isSecret: true,
+    order: 54,
   },
 } satisfies Record<string, AchievementDefinition>
 

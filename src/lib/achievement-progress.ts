@@ -20,6 +20,8 @@ const NIGHT_OWL_HOURS = { from: 2, until: 5 }
 const HAT_TRICK_SHIPS = 3
 /** The streak, in days, that No Safety Net asks for without a freeze. */
 const CLEAN_RUN_DAYS = 30
+/** Years since the person's first authored commit in a repository for the secret Archaeologist. */
+export const ARCHAEOLOGIST_YEARS = 5
 /** An endorser at this level or above (Gold) makes the Golden Vouch. */
 const GOLDEN_VOUCH_LEVEL = TIER_START_LEVEL.GOLD
 
@@ -129,6 +131,16 @@ export async function advanceProgress<N extends DomainEventName>(
     const streak = payload as DomainEvents['STREAK_EXTENDED']
     await lockProgress(tx, [streak.userId])
     unlocked += await unlockStreak(tx, streak.userId, streak.current, streak.freezeUsedInRun)
+  }
+  if (name === 'RECEIPT_VERIFIED') {
+    const receipt = payload as DomainEvents['RECEIPT_VERIFIED']
+    const first = receipt.firstAuthoredAt ? new Date(receipt.firstAuthoredAt) : null
+    const cutoff = new Date(now)
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - ARCHAEOLOGIST_YEARS)
+    if (first && first.getTime() <= cutoff.getTime()) {
+      await lockProgress(tx, [receipt.userId])
+      unlocked += await grantSecret(tx, receipt.userId, 'archaeologist')
+    }
   }
   if (name === 'USER_COMEBACK') {
     const comeback = payload as DomainEvents['USER_COMEBACK']

@@ -81,6 +81,13 @@ export interface DomainEvents {
    * counterparty (src/lib/trust.ts): an invitee who is not a trusted account pays nothing. Emitted by the invite job (src/lib/invites), once per invitee.
    */
   INVITE_QUALIFIED: { userId: string; otherUserId: string; redemptionId: string }
+  /**
+   * The evidence engine issued a receipt for the person's own work, matched by their GitHub id (src/lib/evidence/sync.ts). Pays no XP; counts towards
+   * Receipts, and towards the secret Archaeologist when the person's first authored commit there is at least five years old.
+   */
+  RECEIPT_VERIFIED: { userId: string; receiptId: string; firstAuthoredAt: string | null }
+  /** A pull request of the person's was merged by another maintainer into an established public repository they do not own. Pays no XP; counts towards Upstream. */
+  UPSTREAM_MERGE_VERIFIED: { userId: string; receiptId: string }
 }
 
 export type DomainEventName = keyof DomainEvents
@@ -113,6 +120,8 @@ export const DOMAIN_EVENT_NAMES = [
   'AUTO_SQUAD_FORMED',
   'SQUAD_REUNITED',
   'INVITE_QUALIFIED',
+  'RECEIPT_VERIFIED',
+  'UPSTREAM_MERGE_VERIFIED',
 ] as const satisfies readonly DomainEventName[]
 
 export type Db = PrismaClient | Prisma.TransactionClient
