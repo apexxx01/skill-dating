@@ -300,6 +300,50 @@ export const jobs = {
     concurrency: 1,
     handler: async () => (await import('@/lib/privacy/cards-notice')).runAdultCardsNoticeJob(),
   }),
+  // Reads one person's public GitHub history into evidence and receipts (src/lib/evidence/sync.ts). Queued when GitHub is connected, when the GITHUB_SYNC
+  // consent is given, by POST /api/github/sync and by the weekly dispatch; debounced (the same id within ten minutes is one job). Budgeted; safe to repeat.
+  'github/sync': defineJob({
+    schema: z.object({ userId: z.string().min(1).max(64), reason: z.enum(['connected', 'consent', 'manual', 'weekly']).default('manual') }),
+    retries: 1,
+    concurrency: 4,
+    handler: async ({ data }) => {
+      const { prisma } = await import('@/lib/prisma')
+      return (await import('@/lib/evidence/sync')).runGithubSync(prisma, data.userId)
+    },
+  }),
+  // Mondays 06:00 UTC: queues a sync for everyone with GitHub connected and the consent given who was not synced in the last six days, 500 a run.
+  'github/sync-weekly': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '0 6 * * 1',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => {
+      const { prisma } = await import('@/lib/prisma')
+      return (await import('@/lib/evidence/sync')).runWeeklyGithubSync(prisma)
+    },
+  }),
+  // Rechecks the receipts checked longest ago against GitHub, within a call budget (src/lib/evidence/receipts.ts). A source that is gone lowers the weight of
+  // the evidence it backs; nothing is deleted. Nightly; idempotent.
+  'receipts/recheck': defineJob({
+    schema: z.object({}).default({}),
+    schedule: '45 2 * * *',
+    retries: 1,
+    concurrency: 1,
+    handler: async () => {
+      const { prisma } = await import('@/lib/prisma')
+      return (await import('@/lib/evidence/receipts')).runRecheckJob(prisma)
+    },
+  }),
+  // Signs the receipts issued while the deployment had no signing key (production without RECEIPT_SIGNING_KEYS). Run once after setting the key; safe to repeat.
+  'receipts/sign-backlog': defineJob({
+    schema: z.object({ limit: z.number().int().min(1).max(10_000).optional() }).default({}),
+    retries: 1,
+    concurrency: 1,
+    handler: async ({ data }) => {
+      const { prisma } = await import('@/lib/prisma')
+      return (await import('@/lib/evidence/receipts')).signBacklog(prisma, data.limit)
+    },
+  }),
   // Scans an uploaded romance photo or avatar again after the scanner failed when it was confirmed (src/lib/media-assets.ts scanAsset).
   'media/scan': defineJob({
     schema: z.object({ assetId: z.string().min(1).max(64) }),

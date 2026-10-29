@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { env } from '@/lib/env'
 import { log } from '@/lib/log'
 import { getCache, type Cache } from './cache'
+import { loadFixtureFile, MemoryGitHub } from './github.memory'
 
 // GitHub, for the evidence engine (src/lib/evidence, docs/PROOF.md). An adapter like the others: `GitHubApi` is what callers use, `HttpGitHub` reaches
 // api.github.com, `MemoryGitHub` (github.memory.ts) answers from fixtures, and github.contract.ts is the behaviour both must have. Nothing in a test or in
@@ -519,12 +520,7 @@ function defaultFactory(): GitHubFactory {
   // The integration server answers from a fixture file (never in production: src/lib/env.ts refuses the setting there).
   if (env.GITHUB_FIXTURES_FILE) {
     const file = env.GITHUB_FIXTURES_FILE
-    return (auth, budget) => {
-      // Loaded on demand so a production bundle never reads the file system for this.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { MemoryGitHub, loadFixtureFile } = require('./github.memory') as typeof import('./github.memory')
-      return new MemoryGitHub(loadFixtureFile(file), { budget, authMode: auth.mode })
-    }
+    return (auth, budget) => new MemoryGitHub(loadFixtureFile(file), { budget, authMode: auth.mode })
   }
   return (auth, budget) => new HttpGitHub({ auth, budget })
 }
