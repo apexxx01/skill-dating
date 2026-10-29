@@ -41,13 +41,13 @@ describe('achievements v2', () => {
       expect((await req(null, 'GET', '/api/achievements')).status).toBe(401)
     })
 
-    it('lists the 51 achievements for a new user, six of them masked', async () => {
+    it('lists the 54 achievements for a new user, seven of them masked', async () => {
       const u = await user()
       const res = await list(u)
       expect(res.status).toBe(200)
-      expect(res.data).toMatchObject({ earned: 0, total: 51 })
-      expect(res.data.achievements).toHaveLength(51)
-      expect(res.data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(6)
+      expect(res.data).toMatchObject({ earned: 0, total: 54 })
+      expect(res.data.achievements).toHaveLength(54)
+      expect(res.data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(7)
       const body = JSON.stringify(res.data)
       for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid']) expect(body).not.toContain(slug)
       expect(res.data.achievements[0]).toMatchObject({ slug: 'first-project', earned: false, progress: { current: 0, target: 1 }, masked: false })
@@ -119,13 +119,13 @@ describe('achievements v2', () => {
       for (let index = 0; index < 3; index++) ids.push((await project(u)).id)
       await ship(u, ids[0])
       await ship(u, ids[1])
-      expect((await list(u)).data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(6)
+      expect((await list(u)).data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(7)
       const third = await ship(u, ids[2])
       expect(slugs(third)).toContain('hat-trick')
       expect(await earned(u)).toContain('hat-trick')
 
       const items = (await list(u)).data.achievements
-      expect(items.filter((item: { masked: boolean }) => item.masked)).toHaveLength(5)
+      expect(items.filter((item: { masked: boolean }) => item.masked)).toHaveLength(6)
       expect(items.find((item: { slug: string }) => item.slug === 'hat-trick')).toMatchObject({ name: 'Hat Trick', earned: true, secret: true, masked: false, xpReward: 100 })
     })
 
@@ -269,7 +269,7 @@ describe('achievements v2', () => {
       expect(res.status).toBe(200)
       expect(res.data.earned).toBe(1)
       expect(res.data.achievements.find((item: { slug: string }) => item.slug === 'first-project')).toMatchObject({ earned: true })
-      expect(res.data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(6)
+      expect(res.data.achievements.filter((item: { masked: boolean }) => item.masked)).toHaveLength(7)
     })
 
     it('is a missing user for somebody who has been blocked, and for ids that do not exist', async () => {
@@ -297,7 +297,7 @@ describe('achievements v2', () => {
 
       const run = await req(admin.jar, 'POST', '/api/admin/jobs/achievements/rarity')
       expect(run.status).toBe(200)
-      expect(run.data.result.achievements).toBe(51)
+      expect(run.data.result.achievements).toBe(54)
 
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const active = await testPrisma.user.count({ where: { lastActiveAt: { gte: since }, deletedAt: null } })
@@ -305,7 +305,7 @@ describe('achievements v2', () => {
       expect(run.data.result.activeUsers).toBeGreaterThanOrEqual(active - 3) // users created while it ran
 
       const rows = await testPrisma.achievement.findMany({ where: { slug: { in: Object.keys(ACHIEVEMENT_DEFINITIONS) } } })
-      expect(rows).toHaveLength(51)
+      expect(rows).toHaveLength(54)
       for (const row of rows) {
         expect(row.rarity, row.slug).not.toBeNull()
         expect(row.rarity!).toBeGreaterThanOrEqual(0)
