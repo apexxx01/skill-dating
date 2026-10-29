@@ -130,7 +130,7 @@ export default async function setup() {
   //                   suite's parallel load it can drop connections and serve 500s from inside Next itself.
   // TEST_SKIP_BUILD=1 reuses the last production build (only safe when nothing under src/ changed since).
   const mode = readServerMode()
-  const baseEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, RESEND_WEBHOOK_SECRET: resendWebhookSecret, NOTIFICATION_SIGNING_SECRET: process.env.NOTIFICATION_SIGNING_SECRET, APP_URL: INTEGRATION_BASE_URL, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}` }
+  const baseEnv = { ...process.env, ...envLocal, DATABASE_URL: TEST_DATABASE_URL, TRUSTED_PROXY_HOPS: '1', CLERK_WEBHOOK_SECRET: webhookSecret, RESEND_WEBHOOK_SECRET: resendWebhookSecret, NOTIFICATION_SIGNING_SECRET: process.env.NOTIFICATION_SIGNING_SECRET, APP_URL: INTEGRATION_BASE_URL, PAGE_FETCH_ALLOW_PRIVATE: `localhost:${INTEGRATION_FIXTURE_PORT}`, GITHUB_FIXTURES_FILE: path.join(projectRoot, 'tests/integration/fixtures/github.json') }
 
   // TEST_SERVER_LOG=<file> keeps the server's output, for diagnosing a failing run.
   const logPath = process.env.TEST_SERVER_LOG

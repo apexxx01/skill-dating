@@ -43,10 +43,12 @@ describe('frontend contract', () => {
     expect(other.data).not.toHaveProperty('email')
     expect(JSON.stringify(other.data)).not.toContain(emailA)
     expect(typeof other.data.compatibility).toBe('number')
-    for (const key of ['skills', 'skillEvidences', 'ownedProjects', 'projects', 'ownedTeams', 'teams', 'achievements', 'currentBuild', 'rank', 'xp', 'reliableTeammate']) {
+    for (const key of ['skills', 'skillEvidences', 'ownedProjects', 'projects', 'ownedTeams', 'teams', 'achievements', 'currentBuild', 'rank', 'xp', 'reliableTeammate', 'proof']) {
       expect(other.data, key).toHaveProperty(key)
     }
     expect(other.data.reliableTeammate).toBe(false)
+    // The passport's proof section (docs/FRONTEND_CONTRACT.md, "Passport proof"): nothing shown without the GITHUB_SYNC consent.
+    expect(other.data.proof).toEqual({ visible: false, repos: 0, receipts: 0, upstream: 0, strongest: [] })
 
     // The stored rank column is never updated; the profile reports the live one.
     await testPrisma.xPEvent.create({ data: { userId: a.userId, type: 'PROJECT_CREATED', amount: 500, description: 'seed' } })
