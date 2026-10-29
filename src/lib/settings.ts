@@ -1,6 +1,17 @@
 import { z } from 'zod'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { log } from '@/lib/log'
+import {
+  budgetSettingSchema,
+  DEFAULT_BUDGET,
+  DEFAULT_FRESHNESS,
+  DEFAULT_STRENGTH_SETTING,
+  freshnessSettingSchema,
+  strengthSettingSchema,
+  type BudgetSetting,
+  type FreshnessSetting,
+  type StrengthSetting,
+} from '@/lib/evidence/strength-config'
 
 // Values an administrator can change without a deploy: GET /api/admin/settings, PUT /api/admin/settings/{key}, audited. Each known key has a schema and a default; a key
 // with no row (or a row that no longer parses) has its default, so a fresh environment works and a bad edit cannot break what reads it.
@@ -25,6 +36,11 @@ export type RomanceLaunchThreshold = z.infer<typeof romanceLaunchThresholdSchema
 
 export const DEFAULT_ROMANCE_LAUNCH_THRESHOLD: RomanceLaunchThreshold = { minInterestedAdults: 250, minPairingSharePercent: 30 }
 
+/** The evidence engine (docs/PROOF.md): the tunable part of the strength model, skill freshness, and how much one GitHub sync may ask. */
+export const EVIDENCE_STRENGTH_KEY = 'evidence.strength'
+export const EVIDENCE_FRESHNESS_KEY = 'evidence.freshness'
+export const EVIDENCE_BUDGET_KEY = 'evidence.github-budget'
+
 interface SettingDefinition {
   description: string
   schema: z.ZodType<unknown>
@@ -36,6 +52,21 @@ export const SETTINGS: Record<string, SettingDefinition> = {
     description: 'When a city is ready for the romance mode: the fewest interested adults, and the least share (percent) of that pool each side of the interested-in pairing must be.',
     schema: romanceLaunchThresholdSchema,
     default: DEFAULT_ROMANCE_LAUNCH_THRESHOLD,
+  },
+  [EVIDENCE_STRENGTH_KEY]: {
+    description: 'The evidence strength model: commits a day that count in full (burst dampening), the weight of each kind of commit, what an import counts, and the beginner floor.',
+    schema: strengthSettingSchema,
+    default: DEFAULT_STRENGTH_SETTING,
+  },
+  [EVIDENCE_FRESHNESS_KEY]: {
+    description: 'Skill freshness: the half-life of the decay in months, and the freshness at which a skill stops being ACTIVE and stops being WARM.',
+    schema: freshnessSettingSchema,
+    default: DEFAULT_FRESHNESS,
+  },
+  [EVIDENCE_BUDGET_KEY]: {
+    description: 'How much one GitHub sync may ask: repositories, API calls per sync (and for unauthenticated runs), calls per person per day, commit pages, commits and pull requests looked at in detail.',
+    schema: budgetSettingSchema,
+    default: DEFAULT_BUDGET,
   },
 }
 
@@ -61,6 +92,18 @@ export async function readSetting(db: Reader, key: string): Promise<unknown> {
 
 export async function romanceLaunchThreshold(db: Reader): Promise<RomanceLaunchThreshold> {
   return (await readSetting(db, ROMANCE_LAUNCH_THRESHOLD_KEY)) as RomanceLaunchThreshold
+}
+
+export async function evidenceStrengthSetting(db: Reader): Promise<StrengthSetting> {
+  return (await readSetting(db, EVIDENCE_STRENGTH_KEY)) as StrengthSetting
+}
+
+export async function evidenceFreshnessSetting(db: Reader): Promise<FreshnessSetting> {
+  return (await readSetting(db, EVIDENCE_FRESHNESS_KEY)) as FreshnessSetting
+}
+
+export async function evidenceBudgetSetting(db: Reader): Promise<BudgetSetting> {
+  return (await readSetting(db, EVIDENCE_BUDGET_KEY)) as BudgetSetting
 }
 
 export interface SettingView {
