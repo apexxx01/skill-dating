@@ -46,6 +46,9 @@ async function customSteps(tx: Tx, userId: string, now: Date): Promise<string[]>
   const exports = await tx.dataExport.findMany({ where: { userId, storageKey: { not: null } }, select: { storageKey: true } })
   await tx.dataExport.deleteMany({ where: { userId } })
 
+  // Receipts are revoked rather than deleted, so a copy of the link answers 410 Gone: the facts, the source and the signature go, the id stays.
+  await tx.$executeRaw`UPDATE "EvidenceReceipt" SET "status" = 'REVOKED', "revokedAt" = ${now}, "facts" = '{}'::jsonb, "sourceRef" = 'revoked:' || "id", "sourceUrl" = '', "payloadHash" = '', "signature" = NULL, "kid" = NULL, "updatedAt" = ${now} WHERE "userId" = ${userId}`
+
   // Early-access allowlists.
   await tx.$executeRaw`UPDATE "FeatureFlag" SET "allowUserIds" = array_remove("allowUserIds", ${userId}) WHERE ${userId} = ANY("allowUserIds")`
 
