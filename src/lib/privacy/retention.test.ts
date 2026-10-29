@@ -9,7 +9,7 @@ const now = new Date('2026-10-20T05:15:00Z')
 
 describe('retention', () => {
   it('keeps what the policy says: 13 months, 24 hours, 90 days, 2 years, 24 hours, and 90 days of the delivery log', () => {
-    expect(RETENTION).toEqual({ productEventsMonths: 13, idempotencyKeysMs: 86_400_000, expiredDropsDays: 90, resolvedReportsYears: 2, exportFilesHours: 24, deliveryLogDays: 90, activityDaysMonths: 25, romanceInterestAnsweredDays: 180 })
+    expect(RETENTION).toEqual({ productEventsMonths: 13, idempotencyKeysMs: 86_400_000, expiredDropsDays: 90, resolvedReportsYears: 2, exportFilesHours: 24, deliveryLogDays: 90, activityDaysMonths: 25, romanceInterestAnsweredDays: 180, withdrawnGithubEvidenceMonths: 12, revokedReceiptsYears: 2 })
   })
 
   it('computes the cutoffs', () => {
@@ -21,6 +21,8 @@ describe('retention', () => {
     expect(cut.deliveryLog.toISOString()).toBe('2026-07-22T05:15:00.000Z')
     expect(cut.activityDays.toISOString()).toBe('2024-09-20T05:15:00.000Z')
     expect(cut.romanceInterest.toISOString()).toBe('2026-04-23T05:15:00.000Z')
+    expect(cut.withdrawnGithubEvidence.toISOString()).toBe('2025-10-20T05:15:00.000Z')
+    expect(cut.revokedReceipts.toISOString()).toBe('2024-10-20T05:15:00.000Z')
   })
 
   it('deletes in batches, removes export files and marks them expired', async () => {
@@ -36,9 +38,12 @@ describe('retention', () => {
       campusVerification: { deleteMany: vi.fn(async () => ({ count: 2 })) },
       romanceInterest: { deleteMany: vi.fn(async () => ({ count: 1 })) },
       dataExport: { findMany: vi.fn(async () => [{ id: 'e1', storageKey: 'exports/u1/e1.json' }]), update: vi.fn(async () => ({})) },
+      $queryRaw: vi.fn(async () => []),
+      evidenceReceipt: { deleteMany: vi.fn(async () => ({ count: 3 })) },
     }
     const result = await runRetention(db as never, storage, now)
-    expect(result).toEqual({ productEvents: 2, expiredDrops: 0, resolvedReports: 0, exportFiles: 1, deliveryLog: 0, activityDays: 7, campusVerifications: 2, romanceInterest: 1 })
+    expect(result).toEqual({ productEvents: 2, expiredDrops: 0, resolvedReports: 0, exportFiles: 1, deliveryLog: 0, activityDays: 7, campusVerifications: 2, romanceInterest: 1, lapsedGithubEvidence: 0, revokedReceipts: 3 })
+    expect(db.evidenceReceipt.deleteMany).toHaveBeenCalledWith({ where: { status: 'REVOKED', revokedAt: { lt: retentionCutoffs(now).revokedReceipts } } })
     expect(db.productEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { createdAt: { lt: retentionCutoffs(now).productEvents } } }))
     expect(storage.contents.has('exports/u1/e1.json')).toBe(false)
     expect(db.dataExport.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { status: 'EXPIRED', storageKey: null } })

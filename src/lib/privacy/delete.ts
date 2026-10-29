@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { recomputePropsScore } from '@/lib/integrity/collusion-job'
 import { purgeRomance } from '@/lib/romance/lifecycle'
+import { utcTimestamp } from '@/lib/sql'
 import { DATA_INVENTORY } from './inventory'
 
 // What deleting an account does to everything else (the User row itself is anonymised by tombstoneClerkUser in src/lib/user-sync.ts). Driven by the data
@@ -11,6 +12,11 @@ type Tx = Prisma.TransactionClient
 
 const DELETED_TEXT = '[deleted]'
 const lowerFirst = (name: string) => name.charAt(0).toLowerCase() + name.slice(1)
+
+/** Receipts are revoked rather than deleted, so a copy of the link answers 410 Gone: the facts, the source and the signature go, the id stays. */
+export async function revokeReceipts(tx: Tx, userId: string, now: Date): Promise<void> {
+  await tx.$executeRaw`UPDATE "EvidenceReceipt" SET "status" = 'REVOKED', "revokedAt" = ${utcTimestamp(now)}, "facts" = '{}'::jsonb, "sourceRef" = 'revoked:' || "id", "sourceUrl" = '', "payloadHash" = '', "signature" = NULL, "kid" = NULL, "repoEvidenceId" = NULL, "updatedAt" = ${utcTimestamp(now)} WHERE "userId" = ${userId} AND "status" <> 'REVOKED'`
+}
 
 /** The steps of the SCRUB and CUSTOM rules, in the order they must run (before the generic deletes, which they read before). */
 async function customSteps(tx: Tx, userId: string, now: Date): Promise<string[]> {
@@ -46,8 +52,7 @@ async function customSteps(tx: Tx, userId: string, now: Date): Promise<string[]>
   const exports = await tx.dataExport.findMany({ where: { userId, storageKey: { not: null } }, select: { storageKey: true } })
   await tx.dataExport.deleteMany({ where: { userId } })
 
-  // Receipts are revoked rather than deleted, so a copy of the link answers 410 Gone: the facts, the source and the signature go, the id stays.
-  await tx.$executeRaw`UPDATE "EvidenceReceipt" SET "status" = 'REVOKED', "revokedAt" = ${now}, "facts" = '{}'::jsonb, "sourceRef" = 'revoked:' || "id", "sourceUrl" = '', "payloadHash" = '', "signature" = NULL, "kid" = NULL, "updatedAt" = ${now} WHERE "userId" = ${userId}`
+  await revokeReceipts(tx, userId, now)
 
   // Early-access allowlists.
   await tx.$executeRaw`UPDATE "FeatureFlag" SET "allowUserIds" = array_remove("allowUserIds", ${userId}) WHERE ${userId} = ANY("allowUserIds")`
