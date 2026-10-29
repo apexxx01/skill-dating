@@ -30,6 +30,12 @@ export interface HealthReport {
   time: string
   /** In production: the optional providers that are not configured (mail, push, storage, media-scanning, error-reporting). Names only; any one makes the status "degraded". */
   missingProviders: string[]
+  /**
+   * The evidence engine (docs/PROOF.md): how receipts are signed (`configured`, the development `fixture` key, or `unsigned` in production without a key,
+   * which is also a missing provider) with the active key's id (public, it is in the key set), and how GitHub is reached without a person's own sign-in
+   * (`server-token` or `anonymous`). Modes only, never a key or a token.
+   */
+  evidence: { signing: 'configured' | 'fixture' | 'unsigned'; kid: string | null; github: 'server-token' | 'anonymous' }
   checks: {
     database: CheckResult
     cache: CheckResult
@@ -46,6 +52,8 @@ export interface HealthDeps {
   realtime(): Realtime
   /** Names of the providers a production deployment lacks; empty outside production. */
   missingProviders?(): string[]
+  /** The evidence engine's modes; reported as unsigned and anonymous when it cannot be read. */
+  evidence?(): HealthReport['evidence']
 }
 
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000
@@ -103,8 +111,14 @@ export async function runHealthChecks(deps: HealthDeps, options: { timeoutMs?: n
   } catch {
     missing = []
   }
+  let evidence: HealthReport['evidence'] = { signing: 'unsigned', kid: null, github: 'anonymous' }
+  try {
+    evidence = deps.evidence?.() ?? evidence
+  } catch {
+    // keep the safe answer
+  }
   const status = database.status === 'down' ? 'down' : [cache, jobs, realtime].some((check) => check.status === 'down') || missing.length > 0 ? 'degraded' : 'ok'
-  return { status, time: (options.now?.() ?? new Date()).toISOString(), missingProviders: missing, checks: { database, cache, jobs, realtime } }
+  return { status, time: (options.now?.() ?? new Date()).toISOString(), missingProviders: missing, evidence, checks: { database, cache, jobs, realtime } }
 }
 
 export function healthStatusCode(report: HealthReport): number {
