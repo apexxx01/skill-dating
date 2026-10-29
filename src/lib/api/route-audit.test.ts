@@ -34,6 +34,8 @@ describe('route audit', () => {
       '/api/og/passport/[username]',
       '/api/og/post/[id]',
       '/api/og/squad/[id]',
+      '/api/receipts/[id]',
+      '/api/receipts/keys',
       '/api/webhooks/clerk',
       '/api/webhooks/email',
     ])

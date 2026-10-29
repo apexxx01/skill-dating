@@ -84,7 +84,30 @@ export interface UserSkillEntry {
   level: number
   yearsExperience: number | null
   isVerified: boolean
+  /** The newest evidence behind the skill (docs/PROOF.md, "Freshness"). */
+  lastEvidencedAt: IsoDate | null
   skill: SkillSummary
+  /** GET /api/users/{id} and GET /api/users/{id}/skills: the strongest GitHub evidence behind the skill. */
+  proof?: SkillProof
+  freshness?: SkillFreshness
+}
+
+/** The strongest engine evidence behind a skill: 0 everywhere when there is none, or while its owner's GITHUB_SYNC consent is withdrawn. */
+export interface SkillProof {
+  /** 0 to 100. */
+  strength: number
+  /** 0 to 1: strength, times the source still being there, times integrity. */
+  weight: number
+  repos: number
+  receipts: number
+}
+
+/** How recently a skill was evidenced: a half-life decay (18 months by default). Display and matching weight only, never XP. */
+export interface SkillFreshness {
+  lastEvidencedAt: IsoDate | null
+  /** 1 when just evidenced, 0.5 after one half-life; null when never evidenced. */
+  freshness: number | null
+  label: 'ACTIVE' | 'WARM' | 'RUSTY' | null
 }
 
 export type ProjectStatus = 'IDEA' | 'PLANNING' | 'BUILDING' | 'TESTING' | 'SHIPPED' | 'ARCHIVED'
@@ -235,6 +258,18 @@ export interface ProfileResponse extends UserWithHeadline {
   blockedByMe: boolean
   /** The passport's "Reliable teammate" badge (docs/SQUADS.md). The reliability number behind it is never sent. */
   reliableTeammate: boolean
+  /** The passport's proof section (docs/PROOF.md). */
+  proof: PassportProof
+}
+
+export interface PassportProof {
+  /** False while the GITHUB_SYNC consent is not in force: then nothing else is shown. */
+  visible: boolean
+  repos: number
+  receipts: number
+  /** Pull requests merged by other maintainers into repositories the person does not own. */
+  upstream: number
+  strongest: { fullName: string; url: string; strength: number; receiptId: string | null }[]
 }
 
 export interface CurrentBuild {
@@ -534,9 +569,15 @@ export interface EvidenceRow {
   url: string | null
   verifiedAt: IsoDate | null
   createdAt: IsoDate
+  /** Null when never checked; UNSUPPORTED for a claimed repository with no authored work ("claimed, not evidenced"), which counts for nothing. */
+  support: 'SUPPORTED' | 'UNSUPPORTED' | null
+  /** Why, for the owner only (null for everybody else). */
+  supportReason: string | null
 }
 
 export interface EvidenceItem extends EvidenceRow {
+  /** For engine evidence (type GITHUB_ACTIVITY): its strength (0 to 100) and weight (0 to 1). Null for evidence people add themselves. */
+  proof: { repoEvidenceId: string; strength: number; weight: number } | null
   skill: { id: string; name: string; slug: string; category: string }
   endorsementCount: number
   endorsedByMe: boolean
@@ -1010,7 +1051,107 @@ export interface HealthResponse {
   time: IsoDate
   /** In production: optional providers that are not configured (`email`, `push`, `storage`, `media-scanning`, `error-reporting`); any one makes `status` "degraded". Empty elsewhere. */
   missingProviders: string[]
+  /** How receipts are signed and how GitHub is reached without a person's own sign-in. Modes and the public key id only, never a key or a token. */
+  evidence: { signing: 'configured' | 'fixture' | 'unsigned'; kid: string | null; github: 'server-token' | 'anonymous' }
   checks: Record<'database' | 'cache' | 'jobs' | 'realtime', { status: 'ok' | 'down'; provider: string; latencyMs?: number }>
+}
+
+// ---------------------------------------------------------------------------
+// Proof: receipts and the evidence engine (docs/PROOF.md)
+// ---------------------------------------------------------------------------
+
+export type ReceiptStatus = 'VALID' | 'SOURCE_CHANGED' | 'SOURCE_GONE' | 'REVOKED'
+
+/** GET /api/receipts/keys: the public keys receipts are signed with (Ed25519, JWKS style). */
+export interface ReceiptKeysResponse {
+  mode: 'configured' | 'fixture' | 'unsigned'
+  keys: { kty: 'OKP'; crv: 'Ed25519'; x: string; kid: string; use: 'sig'; alg: 'EdDSA'; active: boolean }[]
+}
+
+/** What a receipt's signature covers: canonicalise it (RFC 8785) and verify with the key its kid names. */
+export interface ReceiptEnvelope {
+  v: 1
+  id: string
+  subject: { platform: 'skill-dating'; userId: string }
+  source: 'github'
+  sourceRef: string
+  sourceUrl: string
+  factsVersion: number
+  facts: Record<string, unknown>
+  payloadHash: string
+  capturedAt: IsoDate
+  /** Null while the receipt is unsigned. */
+  kid: string | null
+}
+
+/** GET /api/receipts/{id}: a receipt as anybody may see it. */
+export interface PublicReceiptResponse {
+  receipt: { id: string; status: ReceiptStatus; lastCheckedAt: IsoDate; signed: boolean; envelope: ReceiptEnvelope; signature: string | null }
+  owner: { username: string; name: string | null }
+  verify: { keys: string; algorithm: 'Ed25519'; canonicalization: 'RFC 8785 (JCS)' }
+}
+
+/** POST /api/receipts/{id}/recheck. */
+export interface ReceiptRecheckResponse {
+  receipt: { id: string; status: ReceiptStatus; lastCheckedAt: IsoDate; previousStatus: ReceiptStatus }
+}
+
+/** POST /api/github/sync (202). `queued: false` when a sync from the last ten minutes is still pending. */
+export interface GithubSyncResponse {
+  queued: boolean
+  sync: { status: string; requestedAt: IsoDate | null; lastSyncedAt: IsoDate | null }
+}
+
+export interface StrengthComponent {
+  key: 'work' | 'days' | 'span' | 'tests' | 'mergedByOthers' | 'selfMerged' | 'reviews' | 'releases' | 'stars'
+  points: number
+  max: number
+}
+
+/** One repository in GET /api/github. */
+export interface GithubRepoEvidence {
+  id: string
+  repoGithubId: string
+  fullName: string
+  url: string
+  claimed: boolean
+  strength: number
+  weight: number
+  /** Sentences to show, the counts first. */
+  reasons: string[]
+  components: StrengthComponent[]
+  support: 'SUPPORTED' | 'UNSUPPORTED'
+  supportReason: string | null
+  sourceWeight: number
+  /** A moderator upheld a dispute about this claim: it counts for nothing and is not on the passport. */
+  moderated: boolean
+  authoredShare: number | null
+  firstAuthoredAt: IsoDate | null
+  lastAuthoredAt: IsoDate | null
+  syncedAt: IsoDate
+  skills: string[]
+  receipts: { id: string; status: ReceiptStatus; signed: boolean; capturedAt: IsoDate; lastCheckedAt: IsoDate }[]
+  collaborators: { userId: string; username: string; share: number; overlapStart: IsoDate | null; overlapEnd: IsoDate | null }[]
+  /** Other people's claims to this repository, listed only when the caller has authored work in it (they may dispute them). */
+  otherClaims: { id: string; userId: string; username: string; support: 'SUPPORTED' | 'UNSUPPORTED'; moderated: boolean }[]
+}
+
+/** GET /api/github: the caller's connected evidence. */
+export interface GithubOverviewResponse {
+  connected: boolean
+  consent: { current: boolean; grantedAt: IsoDate | null; currentVersion: string }
+  /** False while the GITHUB_SYNC consent is withdrawn: everything here is hidden from everybody else and from every count. */
+  visible: boolean
+  sync: { status: string; requestedAt: IsoDate | null; lastSyncedAt: IsoDate | null; authMode: string | null; callsToday: number; callsPerDay: number; lastError: string | null }
+  repos: GithubRepoEvidence[]
+  upstream: { receiptId: string; fullName: string | null; number: number | null; mergedAt: IsoDate | null; status: ReceiptStatus; signed: boolean }[]
+  /** Skills the repositories evidence that are not on the passport yet. */
+  suggestedSkills: string[]
+}
+
+/** POST /api/github/repos/{id}/dispute (201). */
+export interface ClaimDisputeResponse {
+  report: { id: string; status: 'PENDING' | 'REVIEWING' | 'RESOLVED' | 'DISMISSED'; priority: number }
 }
 
 /** GET /api/flags: every flag with its answer for the signed-in user. */
