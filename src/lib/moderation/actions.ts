@@ -29,7 +29,7 @@ export type ModerationActionName = (typeof MODERATION_ACTIONS)[number]
 /** Actions that cannot be taken back cheaply: they need a session signed in within the last few minutes (src/lib/api/recent-auth.ts). */
 export const DESTRUCTIVE_ACTIONS: readonly ModerationActionName[] = ['BAN', 'REMOVE_CONTENT']
 
-export const REASON_CATEGORIES = ['SPAM', 'HARASSMENT', 'INAPPROPRIATE_CONTENT', 'FAKE_PROFILE', 'SCAM', 'COPYRIGHT', 'OTHER', 'IMPERSONATION', 'MINOR_SAFETY'] as const
+export const REASON_CATEGORIES = ['SPAM', 'HARASSMENT', 'INAPPROPRIATE_CONTENT', 'FAKE_PROFILE', 'SCAM', 'COPYRIGHT', 'OTHER', 'IMPERSONATION', 'MINOR_SAFETY', 'CLAIM_DISPUTE'] as const
 
 /** How long after an action the person may appeal it. */
 export const APPEAL_WINDOW_DAYS = 30
@@ -95,6 +95,7 @@ const CATEGORY_LABEL: Record<(typeof REASON_CATEGORIES)[number], string> = {
   OTHER: 'a breach of the community rules',
   IMPERSONATION: 'impersonation',
   MINOR_SAFETY: 'the safety of minors',
+  CLAIM_DISPUTE: 'a claim to work that its history does not support',
 }
 
 /** A notice about one's own account: always written (not a switchable kind). */

@@ -5,9 +5,10 @@
 //   3. impersonation                                                        600
 //   4. harassment and scams                                                 400
 //   5. inappropriate content and fake profiles                              300
-//   6. spam                                                                 200
-//   7. date-of-birth corrections, copyright                                 150
-//   8. anything else                                                        100
+//   6. a disputed claim to a repository                                     250
+//   7. spam                                                                 200
+//   8. date-of-birth corrections, copyright                                 150
+//   9. anything else                                                        100
 // then, inside a band, by the reporter's standing (a trusted account +50, strongly verified +25 more, a HIGH risk reporter -100) and by volume (+40 for
 // each other person who reported the same thing while it is open, up to +200). Platform reports (flagged content, photos for review) carry no
 // reporter bonus.
@@ -23,6 +24,7 @@ export type ReasonName =
   | 'BIRTHDATE_CORRECTION'
   | 'IMPERSONATION'
   | 'MINOR_SAFETY'
+  | 'CLAIM_DISPUTE'
 
 export const REASON_PRIORITY: Record<ReasonName, number> = {
   MINOR_SAFETY: 2000,
@@ -31,6 +33,8 @@ export const REASON_PRIORITY: Record<ReasonName, number> = {
   SCAM: 400,
   INAPPROPRIATE_CONTENT: 300,
   FAKE_PROFILE: 300,
+  // Somebody with work in a repository says another person's claim to it is false: about whose work it is, not about anyone's safety.
+  CLAIM_DISPUTE: 250,
   SPAM: 200,
   BIRTHDATE_CORRECTION: 150,
   COPYRIGHT: 150,
