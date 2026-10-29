@@ -38,7 +38,7 @@ export async function gateRequest(db: PrismaClient, user: { id: string }, method
   const feature = featureOfRequest(method, pathname)
   if (feature) {
     if (feature === 'romance' ? !(await romanceOpenFor(db, user.id)) : await isKilled(db, feature)) return errorResponse(KILL_SWITCHES[feature].code)
-    if (feature !== 'external_hackathons' && feature in state.restricted) {
+    if (feature !== 'external_hackathons' && feature !== 'evidence_engine' && feature in state.restricted) {
       const until = state.restricted[feature]
       return errorResponse('FEATURE_RESTRICTED', { params: { feature, ...(until ? { until } : {}) } })
     }

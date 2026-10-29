@@ -278,6 +278,16 @@ export const ERROR_CATALOG = {
   CAMPUS_VERIFICATION_NOT_FOUND: { status: 404, message: 'There is no campus verification in progress' },
   CAMPUS_IS_VERIFIED: { status: 409, message: 'Your campus is verified. Leave it before changing it' },
   CAMPUS_CLOSED: { status: 409, message: 'This campus is not taking new members' },
+
+  // --- Proof: the evidence engine and receipts (docs/PROOF.md) ----------------------
+  RECEIPT_NOT_FOUND: { status: 404, message: 'This receipt does not exist' },
+  RECEIPT_REVOKED: { status: 410, message: 'This receipt was revoked' },
+  RECEIPTS_PAUSED: { status: 503, message: 'Receipt pages are paused for a short while' },
+  EVIDENCE_ENGINE_PAUSED: { status: 503, message: 'Reading GitHub history is paused for a short while' },
+  GITHUB_NOT_CONNECTED: { status: 409, message: 'Connect a GitHub account first' },
+  GITHUB_SYNC_CONSENT_REQUIRED: { status: 403, message: 'Allow reading your public GitHub history first (the GITHUB_SYNC consent)' },
+  CLAIM_NOT_FOUND: { status: 404, message: 'This claim does not exist' },
+  DISPUTE_NOT_ALLOWED: { status: 403, message: 'Only someone with authored work in this repository can dispute a claim to it' },
 } as const satisfies Record<string, ErrorSpec>
 
 export type ErrorCode = keyof typeof ERROR_CATALOG
