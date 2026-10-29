@@ -266,7 +266,7 @@
           "Admin"
         ],
         "summary": "Take a moderation action on a person or on something they made",
-        "description": "Auth: `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. Body: `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?, durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays` optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA`; for an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing, writes an `AuditEvent` and notifies the person. Response `201`: `{ action }`. Errors: `400 MODERATION_ACTION_INVALID` (hiding a person, approving something that is not media), `400 VALIDATION_FAILED` (a missing feature or duration), `403 FORBIDDEN` (acting on yourself; a moderator acting on a staff acc",
+        "description": "Auth: `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. Body: `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?, durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays` optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA` and `EVIDENCE_CLAIM` (a claim to a GitHub repository someone disputed: `HIDE_CONTENT` or `REMOVE_CONTENT` takes it out of strength and off the passport, never deleting it; category `CLAIM_DISPUTE`); for an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing, writes an `AuditEvent` and notifies the person. Response `201`: `{ action }`. Errors: `400 MODERATION_ACT",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -2522,7 +2522,7 @@
           "Admin"
         ],
         "summary": "The moderation queue: open reports and appeals, most urgent first",
-        "description": "Auth: `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?`, `limit` (20, at most 50), `offset`. Reports: open (`PENDING`, `REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. Response: `{ kind, items[], nextOffset }`; each item has `kind: \"REPORT\"|\"APPEAL\"`.",
+        "description": "Auth: `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?` (a report reason, or `CLAIM_DISPUTE`), `limit` (20, at most 50), `offset`. Reports: open (`PENDING`, `REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. Response: `{ kind, items[], nextOffset }`; each item has `kind: \"REPORT\"|\"APPEAL\"`.",
         "parameters": [
           {
             "name": "kind",
@@ -2553,7 +2553,8 @@
                 "OTHER",
                 "IMPERSONATION",
                 "MINOR_SAFETY",
-                "BIRTHDATE_CORRECTION"
+                "BIRTHDATE_CORRECTION",
+                "CLAIM_DISPUTE"
               ]
             }
           },
@@ -5756,7 +5757,7 @@
           "Passport"
         ],
         "summary": "The caller’s skill evidence",
-        "description": "Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`. Response: `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, skill, endorsementCount, endorsedByMe }], pagination }` Errors: `404` user not found or has blocked the caller.",
+        "description": "Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`. GitHub evidence the engine made (type `GITHUB_ACTIVITY`, [PROOF.md](PROOF.md)) is listed only while its owner's GITHUB_SYNC consent is in force, with `proof: { repoEvidenceId, strength, weight }` (null for evidence people add). `support` is `UNSUPPORTED` for a claimed repository with no authored work; such a row, and one a moderator hid, is listed to its owner only, and `supportReason` (why) is the owner's only. Response: `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, support, supportReason, proof, skill, endorsementCount, endorsedByMe }], pagination }` Errors: `404` user not found or has blocked the caller.",
         "parameters": [
           {
             "name": "page",
@@ -6294,7 +6295,7 @@
           "Proof"
         ],
         "summary": "Your connected GitHub evidence: repositories, strength, receipts, collaborators",
-        "description": "the caller's connected evidence (src/lib/evidence/overview.ts): whether GitHub is connected and the GITHUB_SYNC consent given, the last sync and the day's call budget, every repository with its strength and reasons, its support (an UNSUPPOR",
+        "description": "The caller's connected evidence: `{ connected, consent: { current, grantedAt, currentVersion }, visible, sync: { status, requestedAt, lastSyncedAt, authMode, callsToday, callsPerDay, lastError }, repos, upstream, suggestedSkills }`. Each of `repos` is `{ id, repoGithubId, fullName, url, claimed, strength (0-100), weight (0-1), reasons, components, support: SUPPORTED|UNSUPPORTED, supportReason, sourceWeight, moderated, authoredShare, firstAuthoredAt, lastAuthoredAt, syncedAt, skills, receipts: [{ id, status, signed, capturedAt, lastCheckedAt }], collaborators: [{ userId, username, share, overlapStart, overlapEnd }], otherClaims: [{ id, userId, username, support, moderated }] }`; `otherClaims` (other people's claims to the repository, which the caller may dispute) is filled only where the caller has authored work. `upstream` is the pull requests merged by other maintainers: `[{ receiptId, ",
         "responses": {
           "200": {
             "description": "GithubOverviewResponse",
@@ -6341,7 +6342,7 @@
           "Proof"
         ],
         "summary": "Dispute another person’s claim to a repository you have work in",
-        "description": "contest another person's claim to a repository the caller has authored work in ({id} is that person's claim, as GET /api/github lists it under otherClaims).",
+        "description": "Contest another person's claim to a repository the caller has authored work in (`{id}` is the claim, from `otherClaims`). Files a `CLAIM_DISPUTE` report on the target `EVIDENCE_CLAIM` into the moderation queue; a moderator who upholds it hides the claim (`HIDE_CONTENT`), which its owner can appeal. Honours `Idempotency-Key`. Body: `{ description }` (10 to 2000 characters, staff only). Response `201`: `{ report: { id, status, priority } }`. Five a minute. Errors: `404 CLAIM_NOT_FOUND`, `400 CANNOT_REPORT_SELF`, `403 DISPUTE_NOT_ALLOWED` (no authored work of the caller's there), `409 REPORT_ALREADY_PENDING`, `400 VALIDATION_FAILED`, `503 EVIDENCE_ENGINE_PAUSED`.",
         "parameters": [
           {
             "name": "id",
@@ -6427,7 +6428,7 @@
           "Proof"
         ],
         "summary": "Read your public GitHub history again now (debounced)",
-        "description": "read the caller's public GitHub history again now (src/lib/evidence/sync.ts).",
+        "description": "Read the caller's public GitHub history again now. Debounced: while a sync queued or started in the last ten minutes is pending, nothing new is queued (`queued: false`). Response `202`: `{ queued, sync: { status, requestedAt, lastSyncedAt } }`. Three every ten minutes. Errors: `409 GITHUB_NOT_CONNECTED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`, `503 EVIDENCE_ENGINE_PAUSED`, `429 RATE_LIMITED`.",
         "responses": {
           "202": {
             "description": "GithubSyncResponse",
@@ -14886,6 +14887,7 @@
           "Proof"
         ],
         "summary": "A signed evidence receipt, to show or verify (public)",
+        "description": "Public. One receipt, to show or to verify: `{ receipt: { id, status: VALID|SOURCE_CHANGED|SOURCE_GONE, lastCheckedAt, signed, envelope, signature }, owner: { username, name }, verify: { keys: \"/api/receipts/keys\", algorithm: \"Ed25519\", canonicalization: \"RFC 8785 (JCS)\" } }`. `envelope` is exactly what was signed: canonicalise it and verify `signature` (base64url) with the key its `kid` names; `envelope.payloadHash` is the sha256 of the canonical `envelope.facts` (the script is in [PROOF.md](PROOF.md#verifying-a-receipt-offline)). `signed: false` (and a null `kid` and `signature`) for a receipt a deployment without a key issued, until it is signed. `Cache-Control: public, max-age=300` with an `ETag` (`304` on `If-None-Match`). 60 a minute per address (`429 RATE_LIMITED`). Errors: `404 RECEIPT_NOT_FOUND` for an id that is not a receipt's and for one that may not be shown, alike (the owner",
         "parameters": [
           {
             "name": "id",
@@ -14929,7 +14931,7 @@
           "Proof"
         ],
         "summary": "Check one of your receipts against its source now",
-        "description": "the owner asks for one of their receipts to be checked against GitHub now.",
+        "description": "The owner asks for one receipt to be checked against GitHub now (with their own GitHub sign-in when there is one). Sets its status and the weight of the evidence behind it; deletes nothing. Response: `{ receipt: { id, status, lastCheckedAt, previousStatus } }`. Five a minute. Errors: `404 RECEIPT_NOT_FOUND` (also for another person's receipt), `410 RECEIPT_REVOKED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`, `503 SERVICE_UNAVAILABLE` (GitHub refused or limited the check), `503 EVIDENCE_ENGINE_PAUSED`.",
         "parameters": [
           {
             "name": "id",
@@ -14987,6 +14989,7 @@
           "Proof"
         ],
         "summary": "The public keys receipts are signed with (public)",
+        "description": "Public. The public keys receipts are signed with, JWKS style: `{ mode: configured|fixture|unsigned, keys: [{ kty: \"OKP\", crv: \"Ed25519\", x, kid, use: \"sig\", alg: \"EdDSA\", active }] }`. Every key that may have signed a receipt is listed (retired keys too), the one that signs now marked `active`; never a private part. `mode` is `fixture` outside production without `RECEIPT_SIGNING_KEYS` (the published development key, kid `dev-fixture-NOT-FOR-PRODUCTION`) and `unsigned` in production without one (`keys: []`). Up even under the `receipts-public` kill switch. `Cache-Control: public, max-age=3600`. 60 a minute per address.",
         "responses": {
           "200": {
             "description": "ReceiptKeysResponse",
@@ -20624,7 +20627,7 @@
           "Passport"
         ],
         "summary": "A person’s passport",
-        "description": "Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus: - `email` — only on your own profile, never on anyone else's. - `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used. - `compatibility` — live score vs. the caller (`null` on your own profile). - `blockedByMe` — `true` when you have blocked this user.",
+        "description": "Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus: - `email` — only on your own profile, never on anyone else's. - `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used. - `compatibility` — live score vs. the caller (`null` on your own profile). - `blockedByMe` — `true` when you have blocked this user. - `proof` — the passport's proof section ([PROOF.md](PROOF.md)): `{ visible, repos, receipts, upstream, strongest: [{ fullName, url, strength, receiptId }] }`; `visible: false` and nothing else while the person has not given (or withdrew) the GITHUB_SYNC consent. - each of `skills` carries `proof` (`{ strength, weight, repos, receipts }`) and `freshness` (`{ lastEvidencedAt, freshness,",
         "parameters": [
           {
             "name": "id",
@@ -21266,7 +21269,7 @@
           "Passport"
         ],
         "summary": "A person’s skills",
-        "description": "List a user's skills. `404` if the user is missing or has blocked the caller.",
+        "description": "List a user's skills, each with `lastEvidencedAt`, `proof` (`{ strength, weight, repos, receipts }`: the strongest GitHub evidence behind it, all 0 without the GITHUB_SYNC consent) and `freshness` (`{ lastEvidencedAt, freshness, label: ACTIVE|WARM|RUSTY|null }`: a half-life decay, 18 months by default; display and matching weight only). `404` if the user is missing or has blocked the caller.",
         "parameters": [
           {
             "name": "id",
@@ -21903,7 +21906,7 @@
           "Account"
         ],
         "summary": "The documents the caller agreed to, and what must be agreed again",
-        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited.",
+        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING|GITHUB_SYNC, version, source?: onboarding|settings|romance-optin|github-connect|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited. Giving `GITHUB_SYNC` queues a GitHub sync when GitHub is connected.",
         "responses": {
           "200": {
             "description": "ConsentsResponse",
@@ -21948,7 +21951,7 @@
           "Account"
         ],
         "summary": "Agree to the current version of a document",
-        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited.",
+        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING|GITHUB_SYNC, version, source?: onboarding|settings|romance-optin|github-connect|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited. Giving `GITHUB_SYNC` queues a GitHub sync when GitHub is connected.",
         "requestBody": {
           "required": true,
           "content": {
@@ -22043,7 +22046,7 @@
           "Account"
         ],
         "summary": "Withdraw a consent (marketing, romance mode)",
-        "description": "`ROMANCE_MODE` or `MARKETING` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off and deletes its data. Response: `{ consent }`.",
+        "description": "`ROMANCE_MODE`, `MARKETING` or `GITHUB_SYNC` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off and deletes its data; withdrawing `GITHUB_SYNC` stops every GitHub sync and hides what the evidence engine found (kept, and back if the consent is given again). Response: `{ consent }`.",
         "parameters": [
           {
             "name": "type",

@@ -299,7 +299,8 @@ export interface GetAdminQueueQuery {
     | "OTHER"
     | "IMPERSONATION"
     | "MINOR_SAFETY"
-    | "BIRTHDATE_CORRECTION";
+    | "BIRTHDATE_CORRECTION"
+    | "CLAIM_DISPUTE";
   limit?: number;
   offset?: number;
 }

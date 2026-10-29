@@ -100,7 +100,7 @@ describe('docs/openapi.json', () => {
 
   it('knows who may call what: sessions, roles, rate limits, idempotency, caching', () => {
     const publics = SCANNED_OPERATIONS.filter((o) => o.guard === 'none').map((o) => `${o.method} ${o.path}`).sort()
-    expect(publics).toEqual(['GET /api/auth/session', 'GET /api/health', 'GET /api/inngest', 'GET /api/invites/check', 'GET /api/notifications/open/{token}', 'GET /api/notifications/unsubscribe', 'GET /api/og/achievement/{slug}', 'GET /api/og/link', 'GET /api/og/passport/{username}', 'GET /api/og/post/{id}', 'GET /api/og/squad/{id}', 'POST /api/inngest', 'POST /api/notifications/unsubscribe', 'POST /api/webhooks/clerk', 'POST /api/webhooks/email', 'PUT /api/inngest'].sort())
+    expect(publics).toEqual(['GET /api/auth/session', 'GET /api/health', 'GET /api/inngest', 'GET /api/invites/check', 'GET /api/notifications/open/{token}', 'GET /api/notifications/unsubscribe', 'GET /api/og/achievement/{slug}', 'GET /api/og/link', 'GET /api/og/passport/{username}', 'GET /api/og/post/{id}', 'GET /api/og/squad/{id}', 'GET /api/receipts/keys', 'GET /api/receipts/{id}', 'POST /api/inngest', 'POST /api/notifications/unsubscribe', 'POST /api/webhooks/clerk', 'POST /api/webhooks/email', 'PUT /api/inngest'].sort())
     for (const [p, methods] of Object.entries(spec.paths)) {
       for (const [method, op] of Object.entries(methods)) {
         if (p.startsWith('/api/admin/')) expect(op['x-roles'], `${method} ${p}`).toEqual(expect.arrayContaining([expect.stringMatching(/ADMIN|MODERATOR/)]))
