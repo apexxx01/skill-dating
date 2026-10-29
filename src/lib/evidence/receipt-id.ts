@@ -10,12 +10,14 @@ export const RECEIPT_ID_PATTERN = /^[0-9A-Za-z]{22}$/
 /** Pure: 16 bytes as a 22-character base62 string, most significant digit first, padded with zeros. */
 export function base62Of(bytes: Uint8Array): string {
   if (bytes.length !== 16) throw new Error('a receipt id is 16 bytes')
-  let n = 0n
-  for (const byte of bytes) n = (n << 8n) | BigInt(byte)
+  const zero = BigInt(0)
+  const base = BigInt(62)
+  let n = zero
+  for (const byte of bytes) n = n * BigInt(256) + BigInt(byte)
   let out = ''
-  while (n > 0n) {
-    out = ALPHABET[Number(n % 62n)] + out
-    n /= 62n
+  while (n > zero) {
+    out = ALPHABET[Number(n % base)] + out
+    n /= base
   }
   return out.padStart(RECEIPT_ID_LENGTH, '0')
 }

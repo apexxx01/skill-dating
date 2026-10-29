@@ -19,7 +19,7 @@ describe('canonical JSON', () => {
   })
 
   it('refuses what JSON cannot hold', () => {
-    for (const bad of [NaN, Infinity, -Infinity, undefined, () => 1, Symbol('s'), 1n, new Date(0), { a: undefined }, new Map()]) {
+    for (const bad of [NaN, Infinity, -Infinity, undefined, () => 1, Symbol('s'), BigInt(1), new Date(0), { a: undefined }, new Map()]) {
       expect(() => canonicalize(bad), String(bad)).toThrow(CanonicalJsonError)
     }
   })

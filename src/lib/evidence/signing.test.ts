@@ -107,7 +107,8 @@ describe('signing and verifying', () => {
     expect(signature).toMatch(/^[A-Za-z0-9_-]{86}$/)
     expect(verifyEnvelope(env, signature, set.keys)).toBe(true)
     // The member order of the JSON a verifier holds does not matter.
-    const reordered = JSON.parse(JSON.stringify({ kid: env.kid, facts: env.facts, ...env })) as ReceiptEnvelope
+    const { kid, facts, ...rest } = env
+    const reordered = JSON.parse(JSON.stringify({ kid, facts, ...rest })) as ReceiptEnvelope
     expect(verifyEnvelope(reordered, signature, set.keys)).toBe(true)
   })
 
