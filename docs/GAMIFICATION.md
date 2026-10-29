@@ -237,7 +237,7 @@ owner's `showActivity` switch.
 
 ## Achievements
 
-There are **51**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
+There are **54**, in a few families. A tiered family is one counter with several targets; the first tier of each keeps the
 slug it had before there were tiers.
 
 **How they work.** A domain event is turned into *ticks* (`EVENT_TICKS` in `src/lib/metrics.ts`): "this user shipped
@@ -317,7 +317,7 @@ DEVLOG post is a project update (`PROJECT_UPDATE_POSTED`, 15 XP, 3 a day).
 
 ### Secret achievements
 
-Six are unlocked by a rule on one event and are **hidden until earned**: `GET /api/achievements` lists them with a
+Seven are unlocked by a rule on one event and are **hidden until earned**: `GET /api/achievements` lists them with a
 placeholder slug (`secret-<order>`), no name, no text, no icon, no reward, no progress and no rarity, so nothing gives the rule
 away. (They are written out here because this is a developer document.)
 
@@ -329,6 +329,7 @@ away. (They are written out here because this is a developer document.)
 | `golden-vouch` | Golden Vouch | 75 | Received an endorsement from a Gold builder or higher. |
 | `weekend-warrior` | Weekend Warrior | 75 | Shipped on the weekend after shipping during the week. |
 | `comeback-kid` | Comeback Kid | 50 | Came back and earned XP after more than 30 days away. |
+| `archaeologist` | Archaeologist | 50 | Evidenced work whose first authored commit is at least five years old (the evidence engine). |
 
 *Night Owl* looks at the user's local hour when the project shipped (02:00 up to but not including 05:00), *Hat Trick*
 counts the ship ticks since local Monday 00:00, and *Weekend Warrior* wants a weekend ship (local Saturday or Sunday)
@@ -556,6 +557,25 @@ winner of even a tiny season is in the top 1%; and because the ranks come from t
 It is **idempotent three ways**: the season is marked done (`Season.rewardsGrantedAt`) and skipped from then on; a lock stops two runs doing
 it at once; and a cosmetic somebody already has is never granted again (nor announced again), so even losing the marker changes nothing. A season that
 closed but could not be granted (the database went away) keeps a null marker, and the next hourly run, or `npm run postdeploy`, grants it.
+
+### Proof achievements
+
+The evidence engine ([PROOF.md](PROOF.md#rewards)) is seasoning, never inflation. A GitHub sync pays **no XP for history**: engine evidence does not
+earn `EVIDENCE_ADDED`, and there is no rule per commit, receipt or repository. Its two events, `RECEIPT_VERIFIED` and `UPSTREAM_MERGE_VERIFIED`, pay
+nothing and only count (metrics `receipts_verified`, `upstream_merges`, once per receipt) towards:
+
+| Slug | Name | XP | Unlocked when |
+| --- | --- | ---: | --- |
+| `receipts` | Receipts | 25 | the first receipt of the person's own work |
+| `upstream` | Upstream | 50 | the first pull request another maintainer merged into a public repository the person does not own, at least 90 days old at the merge |
+| `archaeologist` | Archaeologist (secret, above) | 50 | evidence whose first authored commit is at least five years old |
+
+Each pays once, through `ACHIEVEMENT_EARNED`, so a sync of any size is worth at most 125 XP, ever: imported history is capped by design. Upstream is
+triggered by somebody else (the merging maintainer) who is not on the platform, so the trusted-counterparty gate has no account to judge; its gate is
+that the merger is another GitHub id and the repository is public, not the person's, and established when it merged. Strength and freshness never change
+XP or a level. The progression simulation below is unchanged by this stage (its personas do not sync GitHub; the output was identical before and after).
+The `RewardsEnvelope` carries these achievements like any other in `achievements`; a sync runs as a job, so they reach the person as the achievement
+notification rather than in a response.
 
 ## How long it takes: the progression simulation
 

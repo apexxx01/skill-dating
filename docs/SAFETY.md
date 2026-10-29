@@ -139,6 +139,18 @@ minutes on top of every route's own limit.
 A HIGH risk level caps sparks at 1 a day whatever the tier. Rooms and bounties do not exist yet; `canHostRooms` and `canPostBounties` are where their
 gate will be read.
 
+### Evidence integrity (Stage 1I, [PROOF.md](PROOF.md))
+
+The evidence engine is built so faking a passport does not pay: everything is matched by GitHub numeric id, the strength model dampens bursts, trivial
+changes, imports, forks and templates (the attack-and-counter table is in PROOF.md), and a claim to a repository with no authored work is `UNSUPPORTED`
+and counts for nothing. As everywhere here, nothing is deleted and nobody is punished automatically: a receipt whose source disappeared lowers the
+weight of the evidence it backs (0.6 changed, 0.3 gone). Two integrity signals feed the risk score:
+
+| Signal | Written when |
+| --- | --- |
+| `EVIDENCE_UNSUPPORTED_CLAIMS` | three or more people claim one repository (by its GitHub id) with no authored work in it: one signal per such claimant, at most once a month each |
+| `EVIDENCE_REPEATED_DISPUTES` | somebody files a third (or later) claim dispute within 30 days |
+
 ## Moderation (`src/lib/moderation`)
 
 ### Reports
@@ -151,10 +163,15 @@ safety, scam, fake profile, copyright, other, and the date-of-birth correction. 
 delete does not erase the evidence. One open report per reporter and thing. The platform files reports too (`source: AUTOMATED`): flagged content and
 photos the scanner was unsure about.
 
+A **claim to a GitHub repository** is reported through its own route, `POST /api/github/repos/{id}/dispute`, by somebody whose authored work there the
+engine verified (nobody else can see the claim, so nobody else can dispute it): target `EVIDENCE_CLAIM`, reason `CLAIM_DISPUTE`. A moderator decides it
+like any other report: `HIDE_CONTENT` (or `REMOVE_CONTENT`) takes the claim out of strength, off the passport and off its receipt pages, never deleting
+it; the owner is told and can appeal for 30 days; an overturned appeal or a reversal restores it.
+
 ### The queue (`priority.ts`, `GET /api/admin/queue`)
 
 Open reports, most urgent first: **minor safety** (2000), then anything in the **romance mode** (+800), **impersonation** (600), harassment and scams
-(400), inappropriate content and fake profiles (300), spam (200), corrections and copyright (150), other (100). Inside a band: the reporter's standing (a
+(400), inappropriate content and fake profiles (300), claim disputes (250), spam (200), corrections and copyright (150), other (100). Inside a band: the reporter's standing (a
 trusted account +50, strongly verified +25 more, a HIGH risk reporter -100) and volume (+40 for each other person reporting the same open thing, up to
 +200; every open report about it is re-ranked when another arrives). `?kind=appeals` lists pending appeals, oldest first. `GET /api/admin/reports/{id}`
 shows the report with its context (the thing as reported and as it is now, the other reports about the person, earlier actions and their appeals,
@@ -237,5 +254,5 @@ adapter fails closed.
 
 ## Kill switches
 
-Six feature flags stop a feature for everyone at once, without a deploy: sign-ups, the romance mode, messaging, posting, external hackathon submissions
-and automatic squads. Each is checked on the server and answers its own code. Owners and the procedure are in [DEPLOY.md](DEPLOY.md#kill-switches).
+Feature flags stop a feature for everyone at once, without a deploy: sign-ups, the romance mode, messaging, posting, external hackathon submissions,
+automatic squads, notification delivery, the evidence engine (syncs, rechecks and disputes) and the public receipt pages. Each is checked on the server and answers its own code. Owners and the procedure are in [DEPLOY.md](DEPLOY.md#kill-switches).

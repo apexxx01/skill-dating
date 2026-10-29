@@ -28,7 +28,7 @@ Response types for the frontend are exported from `src/types/api.ts`; the page-b
 
 **Pagination.** Every list endpoint takes `limit` and either `page` or `cursor`, and answers with `nextCursor` (`null` on the last page). Send `nextCursor` back as `cursor` to get the next page. Cursors are opaque, so do not build or read them; they are cheap at any depth and are not thrown off by rows added while someone pages. A request with `cursor` runs no count, so its answer has no `pagination` object; a `page` request keeps its `pagination` and also carries `nextCursor`, so a client can start with pages and continue with cursors. A cursor that is not valid is `400 INVALID_CURSOR`. Lists whose order is computed or spans several columns (`/api/discover`, `/api/skills`, milestones) use position cursors, which stay valid only while the ordering is unchanged. `/api/leaderboard` uses rank cursors, which remember who held the last rank and so follow them if scores move between pages. Two lists answer with a bare array, `GET /api/users/{id}/skills` and `GET /api/teams/{id}/applications`; they take `limit` (default and maximum 100) and `cursor`, and send the next cursor in the `X-Next-Cursor` header. `GET /api/teams/{id}/candidates` is a short ranked recommendation list (top 10) and is never paged.
 
-**Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags (the admin-only create). A new creating `POST` must opt in with `idempotent: true`; see [ARCHITECTURE.md](ARCHITECTURE.md#api-conventions).
+**Idempotency.** `POST` routes that create something accept an `Idempotency-Key` header (8 to 128 letters, digits or `. _ : ~ = + -`; a UUID is a good choice). Repeating a request with the same key and the same method, path and body within 24 hours returns the **first response** (same status and body, plus `Idempotent-Replayed: true`) and creates nothing. The same key with a different request is `409 IDEMPOTENCY_KEY_REUSED`; the same key while the first request is still running is `409 IDEMPOTENCY_REQUEST_IN_PROGRESS` with `Retry-After: 1`. Keys belong to the signed-in user. Only successful (2xx) responses are kept: after a failure the same key can be used again. If the cache is unavailable the request is processed without the guarantee. Supported on: projects, teams, hackathons (create and register), team registration for a hackathon, evidence, reports, claim disputes, skills, connections, conversations and messages, project updates and milestones, a user's skills, blocks, team applications and invitations, and feature flags (the admin-only create). A new creating `POST` must opt in with `idempotent: true`; see [ARCHITECTURE.md](ARCHITECTURE.md#api-conventions).
 
 **Rewards.** Routes that can award XP return a `rewards` object next to their normal body (see [GAMIFICATION.md](GAMIFICATION.md)); it is present even when nothing was earned, and carries the user's streak and any achievements and quests the request completed. The type is `RewardsEnvelope` in `src/types/api.ts`.
 
@@ -78,11 +78,17 @@ Full profile: skills, skillEvidences (including peer endorsements), achievements
 - `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used.
 - `compatibility` — live score vs. the caller (`null` on your own profile).
 - `blockedByMe` — `true` when you have blocked this user.
+- `proof` — the passport's proof section ([PROOF.md](PROOF.md)): `{ visible, repos, receipts, upstream, strongest: [{ fullName, url, strength, receiptId }] }`; `visible: false` and
+  nothing else while the person has not given (or withdrew) the GITHUB_SYNC consent.
+- each of `skills` carries `proof` (`{ strength, weight, repos, receipts }`) and `freshness` (`{ lastEvidencedAt, freshness, label: ACTIVE|WARM|RUSTY|null }`). `skillEvidences`
+  leaves out GitHub evidence while the consent is withdrawn, and an `UNSUPPORTED` or moderator-hidden claim for everybody but its owner (`supportReason` is the owner's only).
 
 **Errors:** `404` if the user does not exist or has blocked the caller.
 
 ### `GET /api/users/[id]/skills`
-List a user's skills. `404` if the user is missing or has blocked the caller.
+List a user's skills, each with `lastEvidencedAt`, `proof` (`{ strength, weight, repos, receipts }`: the strongest GitHub evidence behind it, all 0 without the GITHUB_SYNC
+consent) and `freshness` (`{ lastEvidencedAt, freshness, label: ACTIVE|WARM|RUSTY|null }`: a half-life decay, 18 months by default; display and matching weight only). `404` if the
+user is missing or has blocked the caller.
 
 ### `POST /api/users/[id]/skills`
 **Auth:** self or `ADMIN`.
@@ -586,6 +592,52 @@ An achievement the person earned: its name, description, XP, how rare it is and 
 
 ---
 
+## Proof
+
+Signed evidence receipts and the GitHub evidence engine ([PROOF.md](PROOF.md)): how a receipt is signed and verified offline, the strength model, co-authorship,
+disputes and freshness. The receipt pages and the key set answer anybody (no sign-in); everything else is the caller's own.
+
+### `GET /api/receipts/keys`
+**Public.** The public keys receipts are signed with, JWKS style: `{ mode: configured|fixture|unsigned, keys: [{ kty: "OKP", crv: "Ed25519", x, kid, use: "sig", alg: "EdDSA", active }] }`.
+Every key that may have signed a receipt is listed (retired keys too), the one that signs now marked `active`; never a private part. `mode` is `fixture` outside production
+without `RECEIPT_SIGNING_KEYS` (the published development key, kid `dev-fixture-NOT-FOR-PRODUCTION`) and `unsigned` in production without one (`keys: []`). Up even under the
+`receipts-public` kill switch. `Cache-Control: public, max-age=3600`. 60 a minute per address.
+
+### `GET /api/receipts/{id}`
+**Public.** One receipt, to show or to verify: `{ receipt: { id, status: VALID|SOURCE_CHANGED|SOURCE_GONE, lastCheckedAt, signed, envelope, signature }, owner: { username, name },
+verify: { keys: "/api/receipts/keys", algorithm: "Ed25519", canonicalization: "RFC 8785 (JCS)" } }`. `envelope` is exactly what was signed: canonicalise it and verify `signature`
+(base64url) with the key its `kid` names; `envelope.payloadHash` is the sha256 of the canonical `envelope.facts` (the script is in [PROOF.md](PROOF.md#verifying-a-receipt-offline)).
+`signed: false` (and a null `kid` and `signature`) for a receipt a deployment without a key issued, until it is signed. `Cache-Control: public, max-age=300` with an `ETag` (`304` on
+`If-None-Match`). 60 a minute per address (`429 RATE_LIMITED`). **Errors:** `404 RECEIPT_NOT_FOUND` for an id that is not a receipt's and for one that may not be shown, alike (the
+owner is not known to be an adult, has their GitHub handle off `PUBLIC`, is in invisible mode, suspended, banned or closed for their age, withdrew the GITHUB_SYNC consent, or a
+moderator hid the claim); `410 RECEIPT_REVOKED` for a revoked receipt or a deleted account; `503 RECEIPTS_PAUSED` under the kill switch.
+
+### `POST /api/receipts/{id}/recheck`
+The owner asks for one receipt to be checked against GitHub now (with their own GitHub sign-in when there is one). Sets its status and the weight of the evidence behind it;
+deletes nothing. **Response:** `{ receipt: { id, status, lastCheckedAt, previousStatus } }`. Five a minute. **Errors:** `404 RECEIPT_NOT_FOUND` (also for another person's receipt),
+`410 RECEIPT_REVOKED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`, `503 SERVICE_UNAVAILABLE` (GitHub refused or limited the check), `503 EVIDENCE_ENGINE_PAUSED`.
+
+### `GET /api/github`
+The caller's connected evidence: `{ connected, consent: { current, grantedAt, currentVersion }, visible, sync: { status, requestedAt, lastSyncedAt, authMode, callsToday, callsPerDay,
+lastError }, repos, upstream, suggestedSkills }`. Each of `repos` is `{ id, repoGithubId, fullName, url, claimed, strength (0-100), weight (0-1), reasons, components, support:
+SUPPORTED|UNSUPPORTED, supportReason, sourceWeight, moderated, authoredShare, firstAuthoredAt, lastAuthoredAt, syncedAt, skills, receipts: [{ id, status, signed, capturedAt,
+lastCheckedAt }], collaborators: [{ userId, username, share, overlapStart, overlapEnd }], otherClaims: [{ id, userId, username, support, moderated }] }`; `otherClaims` (other people's
+claims to the repository, which the caller may dispute) is filled only where the caller has authored work. `upstream` is the pull requests merged by other maintainers:
+`[{ receiptId, fullName, number, mergedAt, status, signed }]`. `visible: false` while the GITHUB_SYNC consent is withdrawn: everything is hidden from everybody else then. 60 a minute.
+
+### `POST /api/github/sync`
+Read the caller's public GitHub history again now. Debounced: while a sync queued or started in the last ten minutes is pending, nothing new is queued (`queued: false`). **Response
+`202`:** `{ queued, sync: { status, requestedAt, lastSyncedAt } }`. Three every ten minutes. **Errors:** `409 GITHUB_NOT_CONNECTED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`,
+`503 EVIDENCE_ENGINE_PAUSED`, `429 RATE_LIMITED`.
+
+### `POST /api/github/repos/{id}/dispute`
+Contest another person's claim to a repository the caller has authored work in (`{id}` is the claim, from `otherClaims`). Files a `CLAIM_DISPUTE` report on the target
+`EVIDENCE_CLAIM` into the moderation queue; a moderator who upholds it hides the claim (`HIDE_CONTENT`), which its owner can appeal. Honours `Idempotency-Key`. **Body:**
+`{ description }` (10 to 2000 characters, staff only). **Response `201`:** `{ report: { id, status, priority } }`. Five a minute. **Errors:** `404 CLAIM_NOT_FOUND`, `400
+CANNOT_REPORT_SELF`, `403 DISPUTE_NOT_ALLOWED` (no authored work of the caller's there), `409 REPORT_ALREADY_PENDING`, `400 VALIDATION_FAILED`, `503 EVIDENCE_ENGINE_PAUSED`.
+
+---
+
 ## Invites
 
 ### `GET /api/invites/me`
@@ -733,7 +785,7 @@ REPORT_ALREADY_PENDING` (an open report from you about the same thing; the exist
 **Auth:** `ADMIN` only. **Body:** `{ birthDate: "YYYY-MM-DD", reason }` (`reason` 10 to 1000 characters, required; unknown keys are refused). Corrects a person's locked date of birth, whatever it was before (or was not), and clears a refusal for being under 16. The old and the new date and the reason go into the audit trail (`BIRTH_DATE_CORRECTED`); the response never carries a date: `{ id, ageBand: "MINOR"|"ADULT", isMinor, changed }`. A date that would put the person under 16 is not applied (`403 AGE_BELOW_MINIMUM`: a correction cannot admit a child; the account is dealt with through moderation). A correction to 16 or 17 clears the place down to a country. `404 USER_NOT_FOUND`.
 
 ### `GET /api/admin/queue`
-**Auth:** `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?`, `limit` (20, at most 50), `offset`. Reports: open (`PENDING`,
+**Auth:** `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?` (a report reason, or `CLAIM_DISPUTE`), `limit` (20, at most 50), `offset`. Reports: open (`PENDING`,
 `REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. **Response:** `{ kind, items[], nextOffset }`;
 each item has `kind: "REPORT"|"APPEAL"`.
 
@@ -744,7 +796,8 @@ restrictions[], risk: { subject, reporter } }`. Opening a `PENDING` report marks
 ### `POST /api/admin/actions`
 **Auth:** `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. **Body:** `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?,
 durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays`
-optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA`; for
+optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA` and `EVIDENCE_CLAIM` (a claim to a
+GitHub repository someone disputed: `HIDE_CONTENT` or `REMOVE_CONTENT` takes it out of strength and off the passport, never deleting it; category `CLAIM_DISPUTE`); for
 an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing,
 writes an `AuditEvent` and notifies the person. **Response `201`:** `{ action }`. **Errors:** `400 MODERATION_ACTION_INVALID` (hiding a person, approving
 something that is not media), `400 VALIDATION_FAILED` (a missing feature or duration), `403 FORBIDDEN` (acting on yourself; a moderator acting on a staff
@@ -827,12 +880,12 @@ Only while the in-memory storage stand-in is in use (development, the integratio
 
 ### `GET /api/users/me/consents` and `POST /api/users/me/consents`
 GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: ["TERMS"?, "PRIVACY"?] }`. POST **Body:** `{ type:
-TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400
-CONSENT_VERSION_UNKNOWN`). **`201`** `{ consent, required }`. Audited.
+TERMS|PRIVACY|ROMANCE_MODE|MARKETING|GITHUB_SYNC, version, source?: onboarding|settings|romance-optin|github-connect|api }`: agree to the current version (another is `400
+CONSENT_VERSION_UNKNOWN`). **`201`** `{ consent, required }`. Audited. Giving `GITHUB_SYNC` queues a GitHub sync when GitHub is connected.
 
 ### `DELETE /api/users/me/consents/[type]`
-`ROMANCE_MODE` or `MARKETING` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off
-and deletes its data. **Response:** `{ consent }`.
+`ROMANCE_MODE`, `MARKETING` or `GITHUB_SYNC` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off
+and deletes its data; withdrawing `GITHUB_SYNC` stops every GitHub sync and hides what the evidence engine found (kept, and back if the consent is given again). **Response:** `{ consent }`.
 
 ### `DELETE /api/users/me`
 Deletes the caller's account: the Clerk account, and the local data by the data inventory. Needs a session signed in within the last 10 minutes (`403
@@ -1036,7 +1089,10 @@ Evidence is attached to a skill the user has added to their profile. A peer endo
 
 ### `GET /api/evidence`
 Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`.
-**Response:** `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, skill, endorsementCount, endorsedByMe }], pagination }`
+GitHub evidence the engine made (type `GITHUB_ACTIVITY`, [PROOF.md](PROOF.md)) is listed only while its owner's GITHUB_SYNC consent is in force, with `proof: { repoEvidenceId,
+strength, weight }` (null for evidence people add). `support` is `UNSUPPORTED` for a claimed repository with no authored work; such a row, and one a moderator hid, is listed to
+its owner only, and `supportReason` (why) is the owner's only.
+**Response:** `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, support, supportReason, proof, skill, endorsementCount, endorsedByMe }], pagination }`
 **Errors:** `404` user not found or has blocked the caller.
 
 ### `POST /api/evidence`
@@ -1478,6 +1534,14 @@ and a unit test fails if a code is missing here.
 | `CAMPUS_VERIFICATION_NOT_FOUND` | 404 | There is no campus verification in progress |
 | `CAMPUS_IS_VERIFIED` | 409 | Your campus is verified. Leave it before changing it |
 | `CAMPUS_CLOSED` | 409 | This campus is not taking new members |
+| `RECEIPT_NOT_FOUND` | 404 | This receipt does not exist |
+| `RECEIPT_REVOKED` | 410 | This receipt was revoked |
+| `RECEIPTS_PAUSED` | 503 | Receipt pages are paused for a short while |
+| `EVIDENCE_ENGINE_PAUSED` | 503 | Reading GitHub history is paused for a short while |
+| `GITHUB_NOT_CONNECTED` | 409 | Connect a GitHub account first |
+| `GITHUB_SYNC_CONSENT_REQUIRED` | 403 | Allow reading your public GitHub history first (the GITHUB_SYNC consent) |
+| `CLAIM_NOT_FOUND` | 404 | This claim does not exist |
+| `DISPUTE_NOT_ALLOWED` | 403 | Only someone with authored work in this repository can dispute a claim to it |
 
 ---
 

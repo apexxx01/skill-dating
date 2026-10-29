@@ -119,6 +119,36 @@ No new setting. Three migrations (`20261024000100_cards_for_former_minors`, `202
 - **The API description** is `docs/openapi.json`, served by `GET /api/openapi.json` to administrators (and to any signed-in person in development). It is built from the code and checked in CI; nothing to run on deploy.
 - **Read caching.** 28 read-only `GET`s answer `Cache-Control: private, max-age=N` and an ETag. If a CDN or proxy sits in front of the app, it must not cache `private` responses (the default) and must pass `Authorization`, `Cookie` and `If-None-Match`.
 
+## Stage 1I: the evidence engine
+
+Two migrations, applied by the usual `npm run db:migrate:deploy`: `20261029000100_evidence_engine` (new tables, nullable columns, enum values) and
+`20261029000200_kill_evidence_engine` (two kill-switch flags, OFF). Nothing is backfilled: nobody's GitHub history is read until they give the GITHUB_SYNC
+consent ([PROOF.md](PROOF.md)).
+
+| Setting | Required | What it does |
+| --- | --- | --- |
+| `RECEIPT_SIGNING_KEYS` | in production, to sign receipts | `kid=<base64 PKCS#8 Ed25519 private key>`, comma-separated, the first one signing; a retired key as `kid=pub:<base64url public key>` ([below](#receipt-signing-keys)). Without it production issues receipts **unsigned**, warns at boot and answers `degraded` on `/api/health` (`receipt-signing` in `missingProviders`) |
+| `GITHUB_TOKEN` | no | a GitHub token used for public data when a person's own GitHub sign-in token is not available (the nightly recheck always uses it). Read-only public access is enough (a fine-grained token with no repository permissions). Without it those runs are anonymous, on 40 calls a sync and GitHub's 60 an hour per address |
+| `GITHUB_FIXTURES_FILE` | never in production (refused) | set by the integration harness only: the in-memory GitHub answers from it |
+
+Four jobs join the schedule: `github/sync-weekly` (Mondays 06:00 UTC), `receipts/recheck` (02:45 UTC), and the event-driven `github/sync` and
+`receipts/sign-backlog`. Three settings are tunable under `PUT /api/admin/settings/{key}`: `evidence.strength`, `evidence.freshness`, `evidence.github-budget`.
+In the Clerk dashboard, the GitHub social connection needs no extra scope: the engine reads public data only.
+
+### Receipt signing keys
+
+Generate one key per environment, never shared between production and anything else:
+
+```
+node -e "const k=require('crypto').generateKeyPairSync('ed25519').privateKey.export({format:'der',type:'pkcs8'}).toString('base64');console.log(k)"
+```
+
+Store it in the hosting platform's secret store as `RECEIPT_SIGNING_KEYS=<kid>=<that value>`, with a kid you can tell apart later (the month: `2026-11`).
+After deploying, `GET /api/health` shows `evidence.signing: "configured"` and the kid. If production ran without a key before, sign what it issued:
+`POST /api/admin/jobs/receipts/sign-backlog` (admin; it says how many it signed). **Rotating:** generate a new key, set
+`RECEIPT_SIGNING_KEYS=<new kid>=<new key>,<old kid>=pub:<old public key>` (the old public key is the `x` of its entry in `GET /api/receipts/keys`), deploy.
+Never drop an old kid unless the key was compromised: what it signed stops verifying. See [SECURITY.md](SECURITY.md#receipt-signing-keys).
+
 ## Settings added in Stage 1G
 
 | Setting | Required | What it does |
@@ -167,7 +197,7 @@ time: changing the DSN needs a rebuild. The Content-Security-Policy allows the D
 
 ## Kill switches
 
-Seven feature flags, six created OFF by the migration `20261021000600_kill_switches` and one by `20261022000200_kill_notification_delivery`. Turning one **ON** stops that feature for everyone within 30 seconds
+Nine feature flags, six created OFF by the migration `20261021000600_kill_switches`, one by `20261022000200_kill_notification_delivery` and two by `20261029000200_kill_evidence_engine`. Turning one **ON** stops that feature for everyone within 30 seconds
 (the flag cache's lifetime; on Redis every instance at once), with its own error code, until it is turned off. Nothing else changes and nothing is
 lost.
 
@@ -185,6 +215,8 @@ PATCH /api/admin/flags/kill.messaging  { "enabled": true }     (admin; audited)
 | `kill.external-hackathons` | adding hackathons from other sites | `503 EXTERNAL_HACKATHONS_PAUSED` | Squads product owner |
 | `kill.squad-autoform` | the solo pool's automatic squads (the job skips) | the job returns `paused: true` | Squads product owner |
 | `kill.notification-delivery` | all email and push (in-app notifications are unaffected); what was written meanwhile is not sent afterwards | the delivery and digest jobs skip | engineering on-call |
+| `kill.evidence-engine` | GitHub syncs, receipt rechecks and claim disputes (reading what was found stays open) | `503 EVIDENCE_ENGINE_PAUSED`; the sync, weekly and recheck jobs skip | Trust & Safety lead |
+| `kill.receipts-public` | the public receipt pages (the key set stays up, so copies can still be verified) | `503 RECEIPTS_PAUSED` | Trust & Safety lead |
 
 The romance mode also ships **closed** by the flag `romance.enabled` (OFF) and opens only where it, or a city flag `romance.city.<country>-<city>`, is on ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)); its owner is the Trust & Safety lead.
 
