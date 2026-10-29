@@ -228,8 +228,8 @@ export async function runGithubSync(db: Db, userId: string, now: Date = new Date
     for (const upstream of await collectUpstreamPulls(api, person, settings)) {
       await transactWithEvents(db, async (tx) => {
         const { receipt, created } = await issueReceipt(tx, { userId, repoEvidenceId: null, sourceRef: `repo:${upstream.facts.repo.id}@pr:${upstream.facts.pull.number}`, sourceUrl: `${upstream.repoHtmlUrl}/pull/${upstream.facts.pull.number}`, factsVersion: FACTS_VERSION, facts: { ...upstream.facts, strength: externalPullStrength(upstream.facts, config).score } as unknown as Record<string, unknown>, capturedAt: now })
+        receipts += 1
         if (created) {
-          receipts += 1
           await emit(tx, 'RECEIPT_VERIFIED', { userId, receiptId: receipt.id, firstAuthoredAt: null })
           if (upstream.established) await emit(tx, 'UPSTREAM_MERGE_VERIFIED', { userId, receiptId: receipt.id })
         }
