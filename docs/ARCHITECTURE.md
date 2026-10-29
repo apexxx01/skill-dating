@@ -101,6 +101,7 @@ implements the interface and changing one factory. Nothing else moves.
 | Email | `EmailSender` in `email.contract.ts` | `ResendEmail` (`email.ts`, over `fetch`; retryable and final failures told apart) | `MemoryEmail` (`email.memory.ts`): an outbox a test can read | `RESEND_API_KEY` and `EMAIL_FROM` set (and `APP_URL`) |
 | Web push | `PushSender` in `push.contract.ts` | `WebPushSender` (`push.ts`, the `web-push` library, VAPID) | `MemoryPush` (`push.memory.ts`) | `VAPID_PUBLIC_KEY`, `_PRIVATE_KEY` and `VAPID_SUBJECT` set |
 | Search | `SearchProvider` in `src/lib/search/types.ts` | `PostgresSearch` (full text and `pg_trgm`) | none needed: it is the database | always PostgreSQL today; `setSearch()` swaps it |
+| GitHub | `GitHubApi` in `github.ts` (behaviour in `github.contract.ts`) | `HttpGitHub` over `fetch` to api.github.com: conditional requests, rate-limit back-off, a per-run call budget | `MemoryGitHub` (`github.memory.ts`), answering from fixtures | always HTTP, except the integration server (`GITHUB_FIXTURES_FILE`); auth per run from the person's Clerk GitHub token, then `GITHUB_TOKEN`, then none ([PROOF.md](PROOF.md#the-github-adapter)) |
 
 Each getter is process-wide and survives dev-server reloads; `setCache`, `setJobQueue` and
 `setRealtime` replace it in tests.
@@ -174,6 +175,10 @@ them. Handlers import their module lazily, so the registry stays light.
 | `invites/qualify` | hourly (:45) | `src/lib/invites/invites.ts`: moves open invites forward, and pays an inviter through the rewards engine when the checks pass ([INVITES.md](INVITES.md)) |
 | `romance/announce` | hourly (:35), and after a launch flag changes | `src/lib/romance/announce.ts`: tells the people who asked, once, that the romance mode opened where they are; does nothing while it is closed ([ROMANCE.md](ROMANCE.md#launch-it-ships-closed-post-launch)) |
 | `cards/adult-notice` | hourly (:40) | `src/lib/privacy/cards-notice.ts`: tells someone who was a minor on the platform, once, on their 18th birthday (their own calendar), that their share cards are still off ([PRIVACY.md](PRIVACY.md)) |
+| `github/sync` | event, 4 at a time | `src/lib/evidence/sync.ts`: one person's public GitHub history into evidence and receipts; debounced, budgeted, safe to repeat ([PROOF.md](PROOF.md#the-engine)) |
+| `github/sync-weekly` | Mondays 06:00 | `src/lib/evidence/sync.ts`: queues a sync for everyone with GitHub connected and the consent given who was not synced for six days, 500 a run |
+| `receipts/recheck` | 02:45 daily | `src/lib/evidence/receipts.ts`: the 60 receipts checked longest ago, within 150 GitHub calls; a source that is gone lowers the evidence's weight, nothing is deleted |
+| `receipts/sign-backlog` | event | `src/lib/evidence/receipts.ts`: signs the receipts issued while the deployment had no signing key |
 | `metrics/snapshot` | 01:20 daily | `src/lib/kpi/snapshot.ts`: records who was active, measures every metric for the day that ended, writes the rows ([METRICS.md](METRICS.md)) |
 
 To add a job, add an entry to `jobs`, enqueue it with `getJobQueue().enqueue(name, data)`, and
@@ -476,6 +481,14 @@ Stage 1G adds what brings people back and what tells you whether it works. Each 
 - **Error reporting** (`src/lib/observability`, `sentry.*.config.ts`, `src/instrumentation*.ts`). The Sentry SDK when `SENTRY_DSN` is set, with personal data scrubbed before anything leaves; nothing loaded without it.
 - **Metrics** (`src/lib/kpi`, [METRICS.md](METRICS.md)). `ActivityDay` as the base, one function per group of numbers, a catalogue of definitions the API and the document both use.
 - **Invites and campuses** (`src/lib/invites`, `src/lib/campus`, [INVITES.md](INVITES.md)). XP only through `grant()` (the event `INVITE_QUALIFIED`), under the trusted counterparty rule.
+
+## Proof (Stage 1I)
+
+The evidence engine and signed receipts ([PROOF.md](PROOF.md)), in the same shapes: pure cores (`src/lib/evidence/canonical.ts`, `signing.ts`, `strength.ts`, `freshness.ts`,
+`skill-map.ts`, `coauthorship.ts`) with unit tests, a GitHub adapter with an in-memory twin and one contract, jobs for the sync, the weekly dispatch, the nightly recheck and the
+signing backlog, two kill switches, three PlatformSettings, and the GITHUB_SYNC consent. Receipts are signed with Ed25519 over RFC 8785 canonical JSON and can be verified
+offline from the public key set. Two events (`RECEIPT_VERIFIED`, `UPSTREAM_MERGE_VERIFIED`) pay no XP and count towards three achievements. Strength feeds the passport and the
+weight of evidence, and is exposed to matching (`evidenceSignals`) without changing any score yet.
 
 ## Known limitations and open items
 

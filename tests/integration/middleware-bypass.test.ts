@@ -37,6 +37,9 @@ const SIGNED_OR_PUBLIC_API_ROUTES = [
   { method: 'GET', path: '/api/og/post/x' },
   { method: 'GET', path: '/api/og/squad/x' },
   { method: 'GET', path: '/api/og/achievement/x' },
+  // Receipts (docs/PROOF.md): the key set and the receipt pages answer anybody.
+  { method: 'GET', path: '/api/receipts/keys' },
+  { method: 'GET', path: '/api/receipts/x' },
 ]
 const PUBLIC_API_ROUTES = new Set(['/api/auth/session', '/api/webhooks/clerk', '/api/inngest', '/api/health', ...SIGNED_OR_PUBLIC_API_ROUTES.map((route) => route.path)])
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const

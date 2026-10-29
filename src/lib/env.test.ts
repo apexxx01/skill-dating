@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto'
 import { describe, it, expect, afterEach } from 'vitest'
 import { parseEnv, requiresProductionConfig, inMemoryFallbacks, missingProviders, prismaQueryLog, EnvValidationError } from './env'
 
@@ -205,6 +206,16 @@ describe('deployment tiers', () => {
     )
   })
 
+  it('checks the receipt signing keys without echoing them, and keeps the GitHub fixtures out of production', () => {
+    const secret = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64')
+    expect(parseEnv({ ...production, RECEIPT_SIGNING_KEYS: `2026-11=${secret}` }).RECEIPT_SIGNING_KEYS).toBe(`2026-11=${secret}`)
+    const found = problems({ ...production, RECEIPT_SIGNING_KEYS: `2026-11=${secret.slice(0, 20)}` })
+    expect(found).toContain('RECEIPT_SIGNING_KEYS: key 2026-11 is not a PKCS#8 private key')
+    expect(found.join(' ')).not.toContain(secret.slice(0, 20))
+    expect(problems({ ...production, GITHUB_FIXTURES_FILE: '/tmp/github.json' })).toContain('GITHUB_FIXTURES_FILE: must not be set in production')
+    expect(parseEnv({ ...base, NODE_ENV: 'production', VERCEL_ENV: 'preview', INTEGRATION_TEST_SERVER: 'true', GITHUB_FIXTURES_FILE: '/tmp/github.json' }).GITHUB_FIXTURES_FILE).toBe('/tmp/github.json')
+  })
+
   it('decides strictness from VERCEL_ENV first, then NODE_ENV', () => {
     expect(requiresProductionConfig({ VERCEL_ENV: 'production' })).toBe(true)
     expect(requiresProductionConfig({ VERCEL_ENV: 'preview', NODE_ENV: 'production' })).toBe(false)
@@ -228,7 +239,7 @@ describe('deployment tiers', () => {
 describe('missingProviders', () => {
   it('lists the optional providers a configuration has not set up, with the setting names that are unset', () => {
     const missing = missingProviders(parseEnv(production))
-    expect(missing.map((provider) => provider.name)).toEqual(['email', 'push', 'storage', 'media-scanning', 'error-reporting'])
+    expect(missing.map((provider) => provider.name)).toEqual(['email', 'push', 'storage', 'media-scanning', 'error-reporting', 'receipt-signing'])
     expect(missing.find((provider) => provider.name === 'email')?.settings).toEqual(['RESEND_API_KEY'])
     for (const provider of missing) expect(provider.effect.length).toBeGreaterThan(10)
   })
@@ -243,7 +254,7 @@ describe('missingProviders', () => {
       MEDIA_MODERATION_URL: 'https://scan.example.com/scan',
       MEDIA_MODERATION_TOKEN: 't',
     })
-    expect(missingProviders(configured).map((provider) => provider.name)).toEqual(['push', 'storage'])
+    expect(missingProviders(configured).map((provider) => provider.name)).toEqual(['push', 'storage', 'receipt-signing'])
   })
 
   it('never carries a value: the answer holds names and fixed sentences only', () => {

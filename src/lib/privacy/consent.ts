@@ -11,18 +11,21 @@ import { getCache, type Cache } from '@/lib/infra/cache'
 //   ROMANCE_MODE    explicit consent before the romance mode can be turned on: gender and who someone is interested in reveal sexual orientation,
 //                   special-category data. Withdrawing it turns the mode off and deletes the profile, filters, photos and reveal state (romance/consent.ts).
 //   MARKETING       optional, off unless granted.
+//   GITHUB_SYNC     optional: reading the person's public GitHub history for the evidence engine (src/lib/evidence). Withdrawing it stops every sync and
+//                   hides what the engine found (it comes back if the consent is given again); receipts already issued stay valid but their pages
+//                   answer 404 while it is withdrawn.
 
 type Db = PrismaClient | Prisma.TransactionClient
 
-export const CONSENT_TYPES = ['TERMS', 'PRIVACY', 'ROMANCE_MODE', 'MARKETING'] as const
+export const CONSENT_TYPES = ['TERMS', 'PRIVACY', 'ROMANCE_MODE', 'MARKETING', 'GITHUB_SYNC'] as const
 export const REQUIRED_CONSENTS: readonly ConsentType[] = ['TERMS', 'PRIVACY']
-export const CURRENT_VERSIONS: Record<ConsentType, string> = { TERMS: versions.TERMS, PRIVACY: versions.PRIVACY, ROMANCE_MODE: versions.ROMANCE_MODE, MARKETING: versions.MARKETING }
+export const CURRENT_VERSIONS: Record<ConsentType, string> = { TERMS: versions.TERMS, PRIVACY: versions.PRIVACY, ROMANCE_MODE: versions.ROMANCE_MODE, MARKETING: versions.MARKETING, GITHUB_SYNC: versions.GITHUB_SYNC }
 
 export const grantConsentSchema = z
   .object({
     type: z.enum(CONSENT_TYPES),
     version: z.string().max(32).regex(/^\d{4}-\d{2}-\d{2}$/, 'A version such as 2026-10-01'),
-    source: z.enum(['onboarding', 'settings', 'romance-optin', 'api']).default('settings'),
+    source: z.enum(['onboarding', 'settings', 'romance-optin', 'github-connect', 'api']).default('settings'),
   })
   .strict()
 

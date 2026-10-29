@@ -277,6 +277,32 @@ Cosmetics are only earned: there is nothing to buy and no "unlock" button, only 
 `Season N Top 10%` frames, a `Season N Participant` badge). Equipping in the wrong slot is `400 COSMETIC_WRONG_SLOT`; more than three badges is `400 VALIDATION_FAILED`; equipping something not owned is `403 COSMETIC_NOT_OWNED`, so disable
 the control for locked items. A cosmetic from a secret achievement is `masked` until owned (show a mystery tile). Tell the user why a rank is missing: `hideFromLeaderboards`, no XP yet, or no country/city set.
 
+### Passport proof
+
+The proof section of the passport ([PROOF.md](PROOF.md)): what the GitHub evidence engine verified, with receipts anybody can check.
+
+| Need | Call |
+| --- | --- |
+| The section | `ProfileResponse.proof` → `PassportProof`: `{ visible, repos, receipts, upstream, strongest: [{ fullName, url, strength, receiptId }] }` |
+| Per skill | each of `ProfileResponse.skills` (and `GET /api/users/{id}/skills`) carries `proof: { strength, weight, repos, receipts }` and `freshness: { lastEvidencedAt, freshness, label }` |
+| Engine evidence in the evidence list | rows of type `GITHUB_ACTIVITY` in `GET /api/evidence`, with `proof: { repoEvidenceId, strength, weight }`; `support` and (owner only) `supportReason` on every row |
+
+- **Show it only when `proof.visible`.** `visible: false` (the person never gave, or withdrew, the GITHUB_SYNC consent) means show nothing: no "0 receipts", no empty state on someone else's page.
+- **Strength** is 0-100: show it as a bar with the number; never as XP. Link each of `strongest` to the public verify page by `receiptId` (below). The owner sees every repository and why it scored as it did in Settings.
+- **Freshness**: a chip per skill, `ACTIVE` (recent), `WARM`, `RUSTY` (evidence years old); no chip when `label` is null. It is display only: it never changes a level.
+- **Upstream**: "N pull requests merged into other projects" when `upstream` is above 0.
+- **An `UNSUPPORTED` claim** (a repository the person named with none of their commits in it) never reaches anybody but its owner; on the owner's own evidence list show `supportReason` beside it and that it counts for nothing.
+
+### Public receipt verify page (`/receipts/{id}`, no sign-in)
+
+A page anybody can open from a link: `GET /api/receipts/{id}` → `PublicReceiptResponse` (public, cached five minutes) and `GET /api/receipts/keys` → `ReceiptKeysResponse`.
+
+- Show the owner (`owner.username`, link to their passport), the source (`envelope.sourceUrl`, `envelope.facts.repo.fullName`), the main facts (authored commits, active days, first and last commit, PRs merged by others), `envelope.capturedAt` and `status` (`VALID`: "Still on GitHub"; `SOURCE_CHANGED`: "GitHub no longer shows this exact history"; `SOURCE_GONE`: "The repository is gone or private").
+- **Verify in the browser.** Canonicalise `envelope` (RFC 8785, the function in [PROOF.md](PROOF.md#verifying-a-receipt-offline) works in a browser as is), and check `signature` (base64url) with WebCrypto Ed25519 (`crypto.subtle.importKey('jwk', { kty, crv, x }, { name: 'Ed25519' }, false, ['verify'])`) using the key whose `kid` is `envelope.kid`. Show "Signature valid" only when it checks; where the browser lacks Ed25519, say "Verify it yourself" and show the Node script. `signed: false` is "Not signed yet".
+- Offer **"Download JSON"** (the response as it came) and a link to the key set, so anybody can verify offline.
+- `404` "This receipt does not exist or is not public"; `410` "This receipt was withdrawn"; `503` "Receipts are paused, try again later". Never guess which case a 404 is.
+- `mode: "fixture"` in the key set (development and previews): show a banner "Test signature: proves nothing".
+
 - **Privacy.** Someone with cards off, or a minor, has no share card; the page must not set `og:image` for them. A private profile field is hidden, not blank.
 - **States.** New passport: no skills → "Add your first skill"; no evidence → "Proof beats claims: add a project or link"; no posts → "Ship something"; no streak → the empty flame. A blocked or missing user is the same "not found" page.
 - **Celebrate.** Adding evidence and finishing a project (**shipped**), receiving endorsements (a notification, not an envelope), and everything in the envelope on the actions here: achievement, level-up, tier-up, streak.
@@ -627,6 +653,25 @@ PATCH only what changed; the response is the whole state. Blocked and muted peop
 
 **Cards.** When `cardsAvailable` is false (every minor, and every account with no date of birth yet) show the switch **off and disabled** with "Share cards are for accounts 18 and older"; turning it on is `400 CARDS_NOT_AVAILABLE`.
 An account that was under 18 at any point **keeps it off** when it turns 18; on the birthday (in their time zone) they get one notification (`CARDS_ADULT`) that says they can turn it on. Never default it on in the UI.
+
+### Connected evidence (`/settings/evidence`)
+
+Connecting GitHub (Clerk's GitHub sign-in) and allowing the engine to read it ([PROOF.md](PROOF.md)).
+
+| Need | Call |
+| --- | --- |
+| The page | `GET /api/github` → `GithubOverviewResponse` |
+| Allow / stop | `POST /api/users/me/consents { type: "GITHUB_SYNC", version, source: "github-connect" }` (version from `GET /api/users/me/consents`); `DELETE /api/users/me/consents/GITHUB_SYNC` |
+| Refresh now | `POST /api/github/sync` → `202 GithubSyncResponse` (**write**) |
+| Recheck a receipt | `POST /api/receipts/{id}/recheck` → `ReceiptRecheckResponse` (**write**) |
+| Dispute a claim | `POST /api/github/repos/{claimId}/dispute { description }` → `201 ClaimDisputeResponse` (**write**, `Idempotency-Key`) |
+
+- **States, in order.** Not connected (`connected: false`): "Connect GitHub" (Clerk). Connected, no consent (`consent.current: false`): explain what is read (public repositories, counts and dates of your own commits, never code or messages) and the "Allow" button; nothing is read before it. Allowed: the list.
+- **The list**: each repository with its `strength` bar, its `reasons` (show them as they are: they are written for people), `claimed`, `skills`, and its receipts (status chips; link to the verify page). `support: "UNSUPPORTED"` shows `supportReason` and "counts for nothing"; `moderated: true` "Hidden after a review: you can appeal in Account". `collaborators` as avatars with their share. `suggestedSkills`: "Add these skills to your passport" (the engine never adds them itself).
+- **Sync**: `sync.status` (`QUEUED`, `RUNNING`: a spinner; `DONE`; `BUDGET` / `RATE_LIMITED`: "Partly done, the rest continues on the next sync"), `lastSyncedAt`, and `callsToday` of `callsPerDay`. "Refresh" calls `POST /api/github/sync`; `queued: false` is not an error (one is already on its way); `429` "Try again in a few minutes".
+- **Withdrawn consent** (`visible: false`): "Hidden from everyone. Allow again to show it": nothing was deleted.
+- **Disputes**: `otherClaims` lists people who claim a repository you have work in; a "Dispute" button opens a text box (10 to 2000 characters, for the moderators). `409 REPORT_ALREADY_PENDING` "You already disputed this"; `403 DISPUTE_NOT_ALLOWED` cannot happen from this list.
+- `503 EVIDENCE_ENGINE_PAUSED` on any write: "Paused for a short while"; the list still loads.
 
 ### Share cards
 

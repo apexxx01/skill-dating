@@ -23,7 +23,7 @@ through.
 
 ## Consent (`src/lib/privacy/consent.ts`)
 
-`ConsentRecord` is append-only: `(userId, type, version, grantedAt, withdrawnAt, source)`. Types: `TERMS`, `PRIVACY`, `ROMANCE_MODE`, `MARKETING`. The
+`ConsentRecord` is append-only: `(userId, type, version, grantedAt, withdrawnAt, source)`. Types: `TERMS`, `PRIVACY`, `ROMANCE_MODE`, `MARKETING`, `GITHUB_SYNC`. The
 version in force of each document is config, `src/config/legal-versions.json`.
 
 - **At onboarding.** `GET /api/users/me` returns `consentRequired` (the documents not yet accepted in their current version), and onboarding is
@@ -38,6 +38,13 @@ version in force of each document is config, `src/config/legal-versions.json`.
   drops, pending sparks and the reveal state; open romance matches end silently (`src/lib/romance/consent.ts`). Kept: the consent record itself (proof
   of the lawful basis for what happened while it was given) and what moderation or the law holds (reports, actions, the audit trail).
 - **Marketing** is off unless granted. It covers promotional mail only, and **no mail is promotional today**: the two digest emails are account mail, not marketing (below), so granting or withdrawing this consent changes nothing that is sent now. The pipeline checks it for any promotional kind added later ([NOTIFICATIONS.md](NOTIFICATIONS.md#classes)). Withdrawing it is `DELETE /api/users/me/consents/MARKETING`.
+
+- **GitHub history** (`GITHUB_SYNC`, [PROOF.md](PROOF.md)) is off unless granted, in settings or the GitHub connect flow (`source: "github-connect"`).
+  Connecting GitHub alone reads nothing. With it, the evidence engine reads the person's **public** repositories and keeps minimal facts about their own
+  work (counts, dates, the GitHub ids of the person and the repository; never a commit message, an email or anything about another contributor), and
+  issues signed receipts. Withdrawing it (`DELETE /api/users/me/consents/GITHUB_SYNC`) stops every sync at once and hides what was found from the
+  passport, the receipt pages and every count; it is kept, and shows again if the consent is given again. A withdrawal never reversed for 12 months
+  deletes it (retention, below). The GitHub sign-in token is fetched from Clerk per run and never stored.
 
 ## Privacy settings (`src/lib/privacy/settings.ts`)
 
@@ -65,7 +72,8 @@ stand-in, read back through `GET /api/media/dev-download/{key}` (owner only, and
 
 What an export never contains: secrets (password hashes, OAuth tokens, sessions), **who reported, blocked, muted or sparked the person**, the drops in
 which they were shown to someone else, who wrote a peer review about them and its private note, internal scores (reliability, risk, the integrity
-weights), moderators' identities and notes, and the audit trail. Each table is capped at 10,000 rows per column; an export over it lists the table in
+weights), moderators' identities and notes, and the audit trail. Receipts, the GitHub evidence and its strength, the sync state and verified collaborations
+are in it (the GitHub token never is: it is not stored). Each table is capped at 10,000 rows per column; an export over it lists the table in
 `truncated`.
 
 ## Deletion (`src/lib/privacy/delete.ts`, `tombstoneClerkUser` in `src/lib/user-sync.ts`)
@@ -172,6 +180,10 @@ own in `delete.ts`).
 | ConsentRecord | `userId` KEEP | FULL | proof of consent and of its withdrawal: kept as the legal record of the basis for past processing |
 | Report (resolvedBy) | `resolvedById` KEEP | NONE | the moderator who resolved a report (Report.resolvedById) |
 | FeatureFlag | `allowUserIds` CUSTOM, `updatedById` KEEP | NONE | early-access allowlists: the person is taken off every list |
+| EvidenceReceipt | `userId` CUSTOM | FULL | signed receipts of the person's GitHub evidence: on deletion each is revoked and its facts, source and signature removed; the bare id is kept so its public address answers 410 Gone |
+| GithubRepoEvidence | `userId` DELETE | FULL | what the evidence engine found in each GitHub repository (minimal facts about the person's own work, no third party's data) and its strength |
+| GithubSyncState | `userId` DELETE | FULL | when the person's GitHub history was last read and how much of the daily budget it used (no token is ever stored) |
+| VerifiedCollaboration | `userAId` DELETE, `userBId` DELETE | FULL | repositories in which the history shows the person and another member both authored work: the other side is an internal id, the same fact the receipts show |
 | IntegritySignal | `userId` SET_NULL | NONE | integrity signals: internal; the link to the person is cleared |
 | FraudSignal | `memberIds` KEEP, `reviewedById` KEEP | NONE | collusion findings: internal evidence, kept as ids of an anonymised account |
 
@@ -188,6 +200,8 @@ own in `delete.ts`).
 | Activity days (`ActivityDay`) | 25 months | rows deleted. The metrics built from them hold no person and are kept |
 | Campus verifications (`CampusVerification`) | an hour after the code expired | rows deleted, and the campus e-mail address in them with them |
 | "Tell me when it opens" for the romance mode (`RomanceInterest`) | 180 days after the person was told (a request nobody has been told about is kept until they withdraw it) | rows deleted. Holds the country and city of the profile when they asked; seen by nobody but the admin metrics, as counts by city of at least 3 people. NEEDS LEGAL REVIEW: wanting a dating mode is personal data, and in some countries more |
+| GitHub evidence after the GITHUB_SYNC consent was withdrawn (`GithubRepoEvidence`, its skill evidence, `VerifiedCollaboration`) | 12 months after the withdrawal, unless it is given again | rows deleted; the receipts revoked with their facts, source and signature removed |
+| Revoked receipts (`EvidenceReceipt`, status `REVOKED`) | 2 years after revocation | the bare id deleted: its address then answers 404 instead of 410 |
 | Blocked uploads | the hash, verdict and labels only; the object is deleted at once | needs legal review: some countries require keeping evidence of child sexual abuse material for the authorities for a set period |
 
 Everything else is kept while the account exists and handled by the deletion rules above when it is deleted. The audit trail, moderation records and

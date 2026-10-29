@@ -7,6 +7,8 @@ import { env, missingProviders, requiresProductionConfig } from '@/lib/env'
 import { healthStatusCode, runHealthChecks } from '@/lib/health'
 import { clientIp, consumeSafely, tooManyRequests } from '@/lib/rate-limiter'
 import { log, requestIdFrom, runWithRequestId } from '@/lib/log'
+import { getKeySet } from '@/lib/evidence/keys'
+import { serverAuthMode } from '@/lib/infra/github'
 
 // Public, for uptime monitors and load balancers: no session, no secrets in the
 // answer (see src/lib/health.ts). A monitor polls it every few seconds at most, so
@@ -28,6 +30,10 @@ export async function GET(request: NextRequest) {
       realtime: getRealtime,
       // Only a production deployment is held to having them; a preview and development run on the stand-ins by design.
       missingProviders: () => (requiresProductionConfig(process.env) ? missingProviders(env).map((provider) => provider.name) : []),
+      evidence: () => {
+        const keys = getKeySet()
+        return { signing: keys.mode, kid: keys.active?.kid ?? null, github: serverAuthMode() }
+      },
     })
     if (report.status !== 'ok') log.warn('health check not ok', { status: report.status, checks: report.checks })
 

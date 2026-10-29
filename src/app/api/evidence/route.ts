@@ -6,6 +6,10 @@ import { blockRelation } from '@/lib/blocks'
 import { paginate } from '@/lib/api/pagination'
 import { ENDORSEMENT_TYPE, MAX_EVIDENCE_PER_SKILL, endorsementSummaries, lockKey } from '@/lib/skill-evidence'
 import { createEvidenceSchema, querySchema } from './schema'
+import type { Prisma } from '@prisma/client'
+import { refreshLastEvidenced } from '@/lib/evidence/freshness-db'
+import { evidenceWeight } from '@/lib/evidence/strength'
+import { engineEvidenceVisible } from '@/lib/evidence/sync'
 
 const skillSelect = { id: true, name: true, slug: true, category: true } as const
 
@@ -28,10 +32,18 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
     if (!owner) return createApiError('USER_NOT_FOUND')
   }
 
-  const where = {
+  // The evidence engine's rows count only while their owner's GITHUB_SYNC consent is in force. An UNSUPPORTED claim, or one a moderator hid, is shown to
+  // its owner (with the reason) and to nobody else.
+  const isOwner = ownerId === user.id
+  const engineVisible = await engineEvidenceVisible(prisma, ownerId)
+  const where: Prisma.SkillEvidenceWhereInput = {
     userId: ownerId,
     type: { not: ENDORSEMENT_TYPE },
     ...(skillId ? { skillId } : {}),
+    AND: [
+      ...(engineVisible ? [] : [{ repoEvidenceId: null }]),
+      ...(isOwner ? [] : [{ OR: [{ support: null }, { support: 'SUPPORTED' as const }] }, { OR: [{ repoEvidenceId: null }, { repoEvidence: { moderatedAt: null } }] }]),
+    ],
   }
 
   const result = await paginate({
@@ -54,7 +66,10 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
           url: true,
           verifiedAt: true,
           createdAt: true,
+          support: true,
+          supportReason: true,
           skill: { select: skillSelect },
+          repoEvidence: { select: { id: true, strength: true, sourceWeight: true, moderatedAt: true } },
         },
       }),
     count: (w) => prisma.skillEvidence.count({ where: w }),
@@ -66,8 +81,14 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const summaries = await endorsementSummaries(prisma, rows.map((r) => r.id), user.id)
 
   return createApiResponse({
-    evidence: rows.map((row) => ({
+    evidence: rows.map(({ repoEvidence, supportReason, ...row }) => ({
       ...row,
+      // The reason an UNSUPPORTED claim counts for nothing is for its owner.
+      supportReason: isOwner ? supportReason : null,
+      // Engine evidence (type GITHUB_ACTIVITY): its strength and weight (docs/PROOF.md). Null for evidence people add themselves.
+      proof: repoEvidence
+        ? { repoEvidenceId: repoEvidence.id, strength: repoEvidence.strength, weight: evidenceWeight({ strength: repoEvidence.strength, support: row.support, sourceWeight: repoEvidence.sourceWeight, moderated: repoEvidence.moderatedAt !== null }) }
+        : null,
       endorsementCount: summaries.get(row.id)?.count ?? 0,
       endorsedByMe: summaries.get(row.id)?.byViewer ?? false,
     })),
@@ -116,6 +137,7 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
       metadata: { evidenceId: created.id, skillId },
     })
     await emit(tx, 'EVIDENCE_ADDED', { userId: user.id, evidenceId: created.id, skillId })
+    await refreshLastEvidenced(tx, user.id)
 
     return { outcome: 'created' as const, created }
   })
@@ -127,5 +149,5 @@ export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {
     return createApiError('EVIDENCE_LIMIT_REACHED', { params: { max: MAX_EVIDENCE_PER_SKILL } })
   }
 
-  return createApiResponse({ ...result.created, endorsementCount: 0, endorsedByMe: false, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
+  return createApiResponse({ ...result.created, support: null, supportReason: null, proof: null, endorsementCount: 0, endorsedByMe: false, rewards: await scope.rewardsFor(prisma, user.id) }, 201)
 }, { idempotent: true, rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'evidence:create' } })

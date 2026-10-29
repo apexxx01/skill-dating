@@ -17,6 +17,10 @@ export const KILL_SWITCHES = {
   external_hackathons: { flag: 'kill.external-hackathons', code: 'EXTERNAL_HACKATHONS_PAUSED', owner: 'Squads product owner' },
   squad_autoform: { flag: 'kill.squad-autoform', code: null, owner: 'Squads product owner' },
   notification_delivery: { flag: 'kill.notification-delivery', code: null, owner: 'Engineering on-call' },
+  // The evidence engine (docs/PROOF.md): its write routes answer 503 and its jobs skip. Created OFF by 20261029000200_kill_evidence_engine.
+  evidence_engine: { flag: 'kill.evidence-engine', code: 'EVIDENCE_ENGINE_PAUSED', owner: 'Trust & Safety lead' },
+  // Public receipt pages answer 503; the key set stays up, so copies of receipts can still be verified.
+  receipts_public: { flag: 'kill.receipts-public', code: 'RECEIPTS_PAUSED', owner: 'Trust & Safety lead' },
 } as const satisfies Record<string, { flag: string; code: ErrorCode | null; owner: string }>
 
 export type KillSwitch = keyof typeof KILL_SWITCHES

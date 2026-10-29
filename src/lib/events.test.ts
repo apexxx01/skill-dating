@@ -54,6 +54,8 @@ describe('event names', () => {
         'AUTO_SQUAD_FORMED',
         'SQUAD_REUNITED',
         'INVITE_QUALIFIED',
+        'RECEIPT_VERIFIED',
+        'UPSTREAM_MERGE_VERIFIED',
       ].sort()
     )
   })

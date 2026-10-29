@@ -8,7 +8,8 @@ import { REPORT_REASONS } from '@/lib/moderation/reports'
 // reporter's standing and how many people reported it), or pending appeals, oldest first. Staff only.
 export const querySchema = z.object({
   kind: z.enum(['reports', 'appeals']).default('reports'),
-  reason: z.enum(REPORT_REASONS).optional(),
+  // Claim disputes are filed through their own route (POST /api/github/repos/{id}/dispute), not POST /api/reports, but queue like any other report.
+  reason: z.enum([...REPORT_REASONS, 'CLAIM_DISPUTE']).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   offset: z.coerce.number().int().min(0).max(10_000).default(0),
 })

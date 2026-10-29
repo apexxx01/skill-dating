@@ -5,7 +5,7 @@ import type { RestrictedFeature } from '@/lib/moderation/restrictions'
 // the method and the path, so no route can forget them. Pure. Reading is never refused here; only what writes to a feature is (and, for the romance
 // mode, everything but leaving it).
 
-type Feature = Extract<KillSwitch, RestrictedFeature | 'external_hackathons'>
+type Feature = Extract<KillSwitch, RestrictedFeature | 'external_hackathons' | 'evidence_engine'>
 
 const SEG = '[^/]+'
 const RULES: { feature: Feature; methods: readonly string[]; pattern: RegExp }[] = [
@@ -23,6 +23,10 @@ const RULES: { feature: Feature; methods: readonly string[]; pattern: RegExp }[]
   { feature: 'posting', methods: ['POST'], pattern: new RegExp(`^/api/teams/${SEG}/(ideas|demo-post)$`) },
   // External hackathon submissions.
   { feature: 'external_hackathons', methods: ['POST'], pattern: /^\/api\/hackathons\/external$/ },
+  // The evidence engine: a sync, a recheck, a dispute (docs/PROOF.md). Reading what it found stays open.
+  { feature: 'evidence_engine', methods: ['POST'], pattern: /^\/api\/github\/sync$/ },
+  { feature: 'evidence_engine', methods: ['POST'], pattern: new RegExp(`^/api/github/repos/${SEG}/dispute$`) },
+  { feature: 'evidence_engine', methods: ['POST'], pattern: new RegExp(`^/api/receipts/${SEG}/recheck$`) },
 ]
 
 export function featureOfRequest(method: string, pathname: string): Feature | null {

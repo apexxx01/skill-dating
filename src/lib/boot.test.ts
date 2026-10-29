@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // nodeEnv is read once when env.ts loads, so each case sets NODE_ENV first and
@@ -120,6 +121,7 @@ describe('validateEnvOrExit', () => {
     MEDIA_MODERATION_URL: 'https://scan.example.com/scan',
     MEDIA_MODERATION_TOKEN: 't',
     SENTRY_DSN: 'https://abc@o1.ingest.sentry.io/1',
+    RECEIPT_SIGNING_KEYS: `2026-11=${generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64')}`,
   }
   const noOptional = Object.fromEntries(Object.keys(optional).map((key) => [key, undefined]))
 
@@ -132,9 +134,9 @@ describe('validateEnvOrExit', () => {
     expect(exit).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalledTimes(1)
     const message = warn.mock.calls[0][0] as string
-    expect(message).toContain('WARNING: 5 providers are not configured in PRODUCTION')
-    for (const name of ['email', 'push', 'storage', 'media-scanning', 'error-reporting']) expect(message).toContain(`- ${name} (`)
-    for (const setting of ['RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'STORAGE_ENDPOINT', 'MEDIA_MODERATION_URL', 'SENTRY_DSN']) expect(message).toContain(setting)
+    expect(message).toContain('WARNING: 6 providers are not configured in PRODUCTION')
+    for (const name of ['email', 'push', 'storage', 'media-scanning', 'error-reporting', 'receipt-signing']) expect(message).toContain(`- ${name} (`)
+    for (const setting of ['RESEND_API_KEY', 'VAPID_PUBLIC_KEY', 'STORAGE_ENDPOINT', 'MEDIA_MODERATION_URL', 'SENTRY_DSN', 'RECEIPT_SIGNING_KEYS']) expect(message).toContain(setting)
     expect(message).toContain('fail closed')
     expect(message).not.toContain(valid.CLERK_SECRET_KEY)
     expect(message).not.toContain('whsec_x')
@@ -151,6 +153,9 @@ describe('validateEnvOrExit', () => {
     expect(message).toContain('- error-reporting (SENTRY_DSN not set)')
     expect(message).not.toContain('- email (')
     expect(message).not.toContain('- media-scanning (')
+    expect(message).not.toContain('- receipt-signing (')
+    // A configured signing key is never echoed.
+    expect(message).not.toContain(optional.RECEIPT_SIGNING_KEYS.split('=')[1].slice(0, 24))
   })
 
   it('does not warn when production has every service', async () => {

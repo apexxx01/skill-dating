@@ -3,6 +3,34 @@
 What changed, stage by stage. The newest stage is first. Each stage was built on its own branch and merged into `main` once its tests were green; the dates are the days
 the work landed. Behaviour is described in the documents under [docs/](docs/); this file only says what arrived and why it matters.
 
+## Stage 1I: the evidence engine (2026-10-29)
+
+Reputation is the product, so it has to be hard to fake. Evidence is now **provable** and **scored** ([PROOF](docs/PROOF.md)).
+
+- **Signed, public receipts.** Each piece of GitHub evidence is backed by an `EvidenceReceipt`: minimal facts (counts, dates, GitHub ids; never a commit
+  message, an email or a third party's data), a 128-bit base62 id, a sha256 of the canonical facts, and an Ed25519 signature over an RFC 8785 canonical
+  envelope. `GET /api/receipts/{id}` and `GET /api/receipts/keys` are public; anybody can verify a receipt offline with Node and the two JSON files
+  (the script is in PROOF.md). Keys come from `RECEIPT_SIGNING_KEYS`, rotatable (old kids keep verifying); production without a key issues receipts
+  unsigned, warns, reports `degraded`, and `receipts/sign-backlog` signs them later. Receipts of a minor, an invisible or private handle, or a withdrawn
+  consent are 404; revoked or deleted, 410.
+- **A GitHub adapter** like the others: `HttpGitHub` (conditional requests, rate-limit back-off, per-run and per-day call budgets), `MemoryGitHub` fed
+  by fixtures, and one contract both pass; nothing in tests or CI reaches GitHub. Auth from the person's Clerk GitHub token (fetched per run, never
+  stored), then `GITHUB_TOKEN`, then none; a GitHub App slots in later without changing callers. Everything is matched by the immutable GitHub id, now on
+  `User.githubId`, so renames keep evidence and nobody else can claim it.
+- **The engine** (`github/sync`, debounced, on connect, on consent, on demand and weekly) reads claimed and recent public repositories into per-repository
+  evidence, receipts and skill evidence for skills already on the passport, with a pure **strength** score (0-100, explained) that dampens bursts,
+  trivial changes, imports, forks and templates, weighs PRs merged by others above self-merged ones, counts co-authors in part, keeps stars weak, and
+  never lets a small genuine project read as zero. A claimed repository with no authored work is `UNSUPPORTED`, shown to its owner only, never deleted.
+- **Co-authorship and disputes.** Members with authored work in the same repository get a `VerifiedCollaboration` (shares, overlap, receipts) for the
+  trust graph; one of them can dispute another's claim into the moderation queue (`CLAIM_DISPUTE`), decided with the existing actions and appealable.
+- **Freshness** per skill (a half-life decay, 18 months by default; ACTIVE, WARM, RUSTY) on the passport. Display and matching weight only.
+- **Rewards, seasoning only.** No XP for history: three achievements (Receipts, Upstream, the secret Archaeologist), 125 XP at most, ever. The
+  progression simulation is unchanged.
+- **Privacy and operations.** The GITHUB_SYNC consent gates everything (withdrawing hides, giving again restores); export includes it all; deletion
+  revokes receipts (410) and removes facts; retention for lapsed consents and old revocations; kill switches `kill.evidence-engine` and
+  `kill.receipts-public`; integrity signals for piled-up unsupported claims and repeated disputes; `/api/health` reports the signing and GitHub modes.
+- **Planned next** is in [BACKLOG](docs/BACKLOG.md), by stage (1J to 1O and later).
+
 ## Stage 2.0: CI repair (2026-10-24)
 
 - **`npm ci` works again.** Every CI job died at `npm ci` ("package.json and package-lock.json not in sync"): npm 10, the npm that ships with CI's Node, wanted the optional `vite` peer of

@@ -1,6 +1,9 @@
 import { applyFieldVisibility, visibilityOf } from '@/lib/privacy/settings'
 import { areConnected } from '@/lib/privacy/messaging'
 import { NextRequest } from 'next/server'
+import { freshnessView } from '@/lib/evidence/freshness'
+import { NO_PROOF, passportProof, skillProofs } from '@/lib/evidence/passport'
+import { evidenceFreshnessSetting } from '@/lib/settings'
 import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { authorize } from '@/lib/api/handler'
 import { recommendationsFor } from '@/lib/matching/recommend'
@@ -49,7 +52,7 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
       },
       skillEvidences: {
         take: 20,
-        include: { skill: { select: { id: true, name: true, slug: true } } },
+        include: { skill: { select: { id: true, name: true, slug: true } }, repoEvidence: { select: { moderatedAt: true } } },
         orderBy: { createdAt: 'desc' }
       },
       ownedProjects: {
@@ -137,8 +140,21 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const needsConnection = id !== user.id && Object.values(visibility).includes('CONNECTIONS')
   const visible = applyFieldVisibility(targetUser, visibility, { isOwner: id === user.id, connected: needsConnection ? await areConnected(prisma, user.id, id) : false })
 
+  // Proof (docs/PROOF.md): each skill's strongest engine evidence and freshness, and the passport's proof section. The engine's evidence shows only while
+  // its owner's GITHUB_SYNC consent is in force; an UNSUPPORTED or moderator-hidden claim only to its owner.
+  const isOwner = id === user.id
+  const now = new Date()
+  const [proofs, freshness, proof] = await Promise.all([skillProofs(prisma, [id]), evidenceFreshnessSetting(prisma), passportProof(prisma, id)])
+  const skills = visible.skills.map((row) => ({ ...row, proof: proofs.get(id)?.get(row.skillId) ?? NO_PROOF, freshness: freshnessView(row.lastEvidencedAt, now, freshness) }))
+  const skillEvidences = visible.skillEvidences
+    .filter((row) => (proof.visible || !row.repoEvidenceId) && (isOwner || ((row.support === null || row.support === 'SUPPORTED') && !row.repoEvidence?.moderatedAt)))
+    .map(({ repoEvidence: _repoEvidence, ...row }) => ({ ...row, supportReason: isOwner ? row.supportReason : null }))
+
   return createApiResponse({
     ...visible,
+    skills,
+    skillEvidences,
+    proof,
     rank: standing.rank ?? 0,
     ...(own ? { email: own.email } : {}),
     compatibility,

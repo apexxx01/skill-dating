@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { withAuth, createApiResponse, createApiError } from '@/lib/api/handler'
 import { ENDORSEMENT_TYPE, deleteEvidenceWithEndorsements } from '@/lib/skill-evidence'
+import { refreshLastEvidenced } from '@/lib/evidence/freshness-db'
 
 export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) => {
   const id = new URL(request.url).pathname.split('/').pop()
@@ -20,5 +21,6 @@ export const DELETE = withAuth(async (request: NextRequest, { prisma, user }) =>
   }
 
   await deleteEvidenceWithEndorsements(prisma, id)
+  await refreshLastEvidenced(prisma, user.id)
   return createApiResponse({ success: true })
 }, { rateLimit: { windowMs: 60000, maxRequests: 20, keyPrefix: 'evidence:delete' } })

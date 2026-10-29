@@ -221,6 +221,8 @@ enum ReportReason {
   IMPERSONATION
   // Anything that puts a minor at risk. Always first in the queue.
   MINOR_SAFETY
+  // A person with authored work in a repository contests somebody else's claim to it (src/lib/evidence/disputes.ts).
+  CLAIM_DISPUTE
 }
 
 // What a report is about (src/lib/moderation/targets.ts). USER is the person; the others are one thing they made.
@@ -236,6 +238,8 @@ enum ReportTarget {
   EXTERNAL_HACKATHON
   // An upload the media scanner sent for review (src/lib/infra/media-moderation.ts).
   MEDIA
+  // One person's claim to a GitHub repository (GithubRepoEvidence), contested by someone who has authored work in it.
+  EVIDENCE_CLAIM
 }
 
 enum ReportSource {
@@ -292,6 +296,9 @@ model User {
   builderRole          String?
   website              String?
   githubUsername       String?           @unique
+  // The GitHub account's immutable numeric id (as text), from the verified external account Clerk reports. Commits, pull requests and reviews are matched
+  // by this id, never by login or email, so a renamed GitHub account keeps its evidence and nobody else can claim it (docs/PROOF.md).
+  githubId             String?           @unique
   twitterUsername      String?           @unique
   linkedinUrl          String?
   role                 UserRole          @default(USER)
@@ -422,6 +429,11 @@ model User {
   campusMembership    CampusMembership?
   campusVerification  CampusVerification?
   activityDays        ActivityDay[]
+  evidenceReceipts    EvidenceReceipt[]
+  githubRepoEvidence  GithubRepoEvidence[]
+  githubSyncState     GithubSyncState?
+  collaborationsAsA   VerifiedCollaboration[]  @relation("CollaborationA")
+  collaborationsAsB   VerifiedCollaboration[]  @relation("CollaborationB")
 
   // "Users active in the last 30 days" is the denominator of every achievement's rarity.
   @@index([lastActiveAt])
@@ -544,14 +556,16 @@ model Skill {
 }
 
 model UserSkill {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
   skillId         String
-  level           Int      @default(1) // 1-5
-  isVerified      Boolean  @default(false)
-  yearsExperience Float?   @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  level           Int       @default(1) // 1-5
+  isVerified      Boolean   @default(false)
+  yearsExperience Float?    @default(0)
+  // The newest evidence behind this skill (src/lib/evidence/freshness.ts): what the freshness label decays from. Display and matching weight only.
+  lastEvidencedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
@@ -562,49 +576,57 @@ model UserSkill {
 }
 
 model SkillEvidence {
-  id              String    @id @default(cuid())
+  id              String           @id @default(cuid())
   userId          String
   skillId         String
   type            String // CHALLENGE, GITHUB_PROJECT, HACKATHON_PROJECT, CONTRIBUTION, PEER_ENDORSEMENT, PORTFOLIO, CERTIFICATION, CONNECTED_PROFILE
   title           String
-  description     String?   @db.Text
+  description     String?          @db.Text
   url             String?
   metadata        Json?
   verifiedAt      DateTime?
   // For a PEER_ENDORSEMENT row: how much it counts, 1 unless the nightly collusion job found it inside a dense reciprocal cluster (src/lib/integrity).
   // Lowered, never deleted; restored when an admin dismisses the signal.
-  integrityWeight Float     @default(1)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  integrityWeight Float            @default(1)
+  // For a GITHUB_ACTIVITY row (made by the evidence engine, src/lib/evidence): the repository evidence it stands for.
+  repoEvidenceId  String?
+  // Whether the history of the source backs the claim: null when it was never checked, UNSUPPORTED for a claimed repository in which the person has
+  // no authored work ("claimed, not evidenced"). An UNSUPPORTED row is shown to its owner with the reason and counts for nothing; it is never deleted.
+  support         EvidenceSupport?
+  supportReason   String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill        Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  repoEvidence GithubRepoEvidence? @relation(fields: [repoEvidenceId], references: [id], onDelete: Cascade)
 
   @@index([userId, skillId])
+  @@index([repoEvidenceId])
 }
 
 model Project {
-  id          String        @id @default(cuid())
+  id          String                   @id @default(cuid())
   name        String
-  slug        String        @unique
-  description String?       @db.Text
+  slug        String                   @unique
+  description String?                  @db.Text
   shortDesc   String?
-  status      ProjectStatus @default(IDEA)
+  status      ProjectStatus            @default(IDEA)
   ownerId     String
   hackathonId String?
   githubUrl   String?
   demoUrl     String?
   websiteUrl  String?
   thumbnail   String?
-  isPublic    Boolean       @default(true)
-  teamSize    Int           @default(1)
-  maxTeamSize Int           @default(5)
-  lookingFor  String[]      @default([])
-  techStack   String[]      @default([])
+  isPublic    Boolean                  @default(true)
+  teamSize    Int                      @default(1)
+  maxTeamSize Int                      @default(5)
+  lookingFor  String[]                 @default([])
+  techStack   String[]                 @default([])
   startedAt   DateTime?
   shippedAt   DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
   // The text vector of the project, computed by the database (migration 20261024000300): search reads it instead of building it for every candidate.
   searchVec   Unsupported("tsvector")? @default(dbgenerated("search_vec(VARIADIC ARRAY[name, \"shortDesc\", search_join(\"techStack\"), \"left\"(description, 2000)])"))
 
@@ -2079,29 +2101,29 @@ enum PostVisibility {
 // Something a builder shows: a ship, an update, a devlog or a demo. Body is Markdown, sanitised on the way in. `media` is [{ assetId, key, type, width, height, durationMs }] from the
 // author's own confirmed uploads. Deleting is soft. `propsScore` is the sum of the weights of its Props (denormalised, updated in the same transaction as the Prop).
 model ShipPost {
-  id              String         @id @default(cuid())
+  id              String                   @id @default(cuid())
   authorId        String
   projectId       String?
   teamId          String?
   kind            PostKind
   title           String
-  body            String         @db.Text
-  links           String[]       @default([])
-  media           Json           @default("[]")
-  stackTags       String[]       @default([])
+  body            String                   @db.Text
+  links           String[]                 @default([])
+  media           Json                     @default("[]")
+  stackTags       String[]                 @default([])
   // Other members of the project or crew who share the credit.
-  coAuthorIds     String[]       @default([])
-  visibility      PostVisibility @default(PUBLIC)
+  coAuthorIds     String[]                 @default([])
+  visibility      PostVisibility           @default(PUBLIC)
   // The author's local Friday ("YYYY-MM-DD") when the post was made on Ship Day, else null.
   shipDayKey      String?
-  propsScore      Float          @default(0)
-  propsCount      Int            @default(0)
-  commentCount    Int            @default(0)
+  propsScore      Float                    @default(0)
+  propsCount      Int                      @default(0)
+  commentCount    Int                      @default(0)
   // How many times it was edited (a lightweight revision count).
-  revision        Int            @default(0)
+  revision        Int                      @default(0)
   // The ProjectUpdate an UPDATE or DEVLOG post counted as, which carries the existing XP and caps.
   projectUpdateId String?
-  createdAt       DateTime       @default(now())
+  createdAt       DateTime                 @default(now())
   editedAt        DateTime?
   // Set when a moderator hid or removed it (with deletedAt); a hide can be undone, a removal also blanks the text.
   moderatedAt     DateTime?
@@ -2542,6 +2564,9 @@ enum ConsentType {
   // The romance mode processes special-category data (gender and who someone is interested in reveal sexual orientation): explicit consent is required.
   ROMANCE_MODE
   MARKETING
+  // Reading the person's public GitHub history to evidence their skills (src/lib/evidence). Off unless granted; withdrawing it stops syncing and hides
+  // what the engine found until it is granted again.
+  GITHUB_SYNC
 }
 
 // Each consent a person gave, and its withdrawal: an append-only record (src/lib/privacy/consent.ts). The current state of a type is its latest row.
@@ -2838,4 +2863,148 @@ model MetricsSnapshot {
 
   @@unique([day, key, dimension])
   @@index([key, day])
+}
+
+// --- Evidence engine and receipts (src/lib/evidence, docs/PROOF.md) ---------------------------------------------------------
+
+enum EvidenceSupport {
+  SUPPORTED
+  // Claimed, not evidenced: the person has no authored work in the source.
+  UNSUPPORTED
+}
+
+// Where a receipt's facts come from. Stage 1J adds the proof-of-control providers.
+enum ReceiptSource {
+  GITHUB
+}
+
+enum ReceiptStatus {
+  // The source still shows what the receipt says.
+  VALID
+  // The source exists but no longer shows it (history rewritten, the commit gone).
+  SOURCE_CHANGED
+  // The source is gone or no longer public.
+  SOURCE_GONE
+  // Withdrawn by the platform: the account was deleted. The public address answers 410.
+  REVOKED
+}
+
+// A signed statement of minimal facts about one source, captured at one moment (docs/PROOF.md). The id is 128 random bits in base62, never ordered or
+// guessable. The facts are normalised and minimal: counts, dates and the GitHub ids of the person and the repository, never a raw payload, a commit
+// author's email or anything about third parties. The signature is Ed25519 over the canonical envelope; null while the deployment has no signing key
+// (the job receipts/sign-backlog signs those once one is set).
+model EvidenceReceipt {
+  id             String        @id
+  userId         String
+  repoEvidenceId String?
+  source         ReceiptSource
+  // What the facts are about, e.g. "repo:123456@commit:<sha>" or "repo:123456@pr:42".
+  sourceRef      String
+  sourceUrl      String
+  capturedAt     DateTime
+  factsVersion   Int
+  facts          Json
+  // sha256 (hex) of the canonical facts.
+  payloadHash    String
+  kid            String?
+  signature      String?
+  signedAt       DateTime?
+  status         ReceiptStatus @default(VALID)
+  lastCheckedAt  DateTime      @default(now())
+  revokedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoEvidence GithubRepoEvidence? @relation(fields: [repoEvidenceId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, source, sourceRef])
+  @@index([userId, createdAt])
+  // The nightly recheck takes the oldest-checked first.
+  @@index([status, lastCheckedAt])
+  // The signing backlog.
+  @@index([signedAt])
+}
+
+// One person's evidence for one GitHub repository, as the engine last found it (src/lib/evidence/sync.ts): the minimal facts, the strength with its
+// explanation, and whether it backs the claim. The skills it evidences are SkillEvidence rows of type GITHUB_ACTIVITY that point here.
+model GithubRepoEvidence {
+  id              String          @id @default(cuid())
+  userId          String
+  // The repository's immutable numeric id (as text): two people claiming the same repository are matched by it.
+  repoGithubId    String
+  // owner/name when it was captured; for display only.
+  fullName        String
+  url             String
+  // The person named it (a project's or a current build's GitHub link, or GITHUB_PROJECT evidence), rather than it being one of their recent repositories.
+  claimed         Boolean         @default(false)
+  facts           Json
+  // 0 to 100 (src/lib/evidence/strength.ts), with its explanation.
+  strength        Int             @default(0)
+  breakdown       Json            @default("{}")
+  support         EvidenceSupport @default(SUPPORTED)
+  supportReason   String?
+  // 1 while the source is there; lowered when a recheck finds it gone or changed. Never deletes anything.
+  sourceWeight    Float           @default(1)
+  // The person's share of the repository's authored commits (0 to 1), from its contributor list.
+  authoredShare   Float?
+  firstAuthoredAt DateTime?
+  lastAuthoredAt  DateTime?
+  // Set when an admin upheld a dispute about this claim (a moderation action, appealable); cleared when that is reversed.
+  moderatedAt     DateTime?
+  syncedAt        DateTime
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipts       EvidenceReceipt[]
+  skillEvidences SkillEvidence[]
+
+  @@unique([userId, repoGithubId])
+  @@index([repoGithubId])
+}
+
+// The state of one person's GitHub sync (src/lib/evidence/sync.ts): when it last ran and how much of the daily budget it has used. No token is ever stored.
+model GithubSyncState {
+  userId       String    @id
+  // IDLE, QUEUED, RUNNING, DONE, FAILED, BUDGET (the budget ran out; the rest waits for the next run), RATE_LIMITED.
+  status       String    @default("IDLE")
+  requestedAt  DateTime?
+  startedAt    DateTime?
+  lastSyncedAt DateTime?
+  // user-oauth, server-token or anonymous: how the last run reached GitHub (never the token).
+  authMode     String?
+  // The UTC day the counter is for, and the API calls made that day.
+  dayKey       String?
+  callsToday   Int       @default(0)
+  lastCalls    Int       @default(0)
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Two people whose authored work in one repository is verified from its history (src/lib/evidence/coauthorship.ts): each one's share, the period both
+// were active, and the receipts behind it. userAId sorts before userBId. The trust graph (Stage 1N) reads these as edges.
+model VerifiedCollaboration {
+  id           String    @id @default(cuid())
+  repoGithubId String
+  userAId      String
+  userBId      String
+  shareA       Float
+  shareB       Float
+  overlapStart DateTime?
+  overlapEnd   DateTime?
+  receiptIds   String[]
+  computedAt   DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  userA User @relation("CollaborationA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("CollaborationB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([repoGithubId, userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
 }

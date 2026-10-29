@@ -34,6 +34,8 @@ export const METRICS = [
   'squads',
   'pool_squads',
   'reunions',
+  'receipts_verified',
+  'upstream_merges',
 ] as const
 export type Metric = (typeof METRICS)[number]
 
@@ -97,6 +99,9 @@ export const EVENT_TICKS: { [N in DomainEventName]?: TickRule<N> } = {
   // These pay no XP, so they count without a payment; each is once per hackathon, and only a hackathon that pays rewards emits them.
   AUTO_SQUAD_FORMED: (p) => [{ userId: p.userId, metric: 'pool_squads', dedupeKey: p.hackathonId }],
   SQUAD_REUNITED: (p) => [{ userId: p.userId, metric: 'reunions', dedupeKey: p.hackathonId }],
+  // The evidence engine's events pay no XP, so they count without a payment; each receipt counts once, and only its achievements' own XP is ever paid.
+  RECEIPT_VERIFIED: (p) => [{ userId: p.userId, metric: 'receipts_verified', dedupeKey: p.receiptId }],
+  UPSTREAM_MERGE_VERIFIED: (p) => [{ userId: p.userId, metric: 'upstream_merges', dedupeKey: p.receiptId }],
 }
 
 export function ticksFor<N extends DomainEventName>(name: N, payload: DomainEvents[N], paid: ReadonlySet<string>): Tick[] {

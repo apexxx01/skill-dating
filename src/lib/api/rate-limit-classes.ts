@@ -37,6 +37,9 @@ export const PUBLIC_ROUTES = new Set([
   '/api/og/post/[id]',
   '/api/og/squad/[id]',
   '/api/og/achievement/[slug]',
+  // Receipts (docs/PROOF.md): verifiable by anybody, signed in or not. Rate limited by address and cached; the key set carries public keys only.
+  '/api/receipts/keys',
+  '/api/receipts/[id]',
 ])
 
 /** Lists and searches over many people or things: the most expensive reads, and what a scraper would use. */

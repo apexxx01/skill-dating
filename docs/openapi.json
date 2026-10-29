@@ -61,6 +61,10 @@
       "description": "Reports and appeals."
     },
     {
+      "name": "Proof",
+      "description": "Signed evidence receipts (public, verifiable offline), the GitHub evidence engine and claim disputes (docs/PROOF.md)."
+    },
+    {
       "name": "Media",
       "description": "Uploads."
     },
@@ -262,7 +266,7 @@
           "Admin"
         ],
         "summary": "Take a moderation action on a person or on something they made",
-        "description": "Auth: `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. Body: `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?, durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays` optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA`; for an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing, writes an `AuditEvent` and notifies the person. Response `201`: `{ action }`. Errors: `400 MODERATION_ACTION_INVALID` (hiding a person, approving something that is not media), `400 VALIDATION_FAILED` (a missing feature or duration), `403 FORBIDDEN` (acting on yourself; a moderator acting on a staff acc",
+        "description": "Auth: `ADMIN`/`MODERATOR`. Honours `Idempotency-Key`. Body: `{ action, targetType, targetId, reportId?, category, reason, noteToUser?, feature?, durationDays? }`. `action`: `WARN`, `HIDE_CONTENT`, `REMOVE_CONTENT`, `RESTRICT_FEATURE` (needs `feature`: `romance|messaging|posting`; `durationDays` optional, none means until lifted), `SUSPEND` (needs `durationDays`, 1 to 365), `BAN`, `APPROVE_MEDIA`. `targetType` as for reports, plus `MEDIA` and `EVIDENCE_CLAIM` (a claim to a GitHub repository someone disputed: `HIDE_CONTENT` or `REMOVE_CONTENT` takes it out of strength and off the passport, never deleting it; category `CLAIM_DISPUTE`); for an action on a person use `USER` and their id. `category` is a report reason (minus the correction). Resolves every open report about the same thing, writes an `AuditEvent` and notifies the person. Response `201`: `{ action }`. Errors: `400 MODERATION_ACT",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -299,7 +303,8 @@
                       "LFG_POST",
                       "IDEA",
                       "EXTERNAL_HACKATHON",
-                      "MEDIA"
+                      "MEDIA",
+                      "EVIDENCE_CLAIM"
                     ]
                   },
                   "targetId": {
@@ -323,7 +328,8 @@
                       "COPYRIGHT",
                       "OTHER",
                       "IMPERSONATION",
-                      "MINOR_SAFETY"
+                      "MINOR_SAFETY",
+                      "CLAIM_DISPUTE"
                     ]
                   },
                   "reason": {
@@ -2516,7 +2522,7 @@
           "Admin"
         ],
         "summary": "The moderation queue: open reports and appeals, most urgent first",
-        "description": "Auth: `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?`, `limit` (20, at most 50), `offset`. Reports: open (`PENDING`, `REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. Response: `{ kind, items[], nextOffset }`; each item has `kind: \"REPORT\"|\"APPEAL\"`.",
+        "description": "Auth: `ADMIN`/`MODERATOR`. Query: `kind=reports|appeals` (default reports), `reason?` (a report reason, or `CLAIM_DISPUTE`), `limit` (20, at most 50), `offset`. Reports: open (`PENDING`, `REVIEWING`), most urgent first (`priority`, then oldest). Appeals: pending, oldest first, with the action. Response: `{ kind, items[], nextOffset }`; each item has `kind: \"REPORT\"|\"APPEAL\"`.",
         "parameters": [
           {
             "name": "kind",
@@ -2547,7 +2553,8 @@
                 "OTHER",
                 "IMPERSONATION",
                 "MINOR_SAFETY",
-                "BIRTHDATE_CORRECTION"
+                "BIRTHDATE_CORRECTION",
+                "CLAIM_DISPUTE"
               ]
             }
           },
@@ -5750,7 +5757,7 @@
           "Passport"
         ],
         "summary": "The caller’s skill evidence",
-        "description": "Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`. Response: `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, skill, endorsementCount, endorsedByMe }], pagination }` Errors: `404` user not found or has blocked the caller.",
+        "description": "Query: `page, cursor, limit(≤50), userId (default: the caller), skillId`. Endorsement rows are not listed; each evidence item carries `endorsementCount` and `endorsedByMe`. GitHub evidence the engine made (type `GITHUB_ACTIVITY`, [PROOF.md](PROOF.md)) is listed only while its owner's GITHUB_SYNC consent is in force, with `proof: { repoEvidenceId, strength, weight }` (null for evidence people add). `support` is `UNSUPPORTED` for a claimed repository with no authored work; such a row, and one a moderator hid, is listed to its owner only, and `supportReason` (why) is the owner's only. Response: `{ evidence: [{ id, userId, skillId, type, title, description, url, verifiedAt, createdAt, support, supportReason, proof, skill, endorsementCount, endorsedByMe }], pagination }` Errors: `404` user not found or has blocked the caller.",
         "parameters": [
           {
             "name": "page",
@@ -6278,6 +6285,186 @@
           "maxRequests": 120,
           "windowSeconds": 60,
           "key": "flags:mine"
+        }
+      }
+    },
+    "/api/github": {
+      "get": {
+        "operationId": "getGithub",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "Your connected GitHub evidence: repositories, strength, receipts, collaborators",
+        "description": "The caller's connected evidence: `{ connected, consent: { current, grantedAt, currentVersion }, visible, sync: { status, requestedAt, lastSyncedAt, authMode, callsToday, callsPerDay, lastError }, repos, upstream, suggestedSkills }`. Each of `repos` is `{ id, repoGithubId, fullName, url, claimed, strength (0-100), weight (0-1), reasons, components, support: SUPPORTED|UNSUPPORTED, supportReason, sourceWeight, moderated, authoredShare, firstAuthoredAt, lastAuthoredAt, syncedAt, skills, receipts: [{ id, status, signed, capturedAt, lastCheckedAt }], collaborators: [{ userId, username, share, overlapStart, overlapEnd }], otherClaims: [{ id, userId, username, support, moderated }] }`; `otherClaims` (other people's claims to the repository, which the caller may dispute) is filled only where the caller has authored work. `upstream` is the pull requests merged by other maintainers: `[{ receiptId, ",
+        "responses": {
+          "200": {
+            "description": "GithubOverviewResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubOverviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/github/route.ts",
+        "x-rate-limit": {
+          "maxRequests": 60,
+          "windowSeconds": 60,
+          "key": "github:overview"
+        }
+      }
+    },
+    "/api/github/repos/{id}/dispute": {
+      "post": {
+        "operationId": "postGithubReposByIdDispute",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "Dispute another person’s claim to a repository you have work in",
+        "description": "Contest another person's claim to a repository the caller has authored work in (`{id}` is the claim, from `otherClaims`). Files a `CLAIM_DISPUTE` report on the target `EVIDENCE_CLAIM` into the moderation queue; a moderator who upholds it hides the claim (`HIDE_CONTENT`), which its owner can appeal. Honours `Idempotency-Key`. Body: `{ description }` (10 to 2000 characters, staff only). Response `201`: `{ report: { id, status, priority } }`. Five a minute. Errors: `404 CLAIM_NOT_FOUND`, `400 CANNOT_REPORT_SELF`, `403 DISPUTE_NOT_ALLOWED` (no authored work of the caller's there), `409 REPORT_ALREADY_PENDING`, `400 VALIDATION_FAILED`, `503 EVIDENCE_ENGINE_PAUSED`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ClaimDisputeResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimDisputeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/github/repos/[id]/dispute/route.ts",
+        "x-rate-limit": {
+          "maxRequests": 5,
+          "windowSeconds": 60,
+          "key": "github:dispute"
+        },
+        "x-idempotent": true
+      }
+    },
+    "/api/github/sync": {
+      "post": {
+        "operationId": "postGithubSync",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "Read your public GitHub history again now (debounced)",
+        "description": "Read the caller's public GitHub history again now. Debounced: while a sync queued or started in the last ten minutes is pending, nothing new is queued (`queued: false`). Response `202`: `{ queued, sync: { status, requestedAt, lastSyncedAt } }`. Three every ten minutes. Errors: `409 GITHUB_NOT_CONNECTED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`, `503 EVIDENCE_ENGINE_PAUSED`, `429 RATE_LIMITED`.",
+        "responses": {
+          "202": {
+            "description": "GithubSyncResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GithubSyncResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/github/sync/route.ts",
+        "x-rate-limit": {
+          "maxRequests": 3,
+          "windowSeconds": 600,
+          "key": "github:sync"
         }
       }
     },
@@ -14693,6 +14880,141 @@
         }
       }
     },
+    "/api/receipts/{id}": {
+      "get": {
+        "operationId": "getReceiptsById",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "A signed evidence receipt, to show or verify (public)",
+        "description": "Public. One receipt, to show or to verify: `{ receipt: { id, status: VALID|SOURCE_CHANGED|SOURCE_GONE, lastCheckedAt, signed, envelope, signature }, owner: { username, name }, verify: { keys: \"/api/receipts/keys\", algorithm: \"Ed25519\", canonicalization: \"RFC 8785 (JCS)\" } }`. `envelope` is exactly what was signed: canonicalise it and verify `signature` (base64url) with the key its `kid` names; `envelope.payloadHash` is the sha256 of the canonical `envelope.facts` (the script is in [PROOF.md](PROOF.md#verifying-a-receipt-offline)). `signed: false` (and a null `kid` and `signature`) for a receipt a deployment without a key issued, until it is signed. `Cache-Control: public, max-age=300` with an `ETag` (`304` on `If-None-Match`). 60 a minute per address (`429 RATE_LIMITED`). Errors: `404 RECEIPT_NOT_FOUND` for an id that is not a receipt's and for one that may not be shown, alike (the owner",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PublicReceiptResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicReceiptResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "x-source": "src/app/api/receipts/[id]/route.ts",
+        "x-auth": "public"
+      }
+    },
+    "/api/receipts/{id}/recheck": {
+      "post": {
+        "operationId": "postReceiptsByIdRecheck",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "Check one of your receipts against its source now",
+        "description": "The owner asks for one receipt to be checked against GitHub now (with their own GitHub sign-in when there is one). Sets its status and the weight of the evidence behind it; deletes nothing. Response: `{ receipt: { id, status, lastCheckedAt, previousStatus } }`. Five a minute. Errors: `404 RECEIPT_NOT_FOUND` (also for another person's receipt), `410 RECEIPT_REVOKED`, `403 GITHUB_SYNC_CONSENT_REQUIRED`, `503 SERVICE_UNAVAILABLE` (GitHub refused or limited the check), `503 EVIDENCE_ENGINE_PAUSED`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ReceiptRecheckResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptRecheckResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "sessionToken": []
+          }
+        ],
+        "x-source": "src/app/api/receipts/[id]/recheck/route.ts",
+        "x-rate-limit": {
+          "maxRequests": 5,
+          "windowSeconds": 60,
+          "key": "receipts:recheck"
+        }
+      }
+    },
+    "/api/receipts/keys": {
+      "get": {
+        "operationId": "getReceiptsKeys",
+        "tags": [
+          "Proof"
+        ],
+        "summary": "The public keys receipts are signed with (public)",
+        "description": "Public. The public keys receipts are signed with, JWKS style: `{ mode: configured|fixture|unsigned, keys: [{ kty: \"OKP\", crv: \"Ed25519\", x, kid, use: \"sig\", alg: \"EdDSA\", active }] }`. Every key that may have signed a receipt is listed (retired keys too), the one that signs now marked `active`; never a private part. `mode` is `fixture` outside production without `RECEIPT_SIGNING_KEYS` (the published development key, kid `dev-fixture-NOT-FOR-PRODUCTION`) and `unsigned` in production without one (`keys: []`). Up even under the `receipts-public` kill switch. `Cache-Control: public, max-age=3600`. 60 a minute per address.",
+        "responses": {
+          "200": {
+            "description": "ReceiptKeysResponse",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptKeysResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "x-source": "src/app/api/receipts/keys/route.ts",
+        "x-auth": "public"
+      }
+    },
     "/api/reports": {
       "get": {
         "operationId": "getReports",
@@ -20305,7 +20627,7 @@
           "Passport"
         ],
         "summary": "A person’s passport",
-        "description": "Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus: - `email` — only on your own profile, never on anyone else's. - `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used. - `compatibility` — live score vs. the caller (`null` on your own profile). - `blockedByMe` — `true` when you have blocked this user.",
+        "description": "Full profile: skills, skillEvidences (including peer endorsements), achievements, ownedProjects, member projects, owned teams, member teams, currentBuild, plus: - `email` — only on your own profile, never on anyone else's. - `rank` — live leaderboard position among users you can see (`0` if the user has no XP). The stored `User.rank` column is not maintained and is not used. - `compatibility` — live score vs. the caller (`null` on your own profile). - `blockedByMe` — `true` when you have blocked this user. - `proof` — the passport's proof section ([PROOF.md](PROOF.md)): `{ visible, repos, receipts, upstream, strongest: [{ fullName, url, strength, receiptId }] }`; `visible: false` and nothing else while the person has not given (or withdrew) the GITHUB_SYNC consent. - each of `skills` carries `proof` (`{ strength, weight, repos, receipts }`) and `freshness` (`{ lastEvidencedAt, freshness,",
         "parameters": [
           {
             "name": "id",
@@ -20947,7 +21269,7 @@
           "Passport"
         ],
         "summary": "A person’s skills",
-        "description": "List a user's skills. `404` if the user is missing or has blocked the caller.",
+        "description": "List a user's skills, each with `lastEvidencedAt`, `proof` (`{ strength, weight, repos, receipts }`: the strongest GitHub evidence behind it, all 0 without the GITHUB_SYNC consent) and `freshness` (`{ lastEvidencedAt, freshness, label: ACTIVE|WARM|RUSTY|null }`: a half-life decay, 18 months by default; display and matching weight only). `404` if the user is missing or has blocked the caller.",
         "parameters": [
           {
             "name": "id",
@@ -21584,7 +21906,7 @@
           "Account"
         ],
         "summary": "The documents the caller agreed to, and what must be agreed again",
-        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited.",
+        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING|GITHUB_SYNC, version, source?: onboarding|settings|romance-optin|github-connect|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited. Giving `GITHUB_SYNC` queues a GitHub sync when GitHub is connected.",
         "responses": {
           "200": {
             "description": "ConsentsResponse",
@@ -21629,7 +21951,7 @@
           "Account"
         ],
         "summary": "Agree to the current version of a document",
-        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING, version, source?: onboarding|settings|romance-optin|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited.",
+        "description": "GET: `{ consents: [{ type, currentVersion, grantedVersion, grantedAt, current, stale }], required: [\"TERMS\"?, \"PRIVACY\"?] }`. POST Body: `{ type: TERMS|PRIVACY|ROMANCE_MODE|MARKETING|GITHUB_SYNC, version, source?: onboarding|settings|romance-optin|github-connect|api }`: agree to the current version (another is `400 CONSENT_VERSION_UNKNOWN`). `201` `{ consent, required }`. Audited. Giving `GITHUB_SYNC` queues a GitHub sync when GitHub is connected.",
         "requestBody": {
           "required": true,
           "content": {
@@ -21643,7 +21965,8 @@
                       "TERMS",
                       "PRIVACY",
                       "ROMANCE_MODE",
-                      "MARKETING"
+                      "MARKETING",
+                      "GITHUB_SYNC"
                     ]
                   },
                   "version": {
@@ -21657,6 +21980,7 @@
                       "onboarding",
                       "settings",
                       "romance-optin",
+                      "github-connect",
                       "api"
                     ],
                     "default": "settings"
@@ -21722,7 +22046,7 @@
           "Account"
         ],
         "summary": "Withdraw a consent (marketing, romance mode)",
-        "description": "`ROMANCE_MODE` or `MARKETING` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off and deletes its data. Response: `{ consent }`.",
+        "description": "`ROMANCE_MODE`, `MARKETING` or `GITHUB_SYNC` (the terms and the privacy notice are withdrawn by deleting the account: `400`). Withdrawing `ROMANCE_MODE` turns the mode off and deletes its data; withdrawing `GITHUB_SYNC` stops every GitHub sync and hides what the evidence engine found (kept, and back if the consent is given again). Response: `{ consent }`.",
         "parameters": [
           {
             "name": "type",
@@ -23504,6 +23828,42 @@
         "additionalProperties": false,
         "description": "One channel of one kind in GET and PUT /api/notifications/channels."
       },
+      "ClaimDisputeResponse": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "REVIEWING",
+                  "RESOLVED",
+                  "DISMISSED"
+                ]
+              },
+              "priority": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "priority"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "report"
+        ],
+        "additionalProperties": false,
+        "description": "POST /api/github/repos/{id}/dispute (201)."
+      },
       "ConnectionItem": {
         "type": "object",
         "properties": {
@@ -24952,6 +25312,7 @@
           "CARD_NOT_FOUND",
           "CHANNEL_FORBIDDEN",
           "CHECKLIST_ITEM_NOT_FOUND",
+          "CLAIM_NOT_FOUND",
           "COMMENT_EDIT_WINDOW_CLOSED",
           "COMMENT_NOT_FOUND",
           "COMMENT_REPLY_DEPTH",
@@ -24971,10 +25332,12 @@
           "DATING_VERIFICATION_REQUIRED",
           "DELIVERY_NOT_FOUND",
           "DIRECT_CONVERSATION_PARTICIPANTS",
+          "DISPUTE_NOT_ALLOWED",
           "DROP_NOT_FOUND",
           "DROP_NOT_PENDING",
           "DUO_BUSY",
           "EMAIL_VERIFICATION_REQUIRED",
+          "EVIDENCE_ENGINE_PAUSED",
           "EVIDENCE_LIMIT_REACHED",
           "EVIDENCE_NOT_FOUND",
           "EVIDENCE_SKILL_NOT_ON_PROFILE",
@@ -24990,6 +25353,8 @@
           "FLAG_NOT_FOUND",
           "FORBIDDEN",
           "FRAUD_SIGNAL_NOT_FOUND",
+          "GITHUB_NOT_CONNECTED",
+          "GITHUB_SYNC_CONSENT_REQUIRED",
           "HACKATHON_ALREADY_REGISTERED",
           "HACKATHON_INVALID_TRANSITION",
           "HACKATHON_NOT_ENDED",
@@ -25069,6 +25434,9 @@
           "REACTION_LIMIT_PER_USER",
           "READ_MARKER_NOT_IN_CONVERSATION",
           "REAUTH_REQUIRED",
+          "RECEIPTS_PAUSED",
+          "RECEIPT_NOT_FOUND",
+          "RECEIPT_REVOKED",
           "REPORTED_USER_NOT_FOUND",
           "REPORT_ALREADY_PENDING",
           "REPORT_INVALID_TRANSITION",
@@ -25174,6 +25542,53 @@
           "createdAt": {
             "$ref": "#/components/schemas/IsoDate"
           },
+          "support": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SUPPORTED",
+              "UNSUPPORTED",
+              null
+            ],
+            "description": "Null when never checked; UNSUPPORTED for a claimed repository with no authored work (\"claimed, not evidenced\"), which counts for nothing."
+          },
+          "supportReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, for the owner only (null for everybody else)."
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "repoEvidenceId": {
+                    "type": "string"
+                  },
+                  "strength": {
+                    "type": "number"
+                  },
+                  "weight": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "repoEvidenceId",
+                  "strength",
+                  "weight"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For engine evidence (type GITHUB_ACTIVITY): its strength (0 to 100) and weight (0 to 1). Null for evidence people add themselves."
+          },
           "skill": {
             "type": "object",
             "properties": {
@@ -25211,8 +25626,11 @@
           "endorsedByMe",
           "endorsementCount",
           "id",
+          "proof",
           "skill",
           "skillId",
+          "support",
+          "supportReason",
           "title",
           "type",
           "url",
@@ -25290,6 +25708,25 @@
           },
           "createdAt": {
             "$ref": "#/components/schemas/IsoDate"
+          },
+          "support": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "SUPPORTED",
+              "UNSUPPORTED",
+              null
+            ],
+            "description": "Null when never checked; UNSUPPORTED for a claimed repository with no authored work (\"claimed, not evidenced\"), which counts for nothing."
+          },
+          "supportReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why, for the owner only (null for everybody else)."
           }
         },
         "required": [
@@ -25301,7 +25738,9 @@
           "description",
           "url",
           "verifiedAt",
-          "createdAt"
+          "createdAt",
+          "support",
+          "supportReason"
         ],
         "additionalProperties": false
       },
@@ -25567,6 +26006,452 @@
         ],
         "additionalProperties": false,
         "description": "GET /api/users/{id}/followers, GET /api/users/{id}/following"
+      },
+      "GithubOverviewResponse": {
+        "type": "object",
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "consent": {
+            "type": "object",
+            "properties": {
+              "current": {
+                "type": "boolean"
+              },
+              "grantedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IsoDate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "currentVersion": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "current",
+              "grantedAt",
+              "currentVersion"
+            ],
+            "additionalProperties": false
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "False while the GITHUB_SYNC consent is withdrawn: everything here is hidden from everybody else and from every count."
+          },
+          "sync": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "requestedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IsoDate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lastSyncedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IsoDate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "authMode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "callsToday": {
+                "type": "number"
+              },
+              "callsPerDay": {
+                "type": "number"
+              },
+              "lastError": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "requestedAt",
+              "lastSyncedAt",
+              "authMode",
+              "callsToday",
+              "callsPerDay",
+              "lastError"
+            ],
+            "additionalProperties": false
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GithubRepoEvidence"
+            }
+          },
+          "upstream": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "receiptId": {
+                  "type": "string"
+                },
+                "fullName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "number": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "mergedAt": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/IsoDate"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "$ref": "#/components/schemas/ReceiptStatus"
+                },
+                "signed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "receiptId",
+                "fullName",
+                "number",
+                "mergedAt",
+                "status",
+                "signed"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "suggestedSkills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Skills the repositories evidence that are not on the passport yet."
+          }
+        },
+        "required": [
+          "connected",
+          "consent",
+          "visible",
+          "sync",
+          "repos",
+          "upstream",
+          "suggestedSkills"
+        ],
+        "additionalProperties": false,
+        "description": "GET /api/github: the caller's connected evidence."
+      },
+      "GithubRepoEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "repoGithubId": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "strength": {
+            "type": "number"
+          },
+          "weight": {
+            "type": "number"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sentences to show, the counts first."
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StrengthComponent"
+            }
+          },
+          "support": {
+            "type": "string",
+            "enum": [
+              "SUPPORTED",
+              "UNSUPPORTED"
+            ]
+          },
+          "supportReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceWeight": {
+            "type": "number"
+          },
+          "moderated": {
+            "type": "boolean",
+            "description": "A moderator upheld a dispute about this claim: it counts for nothing and is not on the passport."
+          },
+          "authoredShare": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "firstAuthoredAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastAuthoredAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "syncedAt": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "receipts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/ReceiptStatus"
+                },
+                "signed": {
+                  "type": "boolean"
+                },
+                "capturedAt": {
+                  "$ref": "#/components/schemas/IsoDate"
+                },
+                "lastCheckedAt": {
+                  "$ref": "#/components/schemas/IsoDate"
+                }
+              },
+              "required": [
+                "id",
+                "status",
+                "signed",
+                "capturedAt",
+                "lastCheckedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "collaborators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "share": {
+                  "type": "number"
+                },
+                "overlapStart": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/IsoDate"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "overlapEnd": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/IsoDate"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "userId",
+                "username",
+                "share",
+                "overlapStart",
+                "overlapEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "otherClaims": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                },
+                "support": {
+                  "type": "string",
+                  "enum": [
+                    "SUPPORTED",
+                    "UNSUPPORTED"
+                  ]
+                },
+                "moderated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "userId",
+                "username",
+                "support",
+                "moderated"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Other people's claims to this repository, listed only when the caller has authored work in it (they may dispute them)."
+          }
+        },
+        "required": [
+          "id",
+          "repoGithubId",
+          "fullName",
+          "url",
+          "claimed",
+          "strength",
+          "weight",
+          "reasons",
+          "components",
+          "support",
+          "supportReason",
+          "sourceWeight",
+          "moderated",
+          "authoredShare",
+          "firstAuthoredAt",
+          "lastAuthoredAt",
+          "syncedAt",
+          "skills",
+          "receipts",
+          "collaborators",
+          "otherClaims"
+        ],
+        "additionalProperties": false,
+        "description": "One repository in GET /api/github."
+      },
+      "GithubSyncResponse": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "sync": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "requestedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IsoDate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lastSyncedAt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/IsoDate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "requestedAt",
+              "lastSyncedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "queued",
+          "sync"
+        ],
+        "additionalProperties": false,
+        "description": "POST /api/github/sync (202). `queued: false` when a sync from the last ten minutes is still pending."
       },
       "HackathonListItem": {
         "type": "object",
@@ -25920,6 +26805,39 @@
             },
             "description": "In production: optional providers that are not configured (`email`, `push`, `storage`, `media-scanning`, `error-reporting`); any one makes `status` \"degraded\". Empty elsewhere."
           },
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "signing": {
+                "type": "string",
+                "enum": [
+                  "configured",
+                  "fixture",
+                  "unsigned"
+                ]
+              },
+              "kid": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "github": {
+                "type": "string",
+                "enum": [
+                  "server-token",
+                  "anonymous"
+                ]
+              }
+            },
+            "required": [
+              "signing",
+              "kid",
+              "github"
+            ],
+            "additionalProperties": false,
+            "description": "How receipts are signed and how GitHub is reached without a person's own sign-in. Modes and the public key id only, never a key or a token."
+          },
           "checks": {
             "type": "object",
             "properties": {
@@ -26029,6 +26947,7 @@
           "status",
           "time",
           "missingProviders",
+          "evidence",
           "checks"
         ],
         "additionalProperties": false,
@@ -27605,6 +28524,63 @@
         "additionalProperties": false,
         "description": "PATCH /api/hackathons/{id}/participation"
       },
+      "PassportProof": {
+        "type": "object",
+        "properties": {
+          "visible": {
+            "type": "boolean",
+            "description": "False while the GITHUB_SYNC consent is not in force: then nothing else is shown."
+          },
+          "repos": {
+            "type": "number"
+          },
+          "receipts": {
+            "type": "number"
+          },
+          "upstream": {
+            "type": "number",
+            "description": "Pull requests merged by other maintainers into repositories the person does not own."
+          },
+          "strongest": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fullName": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "strength": {
+                  "type": "number"
+                },
+                "receiptId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "fullName",
+                "url",
+                "strength",
+                "receiptId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "visible",
+          "repos",
+          "receipts",
+          "upstream",
+          "strongest"
+        ],
+        "additionalProperties": false
+      },
       "PeerReviewTodoResponse": {
         "type": "object",
         "properties": {
@@ -28793,6 +29769,10 @@
           "reliableTeammate": {
             "type": "boolean",
             "description": "The passport's \"Reliable teammate\" badge (docs/SQUADS.md). The reliability number behind it is never sent."
+          },
+          "proof": {
+            "$ref": "#/components/schemas/PassportProof",
+            "description": "The passport's proof section (docs/PROOF.md)."
           }
         },
         "required": [
@@ -28818,6 +29798,7 @@
           "ownedTeams",
           "portfolioVerified",
           "projects",
+          "proof",
           "rank",
           "reliableTeammate",
           "reputationScore",
@@ -29272,6 +30253,94 @@
         "additionalProperties": false,
         "description": "POST/DELETE /api/posts/{id}/props"
       },
+      "PublicReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ReceiptStatus"
+              },
+              "lastCheckedAt": {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              "signed": {
+                "type": "boolean"
+              },
+              "envelope": {
+                "$ref": "#/components/schemas/ReceiptEnvelope"
+              },
+              "signature": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "lastCheckedAt",
+              "signed",
+              "envelope",
+              "signature"
+            ],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "username",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "verify": {
+            "type": "object",
+            "properties": {
+              "keys": {
+                "type": "string"
+              },
+              "algorithm": {
+                "type": "string",
+                "const": "Ed25519"
+              },
+              "canonicalization": {
+                "type": "string",
+                "const": "RFC 8785 (JCS)"
+              }
+            },
+            "required": [
+              "keys",
+              "algorithm",
+              "canonicalization"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "receipt",
+          "owner",
+          "verify"
+        ],
+        "additionalProperties": false,
+        "description": "GET /api/receipts/{id}: a receipt as anybody may see it."
+      },
       "PushDevice": {
         "type": "object",
         "properties": {
@@ -29627,6 +30696,185 @@
           "reactedByMe"
         ],
         "additionalProperties": false
+      },
+      "ReceiptEnvelope": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "type": "number",
+            "const": 1
+          },
+          "id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "platform": {
+                "type": "string",
+                "const": "skill-dating"
+              },
+              "userId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "platform",
+              "userId"
+            ],
+            "additionalProperties": false
+          },
+          "source": {
+            "type": "string",
+            "const": "github"
+          },
+          "sourceRef": {
+            "type": "string"
+          },
+          "sourceUrl": {
+            "type": "string"
+          },
+          "factsVersion": {
+            "type": "number"
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "payloadHash": {
+            "type": "string"
+          },
+          "capturedAt": {
+            "$ref": "#/components/schemas/IsoDate"
+          },
+          "kid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null while the receipt is unsigned."
+          }
+        },
+        "required": [
+          "v",
+          "id",
+          "subject",
+          "source",
+          "sourceRef",
+          "sourceUrl",
+          "factsVersion",
+          "facts",
+          "payloadHash",
+          "capturedAt",
+          "kid"
+        ],
+        "additionalProperties": false,
+        "description": "What a receipt's signature covers: canonicalise it (RFC 8785) and verify with the key its kid names."
+      },
+      "ReceiptKeysResponse": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "configured",
+              "fixture",
+              "unsigned"
+            ]
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kty": {
+                  "type": "string",
+                  "const": "OKP"
+                },
+                "crv": {
+                  "type": "string",
+                  "const": "Ed25519"
+                },
+                "x": {
+                  "type": "string"
+                },
+                "kid": {
+                  "type": "string"
+                },
+                "use": {
+                  "type": "string",
+                  "const": "sig"
+                },
+                "alg": {
+                  "type": "string",
+                  "const": "EdDSA"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kty",
+                "crv",
+                "x",
+                "kid",
+                "use",
+                "alg",
+                "active"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "mode",
+          "keys"
+        ],
+        "additionalProperties": false,
+        "description": "GET /api/receipts/keys: the public keys receipts are signed with (Ed25519, JWKS style)."
+      },
+      "ReceiptRecheckResponse": {
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ReceiptStatus"
+              },
+              "lastCheckedAt": {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              "previousStatus": {
+                "$ref": "#/components/schemas/ReceiptStatus"
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "lastCheckedAt",
+              "previousStatus"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "receipt"
+        ],
+        "additionalProperties": false,
+        "description": "POST /api/receipts/{id}/recheck."
+      },
+      "ReceiptStatus": {
+        "type": "string",
+        "enum": [
+          "VALID",
+          "SOURCE_CHANGED",
+          "SOURCE_GONE",
+          "REVOKED"
+        ]
       },
       "ReceivedSparkItem": {
         "type": "object",
@@ -30219,7 +31467,7 @@
         ]
       },
       "SendMessageResponse": {
-        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-61077",
+        "$ref": "#/components/schemas/WithRewards_structure-src_types_api.ts-14313-14476-src_types_api.ts-14300-14477-src_types_api.ts-14136-14477-src_types_api.ts-0-67499",
         "description": "POST /api/conversations/[id]: the message just sent plus the sender's rewards (5 XP for a first message to a connection)."
       },
       "SendSparkResponse": {
@@ -30322,6 +31570,74 @@
         ],
         "additionalProperties": false,
         "description": "GET /api/ship-day"
+      },
+      "SkillFreshness": {
+        "type": "object",
+        "properties": {
+          "lastEvidencedAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "freshness": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "1 when just evidenced, 0.5 after one half-life; null when never evidenced."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "ACTIVE",
+              "WARM",
+              "RUSTY",
+              null
+            ]
+          }
+        },
+        "required": [
+          "lastEvidencedAt",
+          "freshness",
+          "label"
+        ],
+        "additionalProperties": false,
+        "description": "How recently a skill was evidenced: a half-life decay (18 months by default). Display and matching weight only, never XP."
+      },
+      "SkillProof": {
+        "type": "object",
+        "properties": {
+          "strength": {
+            "type": "number",
+            "description": "0 to 100."
+          },
+          "weight": {
+            "type": "number",
+            "description": "0 to 1: strength, times the source still being there, times integrity."
+          },
+          "repos": {
+            "type": "number"
+          },
+          "receipts": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "strength",
+          "weight",
+          "repos",
+          "receipts"
+        ],
+        "additionalProperties": false,
+        "description": "The strongest engine evidence behind a skill: 0 everywhere when there is none, or while its owner's GITHUB_SYNC consent is withdrawn."
       },
       "SkillSummary": {
         "type": "object",
@@ -30976,6 +32292,37 @@
         ],
         "additionalProperties": false,
         "description": "A daily streak: consecutive local days (in the user's time zone) on which they earned XP from an action of their own. `current` is what to show now: 0 once a day was missed with no freeze to cover it."
+      },
+      "StrengthComponent": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "work",
+              "days",
+              "span",
+              "tests",
+              "mergedByOthers",
+              "selfMerged",
+              "reviews",
+              "releases",
+              "stars"
+            ]
+          },
+          "points": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "points",
+          "max"
+        ],
+        "additionalProperties": false
       },
       "StrengthGapCode": {
         "type": "string",
@@ -32547,8 +33894,26 @@
           "isVerified": {
             "type": "boolean"
           },
+          "lastEvidencedAt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoDate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest evidence behind the skill (docs/PROOF.md, \"Freshness\")."
+          },
           "skill": {
             "$ref": "#/components/schemas/SkillSummary"
+          },
+          "proof": {
+            "$ref": "#/components/schemas/SkillProof",
+            "description": "GET /api/users/{id} and GET /api/users/{id}/skills: the strongest GitHub evidence behind the skill."
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/SkillFreshness"
           }
         },
         "required": [
@@ -32558,6 +33923,7 @@
           "level",
           "yearsExperience",
           "isVerified",
+          "lastEvidencedAt",
           "skill"
         ],
         "additionalProperties": false,
@@ -32765,7 +34131,7 @@
         ],
         "description": "A mutation response that also reports what it earned."
       },
-      "WithRewards_structure-src_types_api.ts-12881-13044-src_types_api.ts-12868-13045-src_types_api.ts-12704-13045-src_types_api.ts-0-61077": {
+      "WithRewards_structure-src_types_api.ts-14313-14476-src_types_api.ts-14300-14477-src_types_api.ts-14136-14477-src_types_api.ts-0-67499": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -33042,6 +34408,11 @@
       "message": "Checklist item not found",
       "params": []
     },
+    "CLAIM_NOT_FOUND": {
+      "status": 404,
+      "message": "This claim does not exist",
+      "params": []
+    },
     "COMMENT_EDIT_WINDOW_CLOSED": {
       "status": 403,
       "message": "A comment can only be edited for {minutes} minutes after it is posted",
@@ -33153,6 +34524,11 @@
       "message": "Direct conversations require exactly 1 participant",
       "params": []
     },
+    "DISPUTE_NOT_ALLOWED": {
+      "status": 403,
+      "message": "Only someone with authored work in this repository can dispute a claim to it",
+      "params": []
+    },
     "DROP_NOT_FOUND": {
       "status": 404,
       "message": "Drop not found",
@@ -33171,6 +34547,11 @@
     "EMAIL_VERIFICATION_REQUIRED": {
       "status": 403,
       "message": "Verify your email address first",
+      "params": []
+    },
+    "EVIDENCE_ENGINE_PAUSED": {
+      "status": 503,
+      "message": "Reading GitHub history is paused for a short while",
       "params": []
     },
     "EVIDENCE_LIMIT_REACHED": {
@@ -33252,6 +34633,16 @@
     "FRAUD_SIGNAL_NOT_FOUND": {
       "status": 404,
       "message": "Fraud signal not found",
+      "params": []
+    },
+    "GITHUB_NOT_CONNECTED": {
+      "status": 409,
+      "message": "Connect a GitHub account first",
+      "params": []
+    },
+    "GITHUB_SYNC_CONSENT_REQUIRED": {
+      "status": 403,
+      "message": "Allow reading your public GitHub history first (the GITHUB_SYNC consent)",
       "params": []
     },
     "HACKATHON_ALREADY_REGISTERED": {
@@ -33673,6 +35064,21 @@
       "params": [
         "maxAgeMinutes"
       ]
+    },
+    "RECEIPT_NOT_FOUND": {
+      "status": 404,
+      "message": "This receipt does not exist",
+      "params": []
+    },
+    "RECEIPT_REVOKED": {
+      "status": 410,
+      "message": "This receipt was revoked",
+      "params": []
+    },
+    "RECEIPTS_PAUSED": {
+      "status": 503,
+      "message": "Receipt pages are paused for a short while",
+      "params": []
     },
     "REPORT_ALREADY_PENDING": {
       "status": 409,

@@ -1,4 +1,6 @@
-import type { PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
+import { utcTimestamp } from '@/lib/sql'
+import { revokeReceipts } from './delete'
 import { getStorage, type Storage } from '@/lib/infra/storage'
 import { IDEMPOTENCY_TTL_MS } from '@/lib/api/idempotency'
 import { sweepVerifications } from '@/lib/campus/campus'
@@ -17,6 +19,9 @@ import { log } from '@/lib/log'
 //   activity days               25 months                      ActivityDay rows deleted (the metrics are kept: they hold no person)
 //   campus verifications        1 hour after their code expired  the row, and with it the campus e-mail address it held, is deleted
 //   "tell me when it opens"       180 days after the person was told  RomanceInterest rows deleted (a request nobody has been told about is kept until the person withdraws it)
+//   GitHub evidence, consent withdrawn  12 months after the withdrawal  the engine's repository evidence (and its skill evidence rows) deleted; its receipts revoked
+//                                                                    with their facts removed, like a deleted account's (a consent given again before then brings it all back)
+//   revoked receipts            2 years after revocation          the remaining id is deleted: the address then answers 404 instead of 410
 
 export const RETENTION = {
   productEventsMonths: 13,
@@ -27,10 +32,18 @@ export const RETENTION = {
   deliveryLogDays: 90,
   activityDaysMonths: 25,
   romanceInterestAnsweredDays: 180,
+  withdrawnGithubEvidenceMonths: 12,
+  revokedReceiptsYears: 2,
 } as const
 
 const BATCH = 1000
 const DAY_MS = 24 * 60 * 60 * 1000
+
+function monthsBefore(now: Date, months: number): Date {
+  const at = new Date(now)
+  at.setUTCMonth(at.getUTCMonth() - months)
+  return at
+}
 
 /** Pure: the moment before which each kind of record is old enough to delete. */
 export function retentionCutoffs(now: Date) {
@@ -48,6 +61,8 @@ export function retentionCutoffs(now: Date) {
     deliveryLog: new Date(now.getTime() - RETENTION.deliveryLogDays * DAY_MS),
     activityDays: months25,
     romanceInterest: new Date(now.getTime() - RETENTION.romanceInterestAnsweredDays * DAY_MS),
+    withdrawnGithubEvidence: monthsBefore(now, RETENTION.withdrawnGithubEvidenceMonths),
+    revokedReceipts: monthsBefore(now, RETENTION.revokedReceiptsYears * 12),
   }
 }
 
@@ -94,7 +109,22 @@ export async function runRetention(db: PrismaClient, storage: Storage = getStora
   const activityDays = (await db.activityDay.deleteMany({ where: { day: { lt: cut.activityDays } } })).count
   const campusVerifications = await sweepVerifications(db, now)
   const romanceInterest = (await db.romanceInterest.deleteMany({ where: { notifiedAt: { lt: cut.romanceInterest } } })).count
-  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, activityDays, campusVerifications, romanceInterest }
+  // The evidence engine: what was found for people who withdrew the GITHUB_SYNC consent a year ago and never gave it again, then old revocations.
+  const lapsed = await db.$queryRaw<{ userId: string }[]>(Prisma.sql`
+    SELECT c."userId" FROM "ConsentRecord" c
+    WHERE c."type" = 'GITHUB_SYNC' AND c."withdrawnAt" < ${utcTimestamp(cut.withdrawnGithubEvidence)}
+      AND c."grantedAt" = (SELECT MAX(c2."grantedAt") FROM "ConsentRecord" c2 WHERE c2."userId" = c."userId" AND c2."type" = 'GITHUB_SYNC')
+      AND EXISTS (SELECT 1 FROM "GithubRepoEvidence" g WHERE g."userId" = c."userId")
+    LIMIT ${BATCH}`)
+  for (const { userId } of lapsed) {
+    await db.$transaction(async (tx) => {
+      await revokeReceipts(tx, userId, now)
+      await tx.githubRepoEvidence.deleteMany({ where: { userId } })
+      await tx.verifiedCollaboration.deleteMany({ where: { OR: [{ userAId: userId }, { userBId: userId }] } })
+    })
+  }
+  const revokedReceipts = (await db.evidenceReceipt.deleteMany({ where: { status: 'REVOKED', revokedAt: { lt: cut.revokedReceipts } } })).count
+  const result = { productEvents, expiredDrops, resolvedReports, exportFiles, deliveryLog, activityDays, campusVerifications, romanceInterest, lapsedGithubEvidence: lapsed.length, revokedReceipts }
   log.info('retention finished', result)
   return result
 }

@@ -18,6 +18,15 @@ function deps(overrides: Partial<HealthDeps> = {}): HealthDeps {
 const now = () => new Date('2026-01-02T03:04:05.000Z')
 
 describe('runHealthChecks', () => {
+  it('reports how receipts are signed and how GitHub is reached, as modes, and the safe answer when that cannot be read', async () => {
+    const report = await runHealthChecks(deps({ evidence: () => ({ signing: 'configured', kid: '2026-11', github: 'server-token' }) }), { now })
+    expect(report.evidence).toEqual({ signing: 'configured', kid: '2026-11', github: 'server-token' })
+    expect(report.status).toBe('ok')
+    const broken = await runHealthChecks(deps({ evidence: () => { throw new Error('bad key set') } }), { now })
+    expect(broken.evidence).toEqual({ signing: 'unsigned', kid: null, github: 'anonymous' })
+    expect(JSON.stringify(broken)).not.toContain('bad key set')
+  })
+
   it('is ok when everything answers, and names the implementations', async () => {
     const report = await runHealthChecks(deps(), { now })
     expect(report.status).toBe('ok')

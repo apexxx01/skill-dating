@@ -46,6 +46,7 @@ const MAY_NAME_BIRTH_DATE: Record<string, string> = {
   'lib/campus/campus.ts': 'the age gate for joining a campus (a minor shares a country only): reads it to decide, returns no date',
   'lib/invites/invites.ts': 'the onboarding facts of an invitee: reads whether a date is on file, returns no date',
   'lib/og/data.ts': 'decides whether a public share card may be drawn at all (a minor has none): reads it to decide, returns no date',
+  'lib/evidence/receipts.ts': 'decides whether a public receipt page may be shown at all (the share-card rule: a minor has none): reads it to decide, returns no date',
   'lib/search/postgres.ts': 'leaves out accounts refused for their age (birthDateRefusedAt, a moment, not a date of birth)',
 }
 

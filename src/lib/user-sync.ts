@@ -67,6 +67,8 @@ export interface ClerkFacts {
   /** True when Clerk reports at least one verified phone number. False when there is none, including when phone numbers are switched off in Clerk. */
   phoneVerified: boolean
   githubConnected: boolean
+  /** The verified GitHub account's immutable numeric id, or null when there is none. */
+  githubId: string | null
   username: string | null
   name: string | null
   image: string | null
@@ -85,10 +87,36 @@ export function extractClerkFacts(cu: ClerkUser): ClerkFacts {
     githubConnected: cu.externalAccounts.some(
       (a) => /github/i.test(String(a.provider)) && a.verification?.status === 'verified'
     ),
+    githubId: githubIdOf(cu.externalAccounts),
     username: cu.username ?? null,
     name: name || cu.username || null,
     image: cu.hasImage ? cu.imageUrl : null,
   }
+}
+
+/** The numeric id of the verified GitHub account Clerk reports, or null. Only digits are accepted: it is GitHub's user id, never a login. */
+export function githubIdOf(accounts: readonly { provider?: unknown; providerUserId?: unknown; externalId?: unknown; verification?: { status?: unknown } | null }[]): string | null {
+  const account = accounts.find((a) => /github/i.test(String(a.provider)) && a.verification?.status === 'verified')
+  const id = String(account?.providerUserId ?? account?.externalId ?? '')
+  return /^\d{1,20}$/.test(id) ? id : null
+}
+
+/**
+ * Records the GitHub id Clerk verified for this account (docs/PROOF.md, "Identity"). It is only ever set from a verified Clerk external account and never
+ * cleared by its absence, so evidence survives a disconnect; Clerk lets one GitHub account belong to one Clerk user only, so when another local row still
+ * holds the id, that row's claim is stale and the id moves to the account that proves it now (audited). Returns whether the id changed.
+ */
+async function applyGithubId(tx: Tx, userId: string, githubId: string | null): Promise<boolean> {
+  if (!githubId) return false
+  const current = await tx.user.findUnique({ where: { id: userId }, select: { githubId: true } })
+  if (current?.githubId === githubId) return false
+  const holder = await tx.user.findUnique({ where: { githubId }, select: { id: true } })
+  if (holder && holder.id !== userId) {
+    await tx.user.update({ where: { id: holder.id }, data: { githubId: null } })
+    await tx.auditEvent.create({ data: { userId: holder.id, action: 'GITHUB_ID_MOVED', targetType: 'USER', targetId: holder.id, newValue: { toUserId: userId } } })
+  }
+  await tx.user.update({ where: { id: userId }, data: { githubId } })
+  return true
 }
 
 /** An address that cannot receive mail and cannot collide with a real one. */
@@ -135,7 +163,7 @@ async function findLegacyRowByEmail(tx: Tx, email: string) {
   })
 }
 
-async function syncInTransaction(tx: Tx, facts: ClerkFacts, options: SyncOptions = {}): Promise<{ user: LocalUser; signedUp: boolean }> {
+async function syncInTransaction(tx: Tx, facts: ClerkFacts, options: SyncOptions = {}): Promise<{ user: LocalUser; signedUp: boolean; githubLinked: boolean }> {
   // One writer per Clerk account at a time: a second concurrent first request
   // waits here, then finds the row the first one created.
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'clerk-sync:' + facts.clerkId}, 0))`
@@ -175,7 +203,8 @@ async function syncInTransaction(tx: Tx, facts: ClerkFacts, options: SyncOptions
   }
 
   await applyVerification(tx, userId, { emailVerified: facts.emailVerified, githubConnected: facts.githubConnected, phoneVerified: facts.phoneVerified })
-  return { user: await tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS }), signedUp }
+  const githubLinked = await applyGithubId(tx, userId, facts.githubId)
+  return { user: await tx.user.findUniqueOrThrow({ where: { id: userId }, select: SELECTED_USER_FIELDS }), signedUp, githubLinked }
 }
 
 async function createRow(tx: Tx, facts: ClerkFacts, options: SyncOptions = {}) {
@@ -266,7 +295,9 @@ export async function syncClerkUser(cu: ClerkUser, db: PrismaClient = prisma, op
   const attempts = 5
   for (let attempt = 1; ; attempt++) {
     try {
-      const { user, signedUp } = await db.$transaction((tx) => syncInTransaction(tx, facts, options), { timeout: 15_000 })
+      const { user, signedUp, githubLinked } = await db.$transaction((tx) => syncInTransaction(tx, facts, options), { timeout: 15_000 })
+      // A GitHub account was just connected: read its history (the job does nothing without the GITHUB_SYNC consent).
+      if (githubLinked) await (await import('@/lib/evidence/sync')).requestGithubSync(db, user.id, 'connected').catch((error) => log.warn('could not queue a GitHub sync', { error, userId: user.id }))
       // Counted after the commit, and only for a brand new account (linking an old row is not a signup).
       if (signedUp) {
         await track(user.id, 'signup')
@@ -316,6 +347,7 @@ export async function tombstoneClerkUser(clerkId: string, db: PrismaClient = pri
         builderRole: null,
         website: null,
         githubUsername: null,
+        githubId: null,
         twitterUsername: null,
         linkedinUrl: null,
         isEmailVerified: false,

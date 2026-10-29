@@ -96,6 +96,16 @@ export async function resolveTarget(db: Db | Tx, type: ReportTarget, id: string,
       if (viewerId && !hackathon.isPublic) return null
       return { type, id, ownerId: hackathon.submittedById, romance: false, snapshot: { name: hackathon.name, externalUrl: hackathon.externalUrl, description: hackathon.description.slice(0, 2000) } }
     }
+    case 'EVIDENCE_CLAIM': {
+      const claim = await d.githubRepoEvidence.findUnique({ where: { id }, select: { userId: true, repoGithubId: true, fullName: true, url: true, claimed: true, support: true, strength: true, authoredShare: true } })
+      if (!claim || !claim.claimed) return null
+      // Only somebody with authored work in the same repository can see (and dispute) another person's claim to it.
+      if (viewerId && viewerId !== claim.userId) {
+        const mine = await d.githubRepoEvidence.findUnique({ where: { userId_repoGithubId: { userId: viewerId, repoGithubId: claim.repoGithubId } }, select: { support: true, firstAuthoredAt: true } })
+        if (!mine || mine.support !== 'SUPPORTED' || !mine.firstAuthoredAt) return null
+      }
+      return { type, id, ownerId: claim.userId, romance: false, snapshot: { repoGithubId: claim.repoGithubId, fullName: claim.fullName, url: claim.url, support: claim.support, strength: claim.strength, authoredShare: claim.authoredShare } }
+    }
     case 'MEDIA': {
       const asset = await d.mediaAsset.findUnique({ where: { id }, select: { ownerId: true, purpose: true, key: true, sha256: true } })
       if (!asset || viewerId) return null
@@ -151,6 +161,10 @@ export async function applyContentEffect(tx: Tx, type: ReportTarget, id: string,
       }
       break
     }
+    case 'EVIDENCE_CLAIM':
+      // Hidden or removed alike: the claim stops counting and leaves the public passport, and is never deleted (its owner still sees it, with why).
+      await tx.githubRepoEvidence.updateMany({ where: { id }, data: { moderatedAt: effect === 'RESTORE' ? null : now } })
+      break
     case 'USER':
       break
   }

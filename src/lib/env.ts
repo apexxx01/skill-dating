@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { KeySetError, parseKeySetting } from '@/lib/evidence/signing'
 
 // The one place the process environment is read. Every other module imports the
 // typed `env` from here instead of touching process.env, so a missing or
@@ -125,6 +126,17 @@ const envSchema = z.object({
     // address: only for a local test page. Refused in production, where every private address is always blocked.
     PAGE_FETCH_ALLOW_PRIVATE: z.string().regex(/^[a-z0-9.-]+:\d{2,5}(,[a-z0-9.-]+:\d{2,5})*$/i, 'must be host:port pairs separated by commas').optional(),
 
+    // Receipt signing (src/lib/evidence/signing.ts, docs/PROOF.md): `kid=<base64 PKCS#8 Ed25519 private key>`, comma-separated, the first one signing; a retired key
+    // may stay as `kid=pub:<base64url public key>` so what it signed still verifies. Without it development and previews sign with a published fixture key and
+    // production leaves receipts unsigned (a startup warning, /api/health "degraded") until one is set.
+    RECEIPT_SIGNING_KEYS: z.string().min(1).optional(),
+    // An optional GitHub token the evidence engine uses for public data when a person's own GitHub sign-in token is not available (src/lib/infra/github.ts).
+    // Read-only public access is all it needs; without it the engine works unauthenticated, on a much smaller budget.
+    GITHUB_TOKEN: z.string().min(1).optional(),
+    // Set only by the integration harness: a JSON file of GitHub fixtures the in-memory GitHub (src/lib/infra/github.memory.ts) answers from, so no test reaches
+    // GitHub. Refused wherever the production services are required.
+    GITHUB_FIXTURES_FILE: z.string().min(1).optional(),
+
     // Set only by the integration harness (tests/integration/global-setup.ts) when it runs the suite against a production build (`next start`, which
     // always runs with NODE_ENV=production). It lets that build keep uploads in memory and honour PAGE_FETCH_ALLOW_PRIVATE, as `next dev` does. Refused
     // wherever the production services are required, so a real deployment can never turn it on.
@@ -204,6 +216,15 @@ function crossRuleProblems(source: Record<string, string | undefined>): Map<stri
   if (source.NODE_ENV === 'production' && !testServer && present('PAGE_FETCH_ALLOW_PRIVATE')) {
     problems.set('PAGE_FETCH_ALLOW_PRIVATE', 'must not be set in production')
   }
+  if (present('GITHUB_FIXTURES_FILE') && requiresProductionConfig(source)) problems.set('GITHUB_FIXTURES_FILE', 'must not be set in production')
+  if (present('RECEIPT_SIGNING_KEYS')) {
+    try {
+      parseKeySetting(source.RECEIPT_SIGNING_KEYS as string)
+    } catch (error) {
+      // The parser's messages name the entry, never its value.
+      problems.set('RECEIPT_SIGNING_KEYS', error instanceof KeySetError ? error.message : 'is not a key set')
+    }
+  }
   if (requiresProductionConfig(source)) {
     for (const name of REQUIRED_IN_PRODUCTION) {
       if (!present(name) && !problems.has(name)) problems.set(name, 'is required in production')
@@ -238,6 +259,7 @@ const OPTIONAL_PROVIDERS: { name: string; settings: Setting[]; effect: string }[
   { name: 'storage', settings: ['STORAGE_ENDPOINT', 'STORAGE_BUCKET', 'STORAGE_ACCESS_KEY_ID', 'STORAGE_SECRET_ACCESS_KEY'], effect: 'uploads are refused with 503 STORAGE_UNAVAILABLE' },
   { name: 'media-scanning', settings: ['MEDIA_MODERATION_URL', 'MEDIA_MODERATION_TOKEN'], effect: 'avatar and romance photo uploads are refused (fail closed, never served unscanned)' },
   { name: 'error-reporting', settings: ['SENTRY_DSN'], effect: 'errors are only written to the log: nothing reaches Sentry' },
+  { name: 'receipt-signing', settings: ['RECEIPT_SIGNING_KEYS'], effect: 'evidence receipts are created unsigned until a key is set (the receipts/sign-backlog job signs them then)' },
 ]
 
 /** The optional providers this configuration has not set up (a provider counts as missing when any of its settings is unset). Names and setting names only. */

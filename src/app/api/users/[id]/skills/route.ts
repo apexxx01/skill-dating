@@ -4,6 +4,9 @@ import { paginateOffset, withNextCursor } from '@/lib/api/pagination'
 import { blockRelation } from '@/lib/blocks'
 import { trackOnboardingIfComplete } from '@/lib/onboarding'
 import { addUserSkillSchema, listQuerySchema } from './schema'
+import { freshnessView } from '@/lib/evidence/freshness'
+import { NO_PROOF, skillProofs } from '@/lib/evidence/passport'
+import { evidenceFreshnessSetting } from '@/lib/settings'
 
 export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   const url = new URL(request.url)
@@ -39,7 +42,12 @@ export const GET = withAuth(async (request: NextRequest, { prisma, user }) => {
   })
   if ('invalidCursor' in result) return createApiError('INVALID_CURSOR')
 
-  return withNextCursor(createApiResponse(result.items), result.nextCursor)
+  // Each skill's proof (the strongest engine evidence behind it, while its owner's GITHUB_SYNC consent is in force) and freshness (docs/PROOF.md).
+  // Display and, from Stage 1L, matching weight: neither touches XP or a level.
+  const now = new Date()
+  const [proofs, freshness] = await Promise.all([skillProofs(prisma, [id]), evidenceFreshnessSetting(prisma)])
+  const items = result.items.map((row) => ({ ...row, proof: proofs.get(id)?.get(row.skillId) ?? NO_PROOF, freshness: freshnessView(row.lastEvidencedAt, now, freshness) }))
+  return withNextCursor(createApiResponse(items), result.nextCursor)
 }, { rateLimit: { windowMs: 60000, maxRequests: 120, keyPrefix: 'user-skills:get' } })
 
 export const POST = withAuth(async (request: NextRequest, { prisma, user }) => {

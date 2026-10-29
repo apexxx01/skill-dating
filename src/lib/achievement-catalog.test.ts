@@ -34,22 +34,22 @@ const find = (items: Awaited<ReturnType<typeof loadAchievementItems>>, slug: str
 describe('loadAchievementItems', () => {
   it('lists the whole catalog in order', async () => {
     const items = await loadAchievementItems(fakeDb(), 'u1')
-    expect(items).toHaveLength(51)
-    expect(items.map((item) => item.order)).toEqual(Array.from({ length: 51 }, (_, index) => index + 1))
+    expect(items).toHaveLength(54)
+    expect(items.map((item) => item.order)).toEqual(Array.from({ length: 54 }, (_, index) => index + 1))
   })
 
-  it('masks the six secret achievements for somebody who has not earned them, and gives nothing away', async () => {
+  it('masks the seven secret achievements for somebody who has not earned them, and gives nothing away', async () => {
     const items = await loadAchievementItems(fakeDb(), 'u1')
     const masked = items.filter((item) => item.masked)
-    expect(masked).toHaveLength(6)
+    expect(masked).toHaveLength(7)
     for (const item of masked) {
       expect(item).toMatchObject({ name: SECRET_NAME, description: SECRET_DESCRIPTION, icon: null, xpReward: null, progress: null, rarity: null, secret: true, earned: false, earnedAt: null, category: 'SECRET' })
       expect(item.slug).toBe(secretPlaceholderSlug(item.order))
     }
     // Nothing about the hidden ones appears anywhere in the response.
     const text = JSON.stringify(items)
-    for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid']) expect(text).not.toContain(slug)
-    for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid'] as const) {
+    for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid', 'archaeologist']) expect(text).not.toContain(slug)
+    for (const slug of ['night-owl', 'hat-trick', 'no-safety-net', 'golden-vouch', 'weekend-warrior', 'comeback-kid', 'archaeologist'] as const) {
       expect(text).not.toContain(ACHIEVEMENT_DEFINITIONS[slug].name)
       expect(text).not.toContain(ACHIEVEMENT_DEFINITIONS[slug].description)
     }
@@ -59,7 +59,7 @@ describe('loadAchievementItems', () => {
     const when = new Date('2026-03-10T10:00:00Z')
     const items = await loadAchievementItems(fakeDb({ earned: [{ slug: 'night-owl', earnedAt: when, progress: { current: 1, target: 1 } }] }), 'u1')
     expect(find(items, 'night-owl')).toMatchObject({ name: 'Night Owl', masked: false, earned: true, earnedAt: '2026-03-10T10:00:00.000Z', xpReward: 75, secret: true, progress: { current: 1, target: 1 } })
-    expect(items.filter((item) => item.masked)).toHaveLength(5)
+    expect(items.filter((item) => item.masked)).toHaveLength(6)
   })
 
   it('reports progress from the counters, up to the target and not past it', async () => {

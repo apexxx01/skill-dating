@@ -24,6 +24,9 @@ of progress, and credit you if you wish. A `/.well-known/security.txt` with this
 | **Information disclosure** | responses | private fields returned to their owner only (date of birth, romance filters, reliability, risk); blocked people look absent; a source-scan test pins who may name the date of birth | `src/lib/matching/privacy.test.ts`, `src/lib/romance/separation.test.ts` |
 | Disclosure through logs and analytics | logs, PostHog, Sentry | ids only; sensitive-looking fields replaced; analytics props reduced to safe names | `src/lib/log.ts`, `src/lib/infra/analytics.ts` |
 | Disclosure through the server's own fetches (SSRF) | external hackathon pages | the safe fetcher refuses private and loopback addresses at connect time, with a size and time cap | `src/lib/infra/page-fetch.ts` |
+| SSRF through GitHub links | repository links people give (projects, builds, evidence) | the link is parsed, never fetched: only `owner/name` is read from a github.com URL, and the GitHub adapter sends GETs to `https://api.github.com` alone, redirects off that host refused (see "Outbound requests") | `parseRepoUrl` and `HttpGitHub` in `src/lib/infra/github.ts` |
+| Forged evidence | the passport, receipts | engine evidence is matched by the immutable GitHub id; receipts are Ed25519-signed over canonical JSON and verifiable offline; the facts are minimal | `src/lib/evidence`, [PROOF.md](PROOF.md) |
+| Disclosure of a token or key | GitHub tokens, receipt signing keys | the person's GitHub token is fetched from Clerk per run and never stored, logged or cached under a key that holds it; signing keys come from the environment, are checked at boot by name only, and only public halves are published | `src/lib/infra/github.ts`, `src/lib/evidence/signing.ts` |
 | Script injection (XSS) | posts, comments, pages | Markdown sanitised on the way in; a nonce-based Content-Security-Policy on pages; `nosniff` | `src/lib/posts/sanitize.ts`, `src/lib/security/csp.ts` |
 | Clickjacking | pages | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | `src/lib/security/static-headers.js` |
 | **Denial of service** | every route | per-route rate limits, an anonymous limit per address, a body size cap before parsing, bounded fields and pages, jobs for heavy work | below |
@@ -120,6 +123,23 @@ payment, USB and topics all off), `X-Frame-Options: DENY`, `Cross-Origin-Opener-
 - **Secrets** come from the environment only, validated at boot by name and never echoed (`src/lib/env.ts`); nothing in the repository holds one
   (`tests/integration/no-secret-leaks.test.ts`).
 - **Personal data:** see [PRIVACY.md](PRIVACY.md) for the inventory, retention, export and deletion.
+
+### Receipt signing keys
+
+Receipts are signed with Ed25519 keys from `RECEIPT_SIGNING_KEYS` ([PROOF.md](PROOF.md#keys-and-rotation)): `kid=<base64 PKCS#8 private key>` entries, the first one
+signing, retired keys kept as `kid=pub:<base64url public key>`. A malformed setting stops the boot, naming the entry and never its value. Only public halves leave
+the server (`GET /api/receipts/keys`); `/api/health` reports the mode and the active kid. Development and previews sign with a fixture key whose private half is in
+the repository on purpose (kid `dev-fixture-NOT-FOR-PRODUCTION`: anything it signed proves nothing); production never uses it and never makes a key up at start, it
+issues receipts unsigned until a key is set. **Rotation:** generate a new key, put it first, keep the old one as `pub:`, deploy. **A compromised key:** remove it
+entirely (what it signed stops verifying), put a new one first, deploy, and run `receipts/sign-backlog` only if receipts were issued unsigned meanwhile; receipts the
+removed key signed must then be re-issued by a sync. Store the private keys in the hosting platform's secret store, never in the repository.
+
+### Outbound requests
+
+The server makes requests to three kinds of place: the providers it is configured for (fixed hosts), a hackathon page a person linked (the safe fetcher,
+`page-fetch.ts`: public addresses only, checked at connect time), and GitHub. GitHub is reached only through the adapter (`src/lib/infra/github.ts`), which
+builds every URL from parsed, encoded parts on the constant `https://api.github.com` and never fetches a URL a person typed; it follows a redirect only on
+that host. It therefore does not need the page fetcher's address checks, and no user input can point it at the server's network.
 
 ## Dependencies
 

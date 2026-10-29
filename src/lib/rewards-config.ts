@@ -264,6 +264,10 @@ export const EVENT_REWARDS: { [N in DomainEventName]: EventReward<N> } = {
   // Pay nothing; they count toward the squad achievements.
   AUTO_SQUAD_FORMED: {},
   SQUAD_REUNITED: {},
+  // The evidence engine (docs/PROOF.md). They pay nothing: history is not XP. They count towards Receipts, Upstream and Archaeologist, whose own XP is
+  // paid once each through ACHIEVEMENT_EARNED, so a sync of any size is worth at most those three, ever.
+  RECEIPT_VERIFIED: {},
+  UPSTREAM_MERGE_VERIFIED: {},
   INVITE_QUALIFIED: {
     xp: {
       action: 'INVITE_QUALIFIED',

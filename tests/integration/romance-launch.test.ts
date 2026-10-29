@@ -87,7 +87,7 @@ describe('the romance launch gate', () => {
     it('is in no list a person reads: consents, notification settings, flags', async () => {
       const consents = await req(ada.jar, 'GET', '/api/users/me/consents')
       expect(consents.status).toBe(200)
-      expect(consents.data.consents.map((c: { type: string }) => c.type).sort()).toEqual(['MARKETING', 'PRIVACY', 'TERMS'])
+      expect(consents.data.consents.map((c: { type: string }) => c.type).sort()).toEqual(['GITHUB_SYNC', 'MARKETING', 'PRIVACY', 'TERMS'])
       expect((await req(ada.jar, 'POST', '/api/users/me/consents', { type: 'ROMANCE_MODE', version: '2026-10-01', source: 'romance-optin' })).data.error.code).toBe('ROMANCE_PAUSED')
 
       const preferences = await req(ada.jar, 'GET', '/api/notifications/preferences')
